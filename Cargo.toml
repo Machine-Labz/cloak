@@ -1,0 +1,69 @@
+[workspace]
+members = [
+    "packages/zk-guest-sp1",
+    "packages/zk-guest-sp1/guest",
+    "packages/zk-guest-sp1/host",
+    "packages/vkey-generator",
+    "programs/shield-pool",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# SP1 dependencies
+sp1-sdk = "5.2.1"
+sp1-zkvm = "5.2.1"
+sp1-build = "5.2.1"
+
+# Serialization
+serde = { version = "1.0.219", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.143", default-features = false, features = ["alloc"] }
+
+# CLI
+clap = { version = "4.5.47", features = ["derive", "env"] }
+
+# Hashing and encoding
+blake3 = "1.5.4"
+hex = "0.4.3"
+base58 = "0.2.0"
+
+# Error handling
+anyhow = "1.0.89"
+thiserror = "1.0.69"
+
+# Binary serialization
+bincode = "1.3.3"
+
+# Solana dependencies
+solana-program = "=2.1.6"
+solana-sdk = "=2.1.6"
+solana-program-test = "=2.1.6"
+
+# Pinocchio
+pinocchio = { git = "https://github.com/anza-xyz/pinocchio" }
+sp1-solana = { path = ".context/sp1-solana/verifier" }
+
+# Utilities
+five8_const = "0.1.4"
+
+# SP1 Solana verifier dependencies
+groth16-solana = "0.2.0"
+num-bigint = "0.4.6"
+sha2 = "0.10.9"
+ark-bn254 = "0.4.0"
+ark-serialize = "0.4.2"
+ark-ff = "0.4.2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "Cloak Labz", 
+    "marcelofeitoza", 
+    "BretasArthur1", 
+    "vict0rcarvalh0", 
+    "matheusmacedosantos"
+]
+license = "MIT"
+repository = "https://github.com/cloak-labz/cloak"
+description = "Cloak - Privacy protocol for Solana"
+
