@@ -1,0 +1,19 @@
+[package]
+name = "withdrawal-json-generator"
+version = "0.1.0"
+edition = "2021"
+description = "Generate JSON proof data for withdrawal WASM verifier"
+
+[[bin]]
+name = "generate_json"
+path = "src/bin/main.rs"
+
+[dependencies]
+sp1-sdk = "5.2.1"
+sp1-zkvm = "5.2.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+clap = { version = "4.5", features = ["derive"] }
+bincode = "1.3"
+

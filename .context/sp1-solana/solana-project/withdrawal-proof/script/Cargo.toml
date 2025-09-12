@@ -1,0 +1,26 @@
+[package]
+version = "0.1.0"
+name = "withdrawal-proof-script"
+edition = "2021"
+default-run = "withdrawal-proof"
+
+[[bin]]
+name = "withdrawal-proof"
+path = "src/bin/main.rs"
+
+[[bin]]
+name = "vkey-hash"
+path = "src/bin/vkey_hash.rs"
+
+[dependencies]
+sp1-sdk = "5.2.1"
+serde_json = { version = "1.0.143", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.219", default-features = false, features = ["derive"] }
+clap = { version = "4.5.47", features = ["derive", "env"] }
+tracing = "0.1.41"
+hex = "0.4.3"
+dotenv = "0.15.0"
+bincode = "1.3.3"
+
+[build-dependencies]
+sp1-build = "5.2.1"

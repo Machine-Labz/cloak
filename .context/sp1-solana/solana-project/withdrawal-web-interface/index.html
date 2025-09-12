@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy-Preserving Pool System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .result.success {
+            background: #f0fff4;
+            border: 2px solid #68d391;
+            color: #22543d;
+        }
+
+        .result.error {
+            background: #fff5f5;
+            border: 2px solid #fc8181;
+            color: #742a2a;
+        }
+
+        .result.info {
+            background: #ebf8ff;
+            border: 2px solid #63b3ed;
+            color: #2a4365;
+        }
+
+        .proof-details {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .proof-details h3 {
+            color: #4a5568;
+            margin-bottom: 10px;
+        }
+
+        .proof-details p {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-indicator.valid {
+            background: #68d391;
+        }
+
+        .status-indicator.invalid {
+            background: #fc8181;
+        }
+
+        .status-indicator.unknown {
+            background: #a0aec0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 Privacy-Preserving Pool System</h1>
+            <p>Zero-Knowledge Proof Verification for Withdrawal Authorization</p>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Generate Withdrawal Proof</h2>
+                <form id="proofForm">
+                    <div class="form-group">
+                        <label for="userAddress">User Address (Hex)</label>
+                        <input type="text" id="userAddress" value="123456789abcdef0112233445566778899aabbcc" placeholder="Enter 20-byte hex address">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="poolId">Pool ID</label>
+                        <input type="number" id="poolId" value="12345" placeholder="Enter pool ID">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="userBalance">User Balance (SOL)</label>
+                        <input type="number" id="userBalance" value="1000000" placeholder="Enter user balance">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="withdrawalAmount">Withdrawal Amount (SOL)</label>
+                        <input type="number" id="withdrawalAmount" value="100000" placeholder="Enter withdrawal amount">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="poolLiquidity">Pool Liquidity (SOL)</label>
+                        <input type="number" id="poolLiquidity" value="5000000" placeholder="Enter pool liquidity">
+                    </div>
+                    
+                    <button type="submit" class="btn" id="generateBtn">
+                        <span id="generateText">Generate Proof</span>
+                        <span id="generateLoading" class="loading" style="display: none;"></span>
+                    </button>
+                </form>
+                
+                <div id="generateResult" class="result" style="display: none;"></div>
+            </div>
+
+            <div class="card">
+                <h2>🔍 Verify Withdrawal Proof</h2>
+                <form id="verifyForm">
+                    <div class="form-group">
+                        <label for="proofFile">Upload Proof File (JSON)</label>
+                        <input type="file" id="proofFile" accept=".json" />
+                    </div>
+                    
+                    <button type="submit" class="btn" id="verifyBtn">
+                        <span id="verifyText">Verify Proof</span>
+                        <span id="verifyLoading" class="loading" style="display: none;"></span>
+                    </button>
+                </form>
+                
+                <div id="verifyResult" class="result" style="display: none;"></div>
+            </div>
+
+            <div class="card">
+                <h2>📋 System Status</h2>
+                <div id="systemStatus">
+                    <p><span class="status-indicator unknown"></span>WASM Verifier: Not Loaded</p>
+                    <p><span class="status-indicator unknown"></span>Proof Generator: Ready</p>
+                    <p><span class="status-indicator unknown"></span>Verification: Ready</p>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button class="btn" onclick="loadWasmVerifier()">Load WASM Verifier</button>
+                    <button class="btn" onclick="generateSampleProof()">Generate Sample Proof</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let wasmModule = null;
+
+        // Load WASM verifier
+        async function loadWasmVerifier() {
+            try {
+                const statusElement = document.querySelector('#systemStatus p:first-child');
+                statusElement.innerHTML = '<span class="status-indicator unknown"></span>WASM Verifier: Loading...';
+                
+                // Note: In a real implementation, you would load the WASM module here
+                // const wasmModule = await import('./pkg/withdrawal_wasm_verifier.js');
+                
+                // For now, we'll simulate the loading
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                statusElement.innerHTML = '<span class="status-indicator valid"></span>WASM Verifier: Loaded';
+                console.log('WASM verifier loaded successfully');
+            } catch (error) {
+                const statusElement = document.querySelector('#systemStatus p:first-child');
+                statusElement.innerHTML = '<span class="status-indicator invalid"></span>WASM Verifier: Error';
+                console.error('Failed to load WASM verifier:', error);
+            }
+        }
+
+        // Generate proof
+        document.getElementById('proofForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const generateBtn = document.getElementById('generateBtn');
+            const generateText = document.getElementById('generateText');
+            const generateLoading = document.getElementById('generateLoading');
+            const resultDiv = document.getElementById('generateResult');
+            
+            // Show loading state
+            generateBtn.disabled = true;
+            generateText.style.display = 'none';
+            generateLoading.style.display = 'inline-block';
+            resultDiv.style.display = 'none';
+            
+            try {
+                // Get form data
+                const formData = {
+                    user_address: document.getElementById('userAddress').value,
+                    pool_id: parseInt(document.getElementById('poolId').value),
+                    user_balance: parseInt(document.getElementById('userBalance').value),
+                    withdrawal_amount: parseInt(document.getElementById('withdrawalAmount').value),
+                    pool_liquidity: parseInt(document.getElementById('poolLiquidity').value)
+                };
+                
+                // Simulate proof generation (in real implementation, this would call the backend)
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Create mock proof data
+                const proofData = {
+                    proof: "0x" + "a".repeat(2000), // Mock proof
+                    public_inputs: "0x" + "b".repeat(100), // Mock public inputs
+                    vkey_hash: "0x" + "c".repeat(64), // Mock vkey hash
+                    mode: "compressed",
+                    user_address: formData.user_address,
+                    pool_id: formData.pool_id,
+                    user_balance: formData.user_balance,
+                    withdrawal_amount: formData.withdrawal_amount,
+                    pool_liquidity: formData.pool_liquidity,
+                    timestamp: Date.now(),
+                    is_valid: true
+                };
+                
+                // Display result
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <h3>✅ Proof Generated Successfully!</h3>
+                    <div class="proof-details">
+                        <h3>Proof Details:</h3>
+                        <p><strong>User Address:</strong> ${proofData.user_address}</p>
+                        <p><strong>Pool ID:</strong> ${proofData.pool_id}</p>
+                        <p><strong>User Balance:</strong> ${proofData.user_balance} SOL</p>
+                        <p><strong>Withdrawal Amount:</strong> ${proofData.withdrawal_amount} SOL</p>
+                        <p><strong>Pool Liquidity:</strong> ${proofData.pool_liquidity} SOL</p>
+                        <p><strong>Proof Size:</strong> ${proofData.proof.length} characters</p>
+                        <p><strong>Mode:</strong> ${proofData.mode}</p>
+                        <p><strong>Valid:</strong> ${proofData.is_valid ? 'Yes' : 'No'}</p>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+                
+                // Download proof as JSON
+                const blob = new Blob([JSON.stringify(proofData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `withdrawal_proof_${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<h3>❌ Error Generating Proof</h3><p>${error.message}</p>`;
+                resultDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                generateBtn.disabled = false;
+                generateText.style.display = 'inline';
+                generateLoading.style.display = 'none';
+            }
+        });
+
+        // Verify proof
+        document.getElementById('verifyForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const verifyBtn = document.getElementById('verifyBtn');
+            const verifyText = document.getElementById('verifyText');
+            const verifyLoading = document.getElementById('verifyLoading');
+            const resultDiv = document.getElementById('verifyResult');
+            
+            const fileInput = document.getElementById('proofFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = '<h3>❌ Please select a proof file</h3>';
+                resultDiv.style.display = 'block';
+                return;
+            }
+            
+            // Show loading state
+            verifyBtn.disabled = true;
+            verifyText.style.display = 'none';
+            verifyLoading.style.display = 'inline-block';
+            resultDiv.style.display = 'none';
+            
+            try {
+                const text = await file.text();
+                const proofData = JSON.parse(text);
+                
+                // Simulate verification (in real implementation, this would use WASM)
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                // Mock verification result
+                const isValid = Math.random() > 0.1; // 90% success rate for demo
+                
+                resultDiv.className = `result ${isValid ? 'success' : 'error'}`;
+                resultDiv.innerHTML = `
+                    <h3>${isValid ? '✅ Proof Verified Successfully!' : '❌ Proof Verification Failed'}</h3>
+                    <div class="proof-details">
+                        <h3>Verification Details:</h3>
+                        <p><strong>User Address:</strong> ${proofData.user_address || 'N/A'}</p>
+                        <p><strong>Pool ID:</strong> ${proofData.pool_id || 'N/A'}</p>
+                        <p><strong>User Balance:</strong> ${proofData.user_balance || 'N/A'} SOL</p>
+                        <p><strong>Withdrawal Amount:</strong> ${proofData.withdrawal_amount || 'N/A'} SOL</p>
+                        <p><strong>Pool Liquidity:</strong> ${proofData.pool_liquidity || 'N/A'} SOL</p>
+                        <p><strong>Proof Mode:</strong> ${proofData.mode || 'N/A'}</p>
+                        <p><strong>Verification Status:</strong> ${isValid ? 'Valid' : 'Invalid'}</p>
+                        <p><strong>Verification Time:</strong> ~1.5s</p>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+                
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<h3>❌ Error Verifying Proof</h3><p>${error.message}</p>`;
+                resultDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                verifyBtn.disabled = false;
+                verifyText.style.display = 'inline';
+                verifyLoading.style.display = 'none';
+            }
+        });
+
+        // Generate sample proof
+        function generateSampleProof() {
+            const sampleData = {
+                user_address: "123456789abcdef0112233445566778899aabbcc",
+                pool_id: 12345,
+                user_balance: 1000000,
+                withdrawal_amount: 100000,
+                pool_liquidity: 5000000
+            };
+            
+            // Fill form with sample data
+            document.getElementById('userAddress').value = sampleData.user_address;
+            document.getElementById('poolId').value = sampleData.pool_id;
+            document.getElementById('userBalance').value = sampleData.user_balance;
+            document.getElementById('withdrawalAmount').value = sampleData.withdrawal_amount;
+            document.getElementById('poolLiquidity').value = sampleData.pool_liquidity;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Privacy-Preserving Pool System initialized');
+        });
+    </script>
+</body>
+</html>
+

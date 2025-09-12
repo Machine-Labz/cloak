@@ -1,0 +1,17 @@
+[package]
+name = "withdrawal-wasm-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "WASM verifier for withdrawal proof system"
+authors = ["Your Name <your.email@example.com>"]
+
+[dependencies]
+sp1-verifier = "5.2.1"
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+hex = "0.4"
+
+# This is necessary for the wasm-bindgen.
+[lib]
+crate-type = ["cdylib", "rlib"]
