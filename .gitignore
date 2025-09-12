@@ -1,6 +1,5 @@
 target/
 node_modules/
-.context/
 out/
 *.bin
 vkey_hash.txt

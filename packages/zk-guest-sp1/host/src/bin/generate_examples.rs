@@ -47,8 +47,8 @@ struct ExampleOutput {
 
 // Helper module for arrays of hex strings
 mod hex_array {
-    use serde::{Deserializer, Serializer, Deserialize, Serialize};
-    
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
     pub fn serialize<S>(bytes: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -56,7 +56,7 @@ mod hex_array {
         let hex_strings: Vec<String> = bytes.iter().map(|b| hex::encode(b)).collect();
         hex_strings.serialize(serializer)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 32]>, D::Error>
     where
         D: Deserializer<'de>,
@@ -72,9 +72,9 @@ mod hex_array {
 }
 
 mod hex_string {
-    use serde::{Deserializer, Serializer};
     use super::encoding::*;
-    
+    use serde::{Deserializer, Serializer};
+
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -82,7 +82,7 @@ mod hex_string {
         let hex_str = hex::encode(bytes);
         serializer.serialize_str(&hex_str)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
     where
         D: Deserializer<'de>,
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
     // Create a simple merkle path (single level for testing)
     let sibling = [0x33u8; 32];
     let root = hash_blake3(&[&commitment[..], &sibling[..]].concat());
-    
+
     let outputs = vec![
         ExampleOutput {
             address: [0x01u8; 32],
@@ -119,12 +119,15 @@ fn main() -> Result<()> {
             amount: 594000, // 1000000 - 6000 (fee) = 994000, so 400000 + 594000 = 994000
         },
     ];
-    
+
     // Convert to host Output format for hash computation
-    let host_outputs: Vec<Output> = outputs.iter().map(|o| Output {
-        address: o.address,
-        amount: o.amount,
-    }).collect();
+    let host_outputs: Vec<Output> = outputs
+        .iter()
+        .map(|o| Output {
+            address: o.address,
+            amount: o.amount,
+        })
+        .collect();
     let outputs_hash = compute_outputs_hash(&host_outputs);
 
     let private_inputs = PrivateInputs {
@@ -148,13 +151,13 @@ fn main() -> Result<()> {
 
     // Write example files
     fs::create_dir_all("examples")?;
-    
+
     let private_json = serde_json::to_string_pretty(&private_inputs)?;
     fs::write("examples/private.example.json", private_json)?;
-    
+
     let public_json = serde_json::to_string_pretty(&public_inputs)?;
     fs::write("examples/public.example.json", public_json)?;
-    
+
     let outputs_json = serde_json::to_string_pretty(&outputs)?;
     fs::write("examples/outputs.example.json", outputs_json)?;
 
@@ -165,4 +168,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
