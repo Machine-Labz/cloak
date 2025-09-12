@@ -19,7 +19,6 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
-
 [workspace.dependencies]
 # SP1 dependencies - matching versions from .context/sp1-solana
 sp1-sdk = "5.2.1"
@@ -35,3 +34,4 @@ hex = "0.4.3"
 base58 = "0.2.0"
 anyhow = "1.0.89"
 bincode = "1.3.3"
+

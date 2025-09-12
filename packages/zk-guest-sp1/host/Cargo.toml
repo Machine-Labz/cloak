@@ -1,7 +1,7 @@
 [package]
 name = "zk-guest-sp1-host"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [[bin]]
 name = "cloak-zk"
@@ -10,6 +10,10 @@ path = "src/main.rs"
 [[bin]]
 name = "generate_examples"
 path = "src/bin/generate_examples.rs"
+
+[[bin]]
+name = "get_vkey_hash"
+path = "src/bin/get_vkey_hash.rs"
 
 [lib]
 name = "zk_guest_sp1_host"

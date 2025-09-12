@@ -40,9 +40,9 @@ struct CircuitInputs {
 
 // Custom serde module for hex strings
 mod hex_string {
-    use serde::{Deserializer, Serializer};
     use super::*;
-    
+    use serde::{Deserializer, Serializer};
+
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -50,7 +50,7 @@ mod hex_string {
         let hex_str = hex::encode(bytes);
         serializer.serialize_str(&hex_str)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
     where
         D: Deserializer<'de>,
@@ -65,15 +65,14 @@ sp1_zkvm::entrypoint!(main);
 pub fn main() {
     // Read JSON input from stdin
     let input_json = io::read::<String>();
-    
+
     // Parse the input
-    let inputs: CircuitInputs = serde_json::from_str(&input_json)
-        .expect("Failed to parse input JSON");
-    
+    let inputs: CircuitInputs =
+        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
+
     // Verify all circuit constraints
-    verify_circuit_constraints(&inputs)
-        .expect("Circuit constraint verification failed");
-    
+    verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
+
     // Commit public inputs to the proof
     sp1_zkvm::io::commit(&inputs.public);
 }
@@ -85,10 +84,10 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
 
     // Constraint 1: pk_spend = H(sk_spend)
     let pk_spend = compute_pk_spend(&private.sk_spend);
-    
+
     // Constraint 2: C = H(amount || r || pk_spend)
     let commitment = compute_commitment(private.amount, &private.r, &pk_spend);
-    
+
     // Constraint 3: MerkleVerify(C, merkle_path) == root
     let merkle_valid = verify_merkle_path(
         &commitment,
@@ -99,36 +98,38 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     if !merkle_valid {
         return Err(anyhow!("Merkle path verification failed"));
     }
-    
+
     // Constraint 4: nf == H(sk_spend || leaf_index)
     let computed_nullifier = compute_nullifier(&private.sk_spend, private.leaf_index);
     if computed_nullifier != public.nf {
         return Err(anyhow!("Nullifier mismatch"));
     }
-    
+
     // Constraint 5: sum(outputs) + fee(amount, fee_bps) == amount
     let outputs_sum: u64 = outputs.iter().map(|o| o.amount).sum();
     let fee = calculate_fee(private.amount, public.fee_bps);
     let total_spent = outputs_sum + fee;
-    
+
     if total_spent != private.amount {
         return Err(anyhow!(
             "Amount conservation failed: outputs({}) + fee({}) != amount({})",
-            outputs_sum, fee, private.amount
+            outputs_sum,
+            fee,
+            private.amount
         ));
     }
-    
+
     // Constraint 6: H(serialize(outputs)) == outputs_hash
     let computed_outputs_hash = compute_outputs_hash(outputs);
     if computed_outputs_hash != public.outputs_hash {
         return Err(anyhow!("Outputs hash mismatch"));
     }
-    
+
     // Additional consistency checks
     if private.amount != public.amount {
         return Err(anyhow!("Private and public amounts must match"));
     }
-    
+
     Ok(())
 }
 
@@ -150,7 +151,7 @@ mod tests {
         // Create a simple merkle path (single level for testing)
         let sibling = [0x33u8; 32];
         let root = hash_blake3(&[&commitment[..], &sibling[..]].concat());
-        
+
         let outputs = vec![
             Output {
                 address: [0x01u8; 32],
@@ -161,7 +162,7 @@ mod tests {
                 amount: 594000, // 1000000 - 6000 (fee) = 994000, so 400000 + 594000 = 994000
             },
         ];
-        
+
         let outputs_hash = compute_outputs_hash(&outputs);
 
         CircuitInputs {

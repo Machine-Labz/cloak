@@ -16,7 +16,7 @@ struct PrivateInputs {
     #[serde(with = "hex_string")]
     pub sk_spend: [u8; 32],
     pub leaf_index: u32,
-    pub merkle_path: MerklePath,
+    pub merkle_path: ExampleMerklePath,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -29,6 +29,46 @@ struct PublicInputs {
     #[serde(with = "hex_string")]
     pub outputs_hash: [u8; 32],
     pub amount: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExampleMerklePath {
+    #[serde(with = "hex_array")]
+    pub path_elements: Vec<[u8; 32]>,
+    pub path_indices: Vec<u8>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExampleOutput {
+    #[serde(with = "hex_string")]
+    pub address: [u8; 32],
+    pub amount: u64,
+}
+
+// Helper module for arrays of hex strings
+mod hex_array {
+    use serde::{Deserializer, Serializer, Deserialize, Serialize};
+    
+    pub fn serialize<S>(bytes: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_strings: Vec<String> = bytes.iter().map(|b| hex::encode(b)).collect();
+        hex_strings.serialize(serializer)
+    }
+    
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 32]>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_strings: Vec<String> = Vec::deserialize(deserializer)?;
+        let mut result = Vec::new();
+        for hex_str in hex_strings {
+            let bytes = super::encoding::parse_hex32(&hex_str).map_err(serde::de::Error::custom)?;
+            result.push(bytes);
+        }
+        Ok(result)
+    }
 }
 
 mod hex_string {
@@ -70,24 +110,29 @@ fn main() -> Result<()> {
     let root = hash_blake3(&[&commitment[..], &sibling[..]].concat());
     
     let outputs = vec![
-        Output {
+        ExampleOutput {
             address: [0x01u8; 32],
             amount: 400000,
         },
-        Output {
+        ExampleOutput {
             address: [0x02u8; 32],
             amount: 594000, // 1000000 - 6000 (fee) = 994000, so 400000 + 594000 = 994000
         },
     ];
     
-    let outputs_hash = compute_outputs_hash(&outputs);
+    // Convert to host Output format for hash computation
+    let host_outputs: Vec<Output> = outputs.iter().map(|o| Output {
+        address: o.address,
+        amount: o.amount,
+    }).collect();
+    let outputs_hash = compute_outputs_hash(&host_outputs);
 
     let private_inputs = PrivateInputs {
         amount,
         r,
         sk_spend,
         leaf_index,
-        merkle_path: MerklePath {
+        merkle_path: ExampleMerklePath {
             path_elements: vec![sibling],
             path_indices: vec![0], // commitment is left, sibling is right
         },

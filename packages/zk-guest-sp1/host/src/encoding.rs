@@ -1,6 +1,3 @@
-// Re-export encoding module from guest for host tests and CLI
-// This ensures consistency between guest and host implementations
-
 use anyhow::{anyhow, Result};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
@@ -18,47 +15,6 @@ pub fn serialize_u64_le(value: u64) -> [u8; 8] {
 /// Serialize u32 to little-endian bytes
 pub fn serialize_u32_le(value: u32) -> [u8; 4] {
     value.to_le_bytes()
-}
-
-/// Serialize u16 to little-endian bytes
-pub fn serialize_u16_le(value: u16) -> [u8; 2] {
-    value.to_le_bytes()
-}
-
-/// Parse hex string to 32-byte array
-pub fn parse_hex32(hex_str: &str) -> Result<[u8; 32]> {
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| anyhow!("Invalid hex string: {}", e))?;
-    
-    if bytes.len() != 32 {
-        return Err(anyhow!("Expected 32 bytes, got {}", bytes.len()));
-    }
-    
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&bytes);
-    Ok(result)
-}
-
-/// Parse address from base58 or hex to 32-byte array
-pub fn parse_address(address_str: &str) -> Result<[u8; 32]> {
-    // Try hex first (with or without 0x prefix)
-    if let Ok(hex_bytes) = parse_hex32(address_str) {
-        return Ok(hex_bytes);
-    }
-    
-    // Try base58
-    use base58::FromBase58;
-    let bytes = address_str.from_base58()
-        .map_err(|e| anyhow!("Invalid base58 address: {:?}", e))?;
-    
-    if bytes.len() != 32 {
-        return Err(anyhow!("Base58 address must decode to 32 bytes, got {}", bytes.len()));
-    }
-    
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&bytes);
-    Ok(result)
 }
 
 /// Compute commitment: C = H(amount:u64 || r:32 || pk_spend:32)
@@ -110,9 +66,9 @@ pub fn verify_merkle_path(
     if path_elements.len() != path_indices.len() {
         return false;
     }
-    
+
     let mut current = *leaf;
-    
+
     for (element, &index) in path_elements.iter().zip(path_indices.iter()) {
         let mut hasher = Hasher::new();
         if index == 0 {
@@ -128,67 +84,77 @@ pub fn verify_merkle_path(
         }
         current = hasher.finalize().into();
     }
-    
+
     current == *root
 }
 
+/// Parse hex string to 32-byte array
+pub fn parse_hex32(hex_str: &str) -> Result<[u8; 32]> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    let bytes = hex::decode(hex_str).map_err(|e| anyhow!("Invalid hex string: {}", e))?;
+
+    if bytes.len() != 32 {
+        return Err(anyhow!("Expected 32 bytes, got {}", bytes.len()));
+    }
+
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&bytes);
+    Ok(result)
+}
+
+/// Parse base58 or hex string to 32-byte address
+pub fn parse_address(addr_str: &str) -> Result<[u8; 32]> {
+    // Try base58 first
+    if let Ok(decoded) = base58::FromBase58::from_base58(addr_str) {
+        if decoded.len() == 32 {
+            let mut result = [0u8; 32];
+            result.copy_from_slice(&decoded);
+            return Ok(result);
+        }
+    }
+
+    // Fall back to hex
+    parse_hex32(addr_str)
+}
+
+/// Output structure for withdraw
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Output {
-    #[serde(with = "address_serde")]
     pub address: [u8; 32],
     pub amount: u64,
 }
 
-// Custom serde for address field to handle both base58 and hex
-mod address_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-    
-    pub fn serialize<S>(address: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_str = hex::encode(address);
-        serializer.serialize_str(&hex_str)
-    }
-    
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        parse_address(&s).map_err(serde::de::Error::custom)
-    }
+/// Private inputs for the circuit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateInputs {
+    pub amount: u64,
+    pub r: [u8; 32],
+    pub sk_spend: [u8; 32],
+    pub leaf_index: u32,
+    pub merkle_path: MerklePath,
 }
 
+/// Public inputs for the circuit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicInputs {
+    pub root: [u8; 32],
+    pub nf: [u8; 32],
+    pub fee_bps: u16,
+    pub outputs_hash: [u8; 32],
+    pub amount: u64,
+}
+
+/// Merkle path structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerklePath {
-    #[serde(with = "hex_array_serde")]
     pub path_elements: Vec<[u8; 32]>,
     pub path_indices: Vec<u8>,
 }
 
-// Custom serde for hex arrays
-mod hex_array_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-    
-    pub fn serialize<S>(elements: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_strings: Vec<String> = elements.iter().map(|e| hex::encode(e)).collect();
-        hex_strings.serialize(serializer)
-    }
-    
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 32]>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_strings = Vec::<String>::deserialize(deserializer)?;
-        hex_strings
-            .into_iter()
-            .map(|s| parse_hex32(&s).map_err(serde::de::Error::custom))
-            .collect()
-    }
+/// Complete inputs for the circuit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitInputs {
+    pub private: PrivateInputs,
+    pub public: PublicInputs,
+    pub outputs: Vec<Output>,
 }

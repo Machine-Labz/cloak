@@ -17,21 +17,15 @@ pub fn serialize_u32_le(value: u32) -> [u8; 4] {
     value.to_le_bytes()
 }
 
-/// Serialize u16 to little-endian bytes
-pub fn serialize_u16_le(value: u16) -> [u8; 2] {
-    value.to_le_bytes()
-}
-
 /// Parse hex string to 32-byte array
 pub fn parse_hex32(hex_str: &str) -> Result<[u8; 32]> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| anyhow!("Invalid hex string: {}", e))?;
-    
+    let bytes = hex::decode(hex_str).map_err(|e| anyhow!("Invalid hex string: {}", e))?;
+
     if bytes.len() != 32 {
         return Err(anyhow!("Expected 32 bytes, got {}", bytes.len()));
     }
-    
+
     let mut result = [0u8; 32];
     result.copy_from_slice(&bytes);
     Ok(result)
@@ -43,16 +37,20 @@ pub fn parse_address(address_str: &str) -> Result<[u8; 32]> {
     if let Ok(hex_bytes) = parse_hex32(address_str) {
         return Ok(hex_bytes);
     }
-    
+
     // Try base58
     use base58::FromBase58;
-    let bytes = address_str.from_base58()
+    let bytes = address_str
+        .from_base58()
         .map_err(|e| anyhow!("Invalid base58 address: {:?}", e))?;
-    
+
     if bytes.len() != 32 {
-        return Err(anyhow!("Base58 address must decode to 32 bytes, got {}", bytes.len()));
+        return Err(anyhow!(
+            "Base58 address must decode to 32 bytes, got {}",
+            bytes.len()
+        ));
     }
-    
+
     let mut result = [0u8; 32];
     result.copy_from_slice(&bytes);
     Ok(result)
@@ -107,9 +105,9 @@ pub fn verify_merkle_path(
     if path_elements.len() != path_indices.len() {
         return false;
     }
-    
+
     let mut current = *leaf;
-    
+
     for (element, &index) in path_elements.iter().zip(path_indices.iter()) {
         let mut hasher = Hasher::new();
         if index == 0 {
@@ -125,7 +123,7 @@ pub fn verify_merkle_path(
         }
         current = hasher.finalize().into();
     }
-    
+
     current == *root
 }
 
@@ -140,7 +138,7 @@ pub struct Output {
 mod address_serde {
     use super::*;
     use serde::{Deserializer, Serializer};
-    
+
     pub fn serialize<S>(address: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -148,7 +146,7 @@ mod address_serde {
         let hex_str = hex::encode(address);
         serializer.serialize_str(&hex_str)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
     where
         D: Deserializer<'de>,
@@ -169,7 +167,7 @@ pub struct MerklePath {
 mod hex_array_serde {
     use super::*;
     use serde::{Deserializer, Serializer};
-    
+
     pub fn serialize<S>(elements: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -177,7 +175,7 @@ mod hex_array_serde {
         let hex_strings: Vec<String> = elements.iter().map(|e| hex::encode(e)).collect();
         hex_strings.serialize(serializer)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 32]>, D::Error>
     where
         D: Deserializer<'de>,
@@ -199,13 +197,13 @@ mod tests {
         let amount = 1000000u64;
         let r = [0x42u8; 32];
         let sk_spend = [0x33u8; 32];
-        
+
         let pk_spend = compute_pk_spend(&sk_spend);
         let commitment = compute_commitment(amount, &r, &pk_spend);
-        
+
         // Verify the commitment is computed correctly
         assert_eq!(commitment.len(), 32);
-        
+
         // Test consistency
         let commitment2 = compute_commitment(amount, &r, &pk_spend);
         assert_eq!(commitment, commitment2);
@@ -215,10 +213,10 @@ mod tests {
     fn test_nullifier_matches_docs() {
         let sk_spend = [0x11u8; 32];
         let leaf_index = 42u32;
-        
+
         let nullifier = compute_nullifier(&sk_spend, leaf_index);
         assert_eq!(nullifier.len(), 32);
-        
+
         // Test consistency
         let nullifier2 = compute_nullifier(&sk_spend, leaf_index);
         assert_eq!(nullifier, nullifier2);
@@ -234,10 +232,10 @@ mod tests {
             address: [0x02u8; 32],
             amount: 200,
         };
-        
+
         let hash1 = compute_outputs_hash(&[output1.clone(), output2.clone()]);
         let hash2 = compute_outputs_hash(&[output2, output1]);
-        
+
         // Order should matter
         assert_ne!(hash1, hash2);
     }
@@ -247,20 +245,30 @@ mod tests {
         let leaf = [0x01u8; 32];
         let sibling1 = [0x02u8; 32];
         let sibling2 = [0x03u8; 32];
-        
+
         // Compute correct root
         let level1 = hash_blake3(&[&leaf[..], &sibling1[..]].concat());
         let root = hash_blake3(&[&level1[..], &sibling2[..]].concat());
-        
+
         let path_elements = vec![sibling1, sibling2];
         let path_indices = vec![0, 0]; // leaf left, then level1 left
-        
+
         // Should verify correctly
-        assert!(verify_merkle_path(&leaf, &path_elements, &path_indices, &root));
-        
+        assert!(verify_merkle_path(
+            &leaf,
+            &path_elements,
+            &path_indices,
+            &root
+        ));
+
         // Should fail with swapped sibling
         let path_elements_swapped = vec![sibling2, sibling1];
-        assert!(!verify_merkle_path(&leaf, &path_elements_swapped, &path_indices, &root));
+        assert!(!verify_merkle_path(
+            &leaf,
+            &path_elements_swapped,
+            &path_indices,
+            &root
+        ));
     }
 
     #[test]
@@ -276,7 +284,7 @@ mod tests {
         let hex_addr = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let parsed_hex = parse_address(hex_addr).unwrap();
         assert_eq!(hex::encode(parsed_hex), hex_addr);
-        
+
         // Test hex with 0x prefix
         let hex_addr_prefixed = format!("0x{}", hex_addr);
         let parsed_hex_prefixed = parse_address(&hex_addr_prefixed).unwrap();
