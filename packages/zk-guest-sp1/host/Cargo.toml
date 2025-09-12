@@ -1,0 +1,30 @@
+[package]
+name = "zk-guest-sp1-host"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cloak-zk"
+path = "src/main.rs"
+
+[[bin]]
+name = "generate_examples"
+path = "src/bin/generate_examples.rs"
+
+[lib]
+name = "zk_guest_sp1_host"
+path = "src/lib.rs"
+
+[dependencies]
+sp1-sdk = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+base58 = { workspace = true }
+anyhow = { workspace = true }
+bincode = { workspace = true }
+
+[build-dependencies]
+sp1-build = { workspace = true }
