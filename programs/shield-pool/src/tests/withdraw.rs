@@ -173,6 +173,8 @@ fn test_complete_privacy_flow() {
     let mut outputs_hash_data = Vec::new();
     outputs_hash_data.extend_from_slice(recipient.as_ref());
     outputs_hash_data.extend_from_slice(&recipient_amount.to_le_bytes());
+
+    // Use blake3 crate for testing
     let outputs_hash = blake3::hash(&outputs_hash_data);
     let outputs_hash_bytes: [u8; 32] = *outputs_hash.as_bytes();
 

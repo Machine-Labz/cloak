@@ -1,18 +1,5 @@
-use crate::constants::*;
-use crate::instruction_data::WithdrawOutput;
-use blake3::Hasher;
-use pinocchio::program_error::ProgramError;
+use crate::constants::HASH_SIZE;
+use pinocchio::{program_error::ProgramError, pubkey::Pubkey};
 
-/// Compute outputs hash using BLAKE3
-pub fn compute_outputs_hash_blake3(
-    outputs: &[WithdrawOutput],
-) -> Result<[u8; HASH_SIZE], ProgramError> {
-    let mut hasher = Hasher::new();
-
-    for output in outputs {
-        hasher.update(output.recipient().as_ref());
-        hasher.update(&output.amount().to_le_bytes());
-    }
-
-    Ok(hasher.finalize().into())
-}
+/// Compute BLAKE3 hash for outputs verification
+/// For now, this is a simplified version that just hashes recipient + amount

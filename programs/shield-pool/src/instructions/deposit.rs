@@ -1,27 +1,22 @@
 use crate::error::ShieldPoolError;
 use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
-pub fn process_deposit_instruction(
-    accounts: &[AccountInfo],
-    instruction_data: &[u8],
-) -> ProgramResult {
+pub fn process_deposit_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let [user, pool_info, _roots_ring_info, _system_program] = accounts else {
         return Err(ShieldPoolError::MissingAccounts.into());
     };
 
-    // Parse instruction data;
     unsafe {
-        let amount = *((instruction_data.as_ptr()).add(0) as *const u64);
+        // Parse instruction data: amount (8 bytes) + leaf_commit (32 bytes) + enc_output_len (2 bytes) + enc_output (variable)
+        let amount = *((data.as_ptr()).add(0) as *const u64);
+        let leaf_commit = *((data.as_ptr()).add(8) as *const [u8; 32]);
+
+        // Transfer lamports from user to pool
         *user.borrow_mut_lamports_unchecked() -= amount;
         *pool_info.borrow_mut_lamports_unchecked() += amount;
-    }
 
-    // Log the deposit commitment for indexer
-    unsafe {
-        // Read 32 bytes from instruction_data starting at offset 8
-        let commit_ptr = instruction_data.as_ptr().add(8) as *const [u8; 32];
-        let commit_bytes: [u8; 32] = *commit_ptr;
-        let commit_hex = hex::encode(commit_bytes);
+        // Log the deposit commitment for indexer
+        let commit_hex = hex::encode(leaf_commit);
         msg!(&format!("deposit_commit:{}", commit_hex));
     }
 

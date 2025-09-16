@@ -8,6 +8,20 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "Cloak Labz",
+    "marcelofeitoza",
+    "BretasArthur1",
+    "vict0rcarvalh0",
+    "matheusmacedosantos"
+]
+license = "MIT"
+repository = "https://github.com/cloak-labz/cloak"
+description = "Cloak - Privacy protocol for Solana"
+
 [workspace.dependencies]
 # SP1 dependencies
 sp1-sdk = "5.2.1"
@@ -53,17 +67,4 @@ ark-bn254 = "0.4.0"
 ark-serialize = "0.4.2"
 ark-ff = "0.4.2"
 
-[workspace.package]
-version = "0.1.0"
-edition = "2021"
-authors = [
-    "Cloak Labz", 
-    "marcelofeitoza", 
-    "BretasArthur1", 
-    "vict0rcarvalh0", 
-    "matheusmacedosantos"
-]
-license = "MIT"
-repository = "https://github.com/cloak-labz/cloak"
-description = "Cloak - Privacy protocol for Solana"
 
