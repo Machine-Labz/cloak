@@ -3,7 +3,7 @@
 **Goal:** Maintain append-only Merkle tree; serve roots, proofs, and encrypted outputs.
 
 ## Responsibilities
-- Ingest program events from `transact_deposit`
+- Handle `/deposit` route requests with `leaf_commit`
 - Append `leaf_commit` to tree, persist `root` and `nextIndex`
 - Expose:
   - `/merkle/root`

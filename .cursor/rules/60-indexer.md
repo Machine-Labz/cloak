@@ -1,7 +1,7 @@
 # Indexer (HTTP) – Rules
 
 **Ingest**
-- Listen for `transact_deposit` events, read `leaf_commit`, append to tree, persist `root`, `nextIndex`
+-  `/deposit` route - read `leaf_commit`, append to tree, persist `root`, `nextIndex`
 
 **Serve**
 - `/merkle/root`  

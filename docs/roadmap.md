@@ -2,7 +2,7 @@
 
 **M0 – Merkle & Indexer (2–4 days)**
 - Build append-only tree, `/merkle/root`, `/merkle/proof/:index`, `/notes/range?start&end`
-- Event ingestion from deposit txs
+- Route-based deposit handling via `/deposit`
 
 **M1 – Deposit Path (2–3 days)**
 - `transact_deposit` instruction + event (leaf_commit, encrypted_output)
