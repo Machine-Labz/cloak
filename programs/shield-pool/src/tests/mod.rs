@@ -7,21 +7,21 @@ use solana_sdk::{
 };
 use spl_token::state::AccountState;
 
-// #[cfg(test)]
-// mod check_test;
-// #[cfg(test)]
-// mod contribute_test;
-// #[cfg(test)]
-// mod initalize_test;
-// #[cfg(test)]
-// mod refund_test;
+#[cfg(test)]
+mod deposit;
+
+#[cfg(test)]
+mod admin_push_root;
+
+#[cfg(test)]
+mod withdraw;
 
 pub fn setup() -> (Pubkey, Mollusk) {
     let program_id = Pubkey::new_from_array(five8_const::decode_32_const(
         "99999999999999999999999999999999999999999999",
     ));
-    let mut mollusk = Mollusk::new(&program_id, "../target/deploy/fundraiser");
-    mollusk_token::token::add_program(&mut mollusk);
+    let mut mollusk = Mollusk::new(&program_id, "../../target/deploy/shield_pool");
+    mollusk_svm_programs_token::token::add_program(&mut mollusk);
 
     (program_id, mollusk)
 }

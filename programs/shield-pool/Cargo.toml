@@ -23,5 +23,6 @@ solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-mollusk-svm = { git = "https://github.com/anza-xyz/mollusk" }
+mollusk-svm = "0.5.1"
 spl-token = "6.0.0"
+mollusk-svm-programs-token = "0.5.1"

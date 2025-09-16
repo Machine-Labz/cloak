@@ -7,9 +7,9 @@ use pinocchio::program_error::ProgramError;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ShieldPoolInstruction {
-    Deposit = 0x01,
-    AdminPushRoot = 0x02,
-    Withdraw = 0x03,
+    Deposit = 0,
+    AdminPushRoot = 1,
+    Withdraw = 2,
 }
 
 impl TryFrom<&u8> for ShieldPoolInstruction {
@@ -17,9 +17,9 @@ impl TryFrom<&u8> for ShieldPoolInstruction {
 
     fn try_from(instruction: &u8) -> Result<Self, ProgramError> {
         match instruction {
-            0x01 => Ok(Self::Deposit),
-            0x02 => Ok(Self::AdminPushRoot),
-            0x03 => Ok(Self::Withdraw),
+            0 => Ok(Self::Deposit),
+            1 => Ok(Self::AdminPushRoot),
+            2 => Ok(Self::Withdraw),
             _ => Err(ShieldPoolError::InvalidTag.into()),
         }
     }
