@@ -7,7 +7,7 @@ Program **`shield-pool`** responsibilities:
 
 ## Instruction: `transact_deposit(encrypted_output, leaf_commit)`
 - Accept lamports to Pool (System transfer in the same tx)
-- Emit event: `{ leaf_commit, blob_ref(optional) }`
+- Store deposit data for indexer retrieval via `/deposit` route
 
 ## Instruction: `withdraw(proofBytes, publicInputs, outputs[])`
 1. CPI into SP1 verifier → `true/false`
