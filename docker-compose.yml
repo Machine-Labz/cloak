@@ -1,0 +1,113 @@
+version: "3.8"
+
+services:
+  # PostgreSQL database for the indexer
+  postgres:
+    image: postgres:15-alpine
+    container_name: cloak-postgres
+    environment:
+      POSTGRES_DB: cloak_indexer
+      POSTGRES_USER: cloak
+      POSTGRES_PASSWORD: development_password_change_in_production
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/indexer/src/db/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - cloak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloak -d cloak_indexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Indexer microservice
+  indexer:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloak-indexer
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=cloak_indexer
+      - DB_USER=cloak
+      - DB_PASSWORD=development_password_change_in_production
+      - PORT=3001
+      - LOG_LEVEL=info
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - SHIELD_POOL_PROGRAM_ID=${SHIELD_POOL_PROGRAM_ID:-}
+      - TREE_HEIGHT=32
+      - ARTIFACTS_BASE_PATH=./artifacts
+      - SP1_VERSION=v2.0.0
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./services/indexer:/app
+      - /app/node_modules
+      - indexer_logs:/app/logs
+      - indexer_artifacts:/app/artifacts
+    networks:
+      - cloak-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: npm run dev
+
+  # Relay microservice (placeholder for future)
+  # relay:
+  #   build:
+  #     context: ./services/relay
+  #     dockerfile: Dockerfile
+  #     target: development
+  #   container_name: cloak-relay
+  #   environment:
+  #     - NODE_ENV=development
+  #     - PORT=3002
+  #     - INDEXER_URL=http://indexer:3001
+  #   ports:
+  #     - "3002:3002"
+  #   volumes:
+  #     - ./services/relay:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - cloak-network
+  #   depends_on:
+  #     - indexer
+  #   restart: unless-stopped
+
+  # Redis for caching and queues (optional for future use)
+  redis:
+    image: redis:7-alpine
+    container_name: cloak-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cloak-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  indexer_logs:
+    driver: local
+  indexer_artifacts:
+    driver: local
+
+networks:
+  cloak-network:
+    driver: bridge
