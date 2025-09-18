@@ -54,7 +54,7 @@ mod tests {
     fn create_test_config() -> Arc<Config> {
         Arc::new(Config {
             server: crate::config::ServerConfig {
-                port: 3000,
+                port: 3001,
                 host: "0.0.0.0".to_string(),
                 request_timeout_seconds: 30,
             },

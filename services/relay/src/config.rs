@@ -44,7 +44,7 @@ impl Config {
         // Initialize configuration reader
         let settings = config::Config::builder()
             // Start with default settings
-            .set_default("server.port", 3000)?
+            .set_default("server.port", 3001)?
             .set_default("server.host", "0.0.0.0")?
             .set_default("server.request_timeout_seconds", 30)?
             
@@ -52,6 +52,7 @@ impl Config {
             .set_default("solana.rpc_url", "http://localhost:8899")?
             .set_default("solana.ws_url", "ws://localhost:8900")?
             .set_default("solana.commitment", "confirmed")?
+            .set_default("solana.program_id", "11111111111111111111111111111111")?  // Default to system program ID
             .set_default("solana.max_retries", 3)?
             .set_default("solana.retry_delay_ms", 1000)?
             

@@ -102,7 +102,6 @@ mod tests {
     use axum::routing::get;
     use axum::Router;
     use axum_test::TestServer;
-    use std::time::Duration;
 
     async fn test_handler() -> &'static str {
         "Hello, world!"
