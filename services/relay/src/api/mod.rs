@@ -47,12 +47,14 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
 // Common types used across API endpoints
 #[derive(Debug, Serialize)]
 pub struct WithdrawResponse {
+    #[serde(with = "uuid::serde::compact")]
     pub request_id: Uuid,
     pub status: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
+    #[serde(with = "uuid::serde::compact")]
     pub request_id: Uuid,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]

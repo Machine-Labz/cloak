@@ -3,7 +3,7 @@ mod config;
 mod error;
 mod metrics;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     routing::{get, post},
@@ -26,6 +26,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration
     let config = Config::load()?;
+    let port = config.server.port;
     
     // Initialize metrics
     metrics::init()?;
@@ -36,14 +37,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
         .layer(TraceLayer::new_for_http())
-        .with_state(config.clone());
+        .with_state(Arc::new(config));
 
     // Run the server
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Server listening on {}", addr);
     
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    axum::serve(listener, app.into_make_service())
         .await?;
 
     Ok(())
