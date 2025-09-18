@@ -4,7 +4,7 @@ members = [
     "packages/zk-guest-sp1/guest",
     "packages/zk-guest-sp1/host",
     "packages/vkey-generator",
-    "programs/shield-pool",
+    "programs/shield-pool", "services/relay",
 ]
 resolver = "2"
 
