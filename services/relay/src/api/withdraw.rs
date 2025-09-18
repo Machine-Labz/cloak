@@ -29,7 +29,7 @@ pub struct Output {
 }
 
 pub async fn handle_withdraw(
-    State(config): State<Arc<Config>>,
+    State(_config): State<Arc<Config>>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
     // Generate a unique request ID

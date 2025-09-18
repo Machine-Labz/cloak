@@ -6,6 +6,9 @@ mod metrics;
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Router,
 };
@@ -29,29 +32,33 @@ async fn main() -> anyhow::Result<()> {
     let port = config.server.port;
     
     // Initialize metrics
-    metrics::init()?;
+    metrics::setup_metrics().map_err(|e| anyhow::anyhow!(e))?;
 
     // Build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/withdraw", post(api::withdraw::handle_withdraw))
-        .route("/status/:id", get(api::status::get_status))
+        .route(
+            "/status/:id",
+            get(|State(state): State<Arc<Config>>, id| async move {
+                api::status::get_status(State(state), id).await
+            }),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(config));
 
     // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Server listening on {}", addr);
     
-    axum::serve(listener, app.into_make_service())
-        .await?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
 
-async fn health_check() -> &'static str {
-    "OK"
+async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, "OK")
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -1,40 +1,32 @@
-use std::net::SocketAddr;
 use std::time::Instant;
 
 use axum::{
     extract::MatchedPath,
     http::Request,
     middleware::Next,
-    response::{IntoResponse, Response},
-    body::Body,
+    response::Response,
 };
-use metrics_exporter_prometheus::{
-    Matcher, PrometheusBuilder, PrometheusHandle,
-};
-use metrics_util::MetricKindMask;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 
 const EXPONENTIAL_SECONDS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
 
-static METRICS: once_cell::sync::Lazy<PrometheusHandle> = once_cell::sync::Lazy::new(|| {
-    let recorder = PrometheusBuilder::new()
+pub fn setup_metrics() -> anyhow::Result<()> {
+    let builder = PrometheusBuilder::new()
         .set_buckets_for_metric(
-            Matcher::Full("http_requests_duration_seconds".to_string()),
+            Matcher::Full("http_request_duration_seconds".to_string()),
             EXPONENTIAL_SECONDS,
-        )
-        .unwrap()
-        .install_recorder()
-        .expect("Failed to install metrics recorder");
-
-    // Register default metrics
+        )?;
+    
+    let (recorder, _handle) = builder.build()?;
+    metrics::set_boxed_recorder(Box::new(recorder))?;
+    
     register_metrics();
-
-    recorder
-});
+    Ok(())
+}
 
 fn register_metrics() {
-    // Register custom metrics here
     metrics::describe_counter!(
         "http_requests_total",
         "Total number of HTTP requests made."
@@ -42,14 +34,19 @@ fn register_metrics() {
     
     metrics::describe_histogram!(
         "http_requests_duration_seconds",
-        "A histogram of the HTTP request durations in seconds."
+        "HTTP request duration in seconds."
     );
-
+    
     metrics::describe_counter!(
         "withdraw_requests_total",
-        "Total number of withdraw requests processed."
+        "Total number of withdraw requests received."
     );
-
+    
+    metrics::describe_counter!(
+        "withdraw_requests_success_total",
+        "Total number of successful withdraw requests."
+    );
+    
     metrics::describe_counter!(
         "withdraw_requests_failed_total",
         "Total number of failed withdraw requests."
@@ -59,15 +56,6 @@ fn register_metrics() {
         "active_withdraw_requests",
         "Current number of active withdraw requests."
     );
-}
-
-pub fn init() -> anyhow::Result<()> {
-    // The recorder is already initialized in the Lazy static
-    Ok(())
-}
-
-pub fn get_handle() -> &'static PrometheusHandle {
-    &METRICS
 }
 
 pub async fn track_metrics(
@@ -82,24 +70,27 @@ pub async fn track_metrics(
     };
 
     let method = req.method().clone();
-
-    // Execute the next middleware
     let response = next.run(req).await;
-
-    let latency = start.elapsed();
     let status = response.status().as_u16().to_string();
+    let latency = start.elapsed();
 
-    let labels = [
-        ("method", method.to_string()),
-        ("path", path),
-        ("status", status),
-    ];
+    let method_str = method.to_string();
+    let path_clone = path.clone();
+    let status_clone = status.clone();
+    
+    metrics::increment_counter!(
+        "http_requests_total",
+        "method" => method_str.clone(),
+        "path" => path_clone,
+        "status" => status_clone
+    );
 
-    metrics::increment_counter!("http_requests_total", &labels);
     metrics::histogram!(
         "http_requests_duration_seconds",
         latency.as_secs_f64(),
-        &labels
+        "method" => method_str,
+        "path" => path,
+        "status" => status
     );
 
     response

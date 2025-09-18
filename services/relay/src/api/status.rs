@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -22,7 +21,7 @@ pub struct StatusRequest {
 pub async fn get_status(
     State(_config): State<Arc<Config>>,
     Path(request_id): Path<Uuid>,
-) -> Result<Json<ApiResponse<StatusResponse>>, Error> {
+) -> Result<impl IntoResponse, Error> {
     // TODO: Look up status from database
     // For now, return a mock response
     let status = if request_id.as_u128() % 2 == 0 {
