@@ -9,8 +9,8 @@ pub const TAG_ADMIN_PUSH_ROOT: u8 = 0x02;
 pub const TAG_WITHDRAW: u8 = 0x03;
 
 /// SP1 proof constants
-pub const SP1_PROOF_SIZE: usize = 256;
-pub const SP1_PUBLIC_INPUTS_SIZE: usize = 64;
+pub const SP1_PROOF_SIZE: usize = 260;
+pub const SP1_PUBLIC_INPUTS_SIZE: usize = 283; // Actual size from SP1
 
 /// Hash sizes
 pub const HASH_SIZE: usize = 32;

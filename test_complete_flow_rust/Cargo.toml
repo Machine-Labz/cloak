@@ -1,0 +1,19 @@
+[package]
+name = "test-complete-flow-rust"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+blake3 = "1.5"
+hex = "0.4"
+base64 = "0.22"
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.0", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+solana-client = "2.0"
+solana-sdk = "2.0"
+solana-program = "2.0"
+bs58 = "0.5"
+anyhow = "1.0"
+sp1-sdk.workspace = true

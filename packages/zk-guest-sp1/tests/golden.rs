@@ -255,7 +255,7 @@ fn test_valid_proof_generation_and_verification() -> Result<()> {
     let mut stdin = SP1Stdin::new();
     stdin.write(&input_json);
 
-    let mut proof = client.prove(&pk, &stdin).groth16().run()?;
+    let proof = client.prove(&pk, &stdin).groth16().run()?;
 
     // Verify proof
     let is_valid = client.verify(&proof, &vk).is_ok();

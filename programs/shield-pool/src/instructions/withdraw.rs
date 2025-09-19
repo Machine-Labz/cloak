@@ -4,13 +4,16 @@ use crate::constants::{
 };
 use crate::error::ShieldPoolError;
 use crate::state::{NullifierShard, RootsRing};
-use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
-// use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
+use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 /// SP1 Withdraw Circuit VKey Hash
-const WITHDRAW_VKEY_HASH: &str = env!("VKEY_HASH");
+const WITHDRAW_VKEY_HASH: &str =
+    "004e55c1fe353704d5c7eb1a2f4df449da8c1707127e54b4c1a5b54535fc0366";
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    msg!(&format!("withdraw_instruction_data:{}", hex::encode(data)));
+
     // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipients..., system]
     let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program_info] =
         accounts
@@ -24,38 +27,42 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         // public_nf (32 bytes) + public_amount (8 bytes) + public_fee_bps (2 bytes) +
         // public_outputs_hash (32 bytes) + num_outputs (1 byte) + outputs (variable)
 
-        let _sp1_proof = data.as_ptr().add(0) as *const [u8; SP1_PROOF_SIZE];
-        let _sp1_public_inputs =
-            data.as_ptr().add(SP1_PROOF_SIZE) as *const [u8; SP1_PUBLIC_INPUTS_SIZE];
-        let public_root = *((data.as_ptr()).add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE)
-            as *const [u8; HASH_SIZE]);
-        let public_nf = *((data.as_ptr()).add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE)
-            as *const [u8; HASH_SIZE]);
-        let public_amount = *((data.as_ptr())
-            .add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 2)
-            as *const u64);
-        let public_fee_bps = *((data.as_ptr())
-            .add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 2 + 8)
-            as *const u16);
-        let _public_outputs_hash = *((data.as_ptr())
-            .add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 2 + 8 + 2)
-            as *const [u8; HASH_SIZE]);
-        let num_outputs = *((data.as_ptr())
-            .add(SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 3 + 8 + 2)
-            as *const u8);
+        // Check minimum data size
+        let min_data_size = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 3 + 8 + 2 + 1 + PUBKEY_SIZE + 8;
+        if data.len() < min_data_size {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+
+        // Read the SP1 proof and public inputs from the instruction data
+        let sp1_proof = &data[0..SP1_PROOF_SIZE];
+        let sp1_public_inputs = &data[SP1_PROOF_SIZE..SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE];
+        
+        // Read the specific values we need for validation
+        let data_offset = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE;
+        let public_root = *((data.as_ptr()).add(data_offset) as *const [u8; HASH_SIZE]);
+        let public_nf = *((data.as_ptr()).add(data_offset + HASH_SIZE) as *const [u8; HASH_SIZE]);
+        let public_amount = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2) as *const u64);
+        let public_fee_bps = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8) as *const u16);
+        let _public_outputs_hash = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8 + 2) as *const [u8; HASH_SIZE]);
+        let num_outputs = *((data.as_ptr()).add(data_offset + HASH_SIZE * 3 + 8 + 2) as *const u8);
 
         // For simplicity, assume single output (can be extended later)
         if num_outputs != 1 {
             return Err(ShieldPoolError::InvalidInstructionData.into());
         }
 
-        let output_offset = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 3 + 8 + 2 + 1;
+        let output_offset = data_offset + HASH_SIZE * 3 + 8 + 2 + 1;
         let recipient_pubkey = *((data.as_ptr()).add(output_offset) as *const Pubkey);
         let recipient_amount = *((data.as_ptr()).add(output_offset + PUBKEY_SIZE) as *const u64);
 
-        // 1. Verify SP1 proof (commented out for now)
-        // verify_proof(sp1_proof, sp1_public_inputs, WITHDRAW_VKEY_HASH, GROTH16_VK_5_0_0_BYTES)
-        //     .map_err(|_| ShieldPoolError::ProofInvalid)?;
+        // 1. Verify SP1 proof
+        verify_proof(
+            sp1_proof,
+            sp1_public_inputs,
+            WITHDRAW_VKEY_HASH,
+            GROTH16_VK_5_0_0_BYTES,
+        )
+        .map_err(|_| ShieldPoolError::ProofInvalid)?;
 
         // 2. Check root exists in RootsRing
         let roots_ring = RootsRing::from_account_info(roots_ring_info)?;
