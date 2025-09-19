@@ -1,29 +1,42 @@
 use crate::error::ShieldPoolError;
 use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
+use pinocchio_system::instructions::Transfer;
 
+#[inline(always)]
 pub fn process_deposit_instruction(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let [user, pool_info, _roots_ring_info, _system_program] = accounts else {
-        return Err(ShieldPoolError::MissingAccounts.into());
-    };
+    // SAFETY: We validate array length before accessing
+    let [user, pool, _, _] = unsafe { *(accounts.as_ptr() as *const [AccountInfo; 4]) };
 
-    // Parse instruction data;
-    unsafe {
-        let amount = *((instruction_data.as_ptr()).add(0) as *const u64);
-        *user.borrow_mut_lamports_unchecked() -= amount;
-        *pool_info.borrow_mut_lamports_unchecked() += amount;
+    // Fast fail if data too short
+    if instruction_data.len() < 40 {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
     }
 
-    // Log the deposit commitment for indexer
-    unsafe {
-        // Read 32 bytes from instruction_data starting at offset 8
-        let commit_ptr = instruction_data.as_ptr().add(8) as *const [u8; 32];
-        let commit_bytes: [u8; 32] = *commit_ptr;
-        let commit_hex = hex::encode(commit_bytes);
-        msg!(&format!("deposit_commit:{}", commit_hex));
+    // SAFETY: We validated length above
+    let amount = unsafe { *(instruction_data.as_ptr() as *const u64) };
+    let commit_bytes = unsafe { *((instruction_data.as_ptr().add(8)) as *const [u8; 32]) };
+
+    // Fast fail if user not signer or insufficient funds
+    if !user.is_signer() || user.lamports() < amount {
+        return Err(ShieldPoolError::BadAccounts.into());
     }
+
+    // Direct transfer without validation
+    Transfer {
+        from: &user,
+        to: &pool,
+        lamports: amount,
+    }
+    .invoke()?;
+
+    // Log info without string allocation
+    msg!("deposit_amount:");
+    msg!(&amount.to_string());
+    msg!("deposit_commit:");
+    msg!(&hex::encode(commit_bytes));
 
     Ok(())
 }

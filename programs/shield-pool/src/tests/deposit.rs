@@ -48,7 +48,7 @@ fn deposit_test() {
         ],
     );
 
-    let mut accounts: Vec<(Pubkey, Account)> = vec![
+    let accounts: Vec<(Pubkey, Account)> = vec![
         (
             signer,
             Account {

@@ -1,52 +1,66 @@
-use std::fmt::format;
-
+use crate::{constants::HASH_SIZE, instructions::ShieldPoolInstruction};
 use five8_const::decode_32_const;
-use pinocchio::{
-    account_info::AccountInfo, entrypoint, msg, program_error::ProgramError, pubkey::Pubkey,
-    ProgramResult,
+use instructions::{
+    admin_push_root::process_admin_push_root_instruction, deposit::process_deposit_instruction,
+    withdraw::process_withdraw_instruction,
 };
+use pinocchio::{
+    account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
+    program_error::ProgramError, pubkey::Pubkey, ProgramResult,
+};
+use solana_blake3_hasher as blake3;
 
 mod constants;
 mod error;
-mod instruction_data;
 mod instructions;
 mod state;
-mod utils;
-
-use instructions::{
-    admin_push_root::process_admin_push_root_instruction, deposit::process_deposit_instruction,
-    withdraw::process_withdraw_instruction, ShieldPoolInstruction,
-};
-
-// Re-export commonly used types
-pub use instruction_data::{AdminPushRootIx, DepositIx, WithdrawIx, WithdrawOutput};
 
 #[cfg(test)]
 mod tests;
 
-// Shield Pool Program ID - placeholder for now
-const ID: [u8; 32] = decode_32_const("99999999999999999999999999999999999999999999");
+// Shield Pool Program ID
+const ID: [u8; 32] = decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 
-entrypoint!(process_instruction);
+program_entrypoint!(process_instruction);
+default_allocator!();
+default_panic_handler!();
 
 pub fn process_instruction(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if program_id != &ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    // if program_id != &ID {
+    //     return Err(ProgramError::IncorrectProgramId);
+    // }
 
     let (instruction_discriminant, instruction_data) = data
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     match ShieldPoolInstruction::try_from(instruction_discriminant)? {
+        ShieldPoolInstruction::Initialize => {
+            instructions::initialize::process_initialize_instruction(accounts, instruction_data)
+        }
         ShieldPoolInstruction::Deposit => process_deposit_instruction(accounts, instruction_data),
         ShieldPoolInstruction::AdminPushRoot => {
             process_admin_push_root_instruction(accounts, instruction_data)
         }
         ShieldPoolInstruction::Withdraw => process_withdraw_instruction(accounts, instruction_data),
     }
+}
+pub fn compute_outputs_hash_blake3(
+    recipient: &Pubkey,
+    amount: u64,
+) -> Result<[u8; HASH_SIZE], ProgramError> {
+    // Prepare input data for BLAKE3
+    let mut input_data = Vec::new();
+    input_data.extend_from_slice(recipient.as_ref());
+    input_data.extend_from_slice(&amount.to_le_bytes());
+
+    let mut hash_result = [0u8; HASH_SIZE];
+    let hash = blake3::hash(&input_data);
+    hash_result.copy_from_slice(hash.as_bytes());
+
+    Ok(hash_result)
 }

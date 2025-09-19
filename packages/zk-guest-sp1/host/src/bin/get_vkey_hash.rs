@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let (_, vk) = client.setup(&guest_elf);
     let vkey_hash = vk.bytes32();
 
-    println!("SP1 Withdraw Circuit VKey Hash: 0x{}", vkey_hash);
+    println!("SP1 Withdraw Circuit VKey Hash: {}", vkey_hash);
 
     Ok(())
 }
