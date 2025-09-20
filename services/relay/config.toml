@@ -16,6 +16,11 @@ retry_delay_ms = 1000
 url = "postgres://postgres:postgres@localhost:5432/relay"
 max_connections = 5
 
+[redis]
+url = "redis://localhost:6379"
+max_connections = 10
+connection_timeout_seconds = 5
+
 [metrics]
 enabled = true
 port = 9090

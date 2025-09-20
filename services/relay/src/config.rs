@@ -5,6 +5,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub solana: SolanaConfig,
     pub database: DatabaseConfig,
+    pub redis: RedisConfig,
     pub metrics: MetricsConfig,
 }
 
@@ -30,6 +31,13 @@ pub struct SolanaConfig {
 pub struct DatabaseConfig {
     pub url: String,
     pub max_connections: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RedisConfig {
+    pub url: String,
+    pub max_connections: u32,
+    pub connection_timeout_seconds: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -60,6 +68,11 @@ impl Config {
             .set_default("database.url", "postgres://postgres:postgres@localhost:5432/relay")?
             .set_default("database.max_connections", 5)?
             
+            // Redis defaults
+            .set_default("redis.url", "redis://localhost:6379")?
+            .set_default("redis.max_connections", 10)?
+            .set_default("redis.connection_timeout_seconds", 5)?
+            
             // Metrics defaults
             .set_default("metrics.enabled", true)?
             .set_default("metrics.port", 9090)?
@@ -89,5 +102,12 @@ mod tests {
         let config = Config::load().unwrap();
         assert_eq!(config.server.port, 4000);
         std::env::remove_var("RELAY_SERVER__PORT");
+    }
+
+    #[test]
+    fn test_redis_config_defaults() {
+        let config = Config::load().unwrap();
+        assert_eq!(config.redis.url, "redis://localhost:6379");
+        assert_eq!(config.redis.max_connections, 10);
     }
 }

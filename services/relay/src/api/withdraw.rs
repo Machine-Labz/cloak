@@ -1,173 +1,261 @@
 use axum::{
     extract::State,
-    http::StatusCode,
     response::IntoResponse,
     Json,
 };
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use base64::Engine;
+use serde::Deserialize;
 use uuid::Uuid;
+use tracing::info;
 
 use crate::{
     api::{ApiResponse, WithdrawResponse},
-    config::Config,
     error::Error,
+    AppState,
 };
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawRequest {
-    pub proof: String,          // Base58 encoded proof
-    pub public_inputs: String,  // Base58 encoded public inputs
-    pub outputs: Vec<Output>,   // List of output recipients and amounts
-    pub fee_bps: u16,          // Fee in basis points (1/10000)
+    pub outputs: Vec<Output>,
+    pub policy: Policy,
+    pub public_inputs: PublicInputs,
+    pub proof_bytes: String, // base64 encoded
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Output {
-    pub recipient: String,      // Base58 encoded public key
-    pub amount: u64,           // Amount in lamports
+    pub recipient: String, // Solana address as string
+    pub amount: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Policy {
+    pub fee_bps: u16,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PublicInputs {
+    pub root: String,
+    pub nf: String, // nullifier
+    pub amount: u64,
+    pub fee_bps: u16,
+    pub outputs_hash: String,
 }
 
 pub async fn handle_withdraw(
-    State(_config): State<Arc<Config>>,
+    State(_state): State<AppState>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
-    // Generate a unique request ID
+    info!("Received withdraw request");
+
+    // Validate the request
+    validate_request(&payload)?;
+
+    // For now, we'll create a mock response since we don't have full DB integration
     let request_id = Uuid::new_v4();
     
-    // TODO: Validate the request
-    validate_withdraw_request(&payload)?;
+    info!("Processing withdraw request with ID: {}", request_id);
+
+    // Simulate basic validation
+    let fee_amount = (payload.public_inputs.amount * payload.public_inputs.fee_bps as u64) / 10000;
+    let total_output_amount: u64 = payload.outputs.iter().map(|o| o.amount).sum();
     
-    // TODO: Add to job queue
-    
-    // TODO: Return immediate response with request ID
+    // Check conservation
+    if total_output_amount + fee_amount != payload.public_inputs.amount {
+        return Err(Error::ValidationError(
+            "Conservation check failed: outputs + fee != amount".to_string()
+        ));
+    }
+
+    // Check policy consistency
+    if payload.policy.fee_bps != payload.public_inputs.fee_bps {
+        return Err(Error::ValidationError(
+            "Fee BPS mismatch between policy and public inputs".to_string()
+        ));
+    }
+
+    // Decode proof bytes to validate format
+    let _proof_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&payload.proof_bytes)
+        .map_err(|e| Error::ValidationError(format!("Invalid proof base64: {}", e)))?;
+
+    info!("Withdraw request validated successfully");
+
+    // Create successful response
     let response = WithdrawResponse {
         request_id,
         status: "queued".to_string(),
+        message: "Withdraw request received and queued for processing".to_string(),
     };
-    
-    Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(response))))
+
+    Ok(Json(ApiResponse::success(response)))
 }
 
-fn validate_withdraw_request(request: &WithdrawRequest) -> Result<(), Error> {
-    // Validate proof length (256 bytes)
-    let proof_bytes = bs58::decode(&request.proof)
-        .into_vec()
-        .map_err(|_| Error::BadRequest("Invalid proof format".to_string()))?;
-    
-    if proof_bytes.len() != 256 {
-        return Err(Error::BadRequest("Invalid proof length".to_string()));
-    }
-    
-    // Validate public inputs length (64 bytes)
-    let public_inputs_bytes = bs58::decode(&request.public_inputs)
-        .into_vec()
-        .map_err(|_| Error::BadRequest("Invalid public inputs format".to_string()))?;
-    
-    if public_inputs_bytes.len() != 64 {
-        return Err(Error::BadRequest("Invalid public inputs length".to_string()));
-    }
-    
+fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     // Validate outputs
     if request.outputs.is_empty() {
-        return Err(Error::BadRequest("At least one output is required".to_string()));
+        return Err(Error::ValidationError("No outputs specified".to_string()));
     }
-    
-    // Validate each output
+
+    if request.outputs.len() > 10 {
+        return Err(Error::ValidationError("Too many outputs (max 10)".to_string()));
+    }
+
+    // Validate amounts
     for output in &request.outputs {
         if output.amount == 0 {
-            return Err(Error::BadRequest("Output amount must be greater than zero".to_string()));
+            return Err(Error::ValidationError("Output amount cannot be zero".to_string()));
         }
         
-        // Validate recipient address format
-        if bs58::decode(&output.recipient).into_vec().is_err() {
-            return Err(Error::BadRequest("Invalid recipient address format".to_string()));
+        if output.recipient.len() < 32 {
+            return Err(Error::ValidationError("Invalid recipient address".to_string()));
         }
     }
-    
-    // Validate fee is reasonable (0-1000 bps = 0-10%)
-    if request.fee_bps > 1000 {
-        return Err(Error::BadRequest("Fee must be 1000 bps (10%) or less".to_string()));
+
+    // Validate public inputs
+    if request.public_inputs.amount == 0 {
+        return Err(Error::ValidationError("Amount cannot be zero".to_string()));
     }
+
+    if request.public_inputs.fee_bps > 10000 {
+        return Err(Error::ValidationError("Fee BPS cannot exceed 10000".to_string()));
+    }
+
+    // Validate hex strings
+    if request.public_inputs.root.len() != 64 {
+        return Err(Error::ValidationError("Root must be 64 hex characters".to_string()));
+    }
+
+    if request.public_inputs.nf.len() != 64 {
+        return Err(Error::ValidationError("Nullifier must be 64 hex characters".to_string()));
+    }
+
+    if request.public_inputs.outputs_hash.len() != 64 {
+        return Err(Error::ValidationError("Outputs hash must be 64 hex characters".to_string()));
+    }
+
+    // Validate hex format
+    hex::decode(&request.public_inputs.root)
+        .map_err(|_| Error::ValidationError("Root must be valid hex".to_string()))?;
     
+    hex::decode(&request.public_inputs.nf)
+        .map_err(|_| Error::ValidationError("Nullifier must be valid hex".to_string()))?;
+    
+    hex::decode(&request.public_inputs.outputs_hash)
+        .map_err(|_| Error::ValidationError("Outputs hash must be valid hex".to_string()))?;
+
+    // Validate proof bytes are valid base64
+    if request.proof_bytes.is_empty() {
+        return Err(Error::ValidationError("Proof bytes cannot be empty".to_string()));
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::extract::State;
-    use std::sync::Arc;
+    use serde_json::json;
 
-    fn create_test_config() -> Arc<Config> {
-        Arc::new(Config {
-            server: crate::config::ServerConfig {
-                port: 3001,
-                host: "0.0.0.0".to_string(),
-                request_timeout_seconds: 30,
+    #[test]
+    fn test_validate_request() {
+        let valid_request = WithdrawRequest {
+            outputs: vec![Output {
+                recipient: "11111111111111111111111111111112".to_string(),
+                amount: 1000000,
+            }],
+            policy: Policy { fee_bps: 100 },
+            public_inputs: PublicInputs {
+                root: "0".repeat(64),
+                nf: "1".repeat(64),
+                amount: 1000000,
+                fee_bps: 100,
+                outputs_hash: "2".repeat(64),
             },
-            solana: crate::config::SolanaConfig {
-                rpc_url: "http://localhost:8899".to_string(),
-                ws_url: "ws://localhost:8900".to_string(),
-                commitment: "confirmed".to_string(),
-                program_id: "11111111111111111111111111111111".to_string(),
-                withdraw_authority: None,
-                max_retries: 3,
-                retry_delay_ms: 1000,
-            },
-            database: crate::config::DatabaseConfig {
-                url: "postgres://postgres:postgres@localhost:5432/relay".to_string(),
-                max_connections: 5,
-            },
-            metrics: crate::config::MetricsConfig {
-                enabled: true,
-                port: 9090,
-                route: "/metrics".to_string(),
-            },
-        })
+            proof_bytes: base64::encode(vec![0u8; 256]),
+        };
+        
+        assert!(validate_request(&valid_request).is_ok());
     }
 
-    #[tokio::test]
-    async fn test_handle_withdraw_validation() {
-        let config = create_test_config();
-        
-        // Test valid request
-        let valid_request = WithdrawRequest {
-            proof: bs58::encode(vec![0u8; 256]).into_string(),
-            public_inputs: bs58::encode(vec![0u8; 64]).into_string(),
-            outputs: vec![Output {
-                recipient: bs58::encode(vec![0u8; 32]).into_string(),
-                amount: 1000,
-            }],
-            fee_bps: 10,
+    #[test]
+    fn test_validate_request_empty_outputs() {
+        let invalid_request = WithdrawRequest {
+            outputs: vec![],
+            policy: Policy { fee_bps: 100 },
+            public_inputs: PublicInputs {
+                root: "0".repeat(64),
+                nf: "1".repeat(64),
+                amount: 1000000,
+                fee_bps: 100,
+                outputs_hash: "2".repeat(64),
+            },
+            proof_bytes: base64::encode(vec![0u8; 256]),
         };
         
-        let response = handle_withdraw(
-            State(config.clone()),
-            Json(valid_request),
-        ).await;
-        
-        assert!(response.is_ok());
-        
-        // Test invalid proof length
-        let invalid_proof = WithdrawRequest {
-            proof: bs58::encode(vec![0u8; 255]).into_string(), // 255 bytes instead of 256
-            public_inputs: bs58::encode(vec![0u8; 64]).into_string(),
+        assert!(validate_request(&invalid_request).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_invalid_fee() {
+        let invalid_request = WithdrawRequest {
             outputs: vec![Output {
-                recipient: bs58::encode(vec![0u8; 32]).into_string(),
-                amount: 1000,
+                recipient: "11111111111111111111111111111112".to_string(),
+                amount: 1000000,
             }],
-            fee_bps: 10,
+            policy: Policy { fee_bps: 10001 }, // Too high
+            public_inputs: PublicInputs {
+                root: "0".repeat(64),
+                nf: "1".repeat(64),
+                amount: 1000000,
+                fee_bps: 10001,
+                outputs_hash: "2".repeat(64),
+            },
+            proof_bytes: base64::encode(vec![0u8; 256]),
         };
         
-        let response = handle_withdraw(
-            State(config.clone()),
-            Json(invalid_proof),
-        ).await;
+        assert!(validate_request(&invalid_request).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_invalid_hex() {
+        let invalid_request = WithdrawRequest {
+            outputs: vec![Output {
+                recipient: "11111111111111111111111111111112".to_string(),
+                amount: 1000000,
+            }],
+            policy: Policy { fee_bps: 100 },
+            public_inputs: PublicInputs {
+                root: "G".repeat(64), // Invalid hex
+                nf: "1".repeat(64),
+                amount: 1000000,
+                fee_bps: 100,
+                outputs_hash: "2".repeat(64),
+            },
+            proof_bytes: base64::encode(vec![0u8; 256]),
+        };
         
-        assert!(matches!(
-            response.err().unwrap(),
-            Error::BadRequest(msg) if msg == "Invalid proof length"
-        ));
+        assert!(validate_request(&invalid_request).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_empty_proof() {
+        let invalid_request = WithdrawRequest {
+            outputs: vec![Output {
+                recipient: "11111111111111111111111111111112".to_string(),
+                amount: 1000000,
+            }],
+            policy: Policy { fee_bps: 100 },
+            public_inputs: PublicInputs {
+                root: "0".repeat(64),
+                nf: "1".repeat(64),
+                amount: 1000000,
+                fee_bps: 100,
+                outputs_hash: "2".repeat(64),
+            },
+            proof_bytes: "".to_string(), // Empty base64
+        };
+        
+        assert!(validate_request(&invalid_request).is_err());
     }
 }

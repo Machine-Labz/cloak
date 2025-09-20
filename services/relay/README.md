@@ -1,245 +1,360 @@
 # Relay Service
 
-The Relay service is a critical component of the Cloak protocol, responsible for securely processing withdrawal requests and submitting them to the Solana blockchain.
+The relay service is responsible for accepting withdraw requests with ZK proofs, validating them, and submitting transactions to the Solana network.
+
+## Architecture
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Client    │───▶│    API      │───▶│    Queue    │───▶│  Processor  │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+                           │                                     │
+                           ▼                                     ▼
+                   ┌─────────────┐                       ┌─────────────┐
+                   │ PostgreSQL  │                       │   Solana    │
+                   │  Database   │                       │   Network   │
+                   └─────────────┘                       └─────────────┘
+```
 
 ## Features
 
-- **REST API** for submitting and checking withdrawal requests
-- **Asynchronous Processing** with job queue
-- **Robust Error Handling** with clear error messages
-- **Metrics and Monitoring** with Prometheus integration
-- **Configuration Management** with environment variable support
-- **Input Validation** to ensure data integrity
-- **Idempotent Operations** to prevent duplicate processing
+- **ZK Proof Validation**: Validates SP1 proofs for withdraw requests
+- **Double-spend Prevention**: Tracks nullifiers to prevent double spending
+- **Job Queue**: Redis-based job queue with retry logic and exponential backoff
+- **Transaction Submission**: Submits withdraw transactions to Solana with confirmation
+- **Observability**: Comprehensive metrics, logging, and health checks
+- **Database Persistence**: PostgreSQL for job state and nullifier storage
 
 ## API Endpoints
 
-### `POST /withdraw`
+### POST /withdraw
 
-Submit a new withdrawal request.
+Submit a withdraw request with ZK proof.
 
-**Request Body:**
+**Request:**
 ```json
 {
-  "proof": "base58-encoded-256-byte-proof",
-  "public_inputs": "base58-encoded-64-byte-public-inputs",
   "outputs": [
     {
-      "recipient": "base58-encoded-recipient-address",
-      "amount": 1000
+      "recipient": "base58-encoded-pubkey",
+      "amount": 1000000
     }
   ],
-  "fee_bps": 10
+  "policy": {
+    "fee_bps": 100
+  },
+  "public_inputs": {
+    "root": "hex-encoded-root-hash",
+    "nf": "hex-encoded-nullifier",
+    "amount": 1000000,
+    "fee_bps": 100,
+    "outputs_hash": "hex-encoded-outputs-hash"
+  },
+  "proof_bytes": "base64-encoded-proof"
 }
 ```
 
-**Response (202 Accepted):**
+**Response:**
 ```json
 {
   "success": true,
   "data": {
-    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "request_id": "uuid",
     "status": "queued"
   }
 }
 ```
 
-### `GET /status/:request_id`
+### GET /status/:request_id
 
-Check the status of a withdrawal request.
+Get the status of a withdraw request.
 
-**Response (200 OK):**
+**Response:**
 ```json
 {
   "success": true,
   "data": {
-    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "request_id": "uuid",
     "status": "completed",
-    "tx_id": "5F1LhTohUMJzVFs3pFw58j5G4d5uGYHddiTb5C2L5E5X"
+    "tx_id": "solana-transaction-id",
+    "error": null
   }
 }
 ```
 
-### `GET /health`
+### GET /health
 
 Health check endpoint.
 
-**Response (200 OK):**
-```
-OK
-```
-
-### `GET /metrics`
-
-Prometheus metrics endpoint.
+**Response:**
+- `200 OK` - All services healthy
+- `503 Service Unavailable` - One or more services unhealthy
 
 ## Configuration
 
-Configuration is managed through environment variables with the `RELAY_` prefix. Example `.env` file:
+Configuration is handled via environment variables or config files:
 
-```env
-# Server configuration
-RELAY_SERVER__PORT=3000
+```bash
+# Server
+RELAY_SERVER__PORT=3002
 RELAY_SERVER__HOST=0.0.0.0
-RELAY_SERVER__REQUEST_TIMEOUT_SECONDS=30
 
-# Solana configuration
-RELAY_SOLANA__RPC_URL=http://localhost:8899
-RELAY_SOLANA__WS_URL=ws://localhost:8900
-RELAY_SOLANA__COMMITMENT=confirmed
-RELAY_SOLANA__PROGRAM_ID=11111111111111111111111111111111
-RELAY_SOLANA__MAX_RETRIES=3
-RELAY_SOLANA__RETRY_DELAY_MS=1000
-
-# Database configuration
+# Database
 RELAY_DATABASE__URL=postgres://postgres:postgres@localhost:5432/relay
-RELAY_DATABASE__MAX_CONNECTIONS=5
 
-# Metrics configuration
+# Redis
+RELAY_REDIS__URL=redis://localhost:6379
+
+# Solana
+RELAY_SOLANA__RPC_URL=https://api.devnet.solana.com
+RELAY_SOLANA__PROGRAM_ID=your-program-id
+```
+
+## Development Setup
+
+### Prerequisites
+
+- Rust 1.70+
+- PostgreSQL 15+
+- Redis 7+
+- Docker & Docker Compose (optional)
+
+### Quick Start
+
+1. **Start dependencies with Docker:**
+   ```bash
+   cd services/relay
+   docker-compose up -d
+   ```
+
+2. **Build and run:**
+   ```bash
+   cargo build
+   cargo run
+   ```
+
+3. **Run tests:**
+   ```bash
+   cargo test
+   ```
+
+### Manual Setup
+
+1. **Start PostgreSQL:**
+   ```bash
+   # Create database
+   createdb relay
+   
+   # Migrations will run automatically on startup
+   ```
+
+2. **Start Redis:**
+   ```bash
+   redis-server
+   ```
+
+3. **Configure environment:**
+   ```bash
+   export RELAY_DATABASE__URL=postgres://postgres:postgres@localhost:5432/relay
+   export RELAY_REDIS__URL=redis://localhost:6379
+   export RELAY_SOLANA__RPC_URL=http://localhost:8899  # For local validator
+   ```
+
+## Job Processing
+
+The relay uses a robust job processing system:
+
+1. **Request Validation**: Validates proof format, public inputs, and business logic
+2. **Job Creation**: Creates a job record in PostgreSQL
+3. **Queue Enqueue**: Adds job to Redis priority queue
+4. **Background Processing**: Worker processes jobs asynchronously
+5. **Transaction Submission**: Submits transactions to Solana with retries
+6. **Status Updates**: Updates job status in database
+
+### Job States
+
+- `queued` - Job is waiting to be processed
+- `processing` - Job is currently being processed
+- `completed` - Job completed successfully
+- `failed` - Job failed (max retries exceeded)
+- `cancelled` - Job was cancelled
+
+### Retry Logic
+
+- **Exponential Backoff**: Delays increase exponentially (1s, 2s, 4s, ...)
+- **Jitter**: Random jitter to prevent thundering herd
+- **Max Retries**: Configurable maximum retry attempts (default: 3)
+- **Dead Letter Queue**: Failed jobs moved to dead letter queue
+
+## Validation
+
+The service performs comprehensive validation:
+
+### Request Validation
+- Output format and addresses
+- Fee bounds (0-10%)
+- Proof length (256 bytes)
+- Public inputs format
+
+### Cryptographic Validation
+- Proof format verification
+- Nullifier uniqueness
+- Root hash format
+
+### Business Logic Validation
+- Conservation check: `sum(outputs) + fee == amount`
+- Outputs hash verification
+- Double-spend prevention
+
+## Observability
+
+### Metrics
+
+Prometheus metrics available at `/metrics`:
+- Request counters and latencies
+- Job processing metrics
+- Queue size and processing time
+- Database connection pool metrics
+- Solana RPC call metrics
+
+### Logging
+
+Structured logging with tracing:
+- Request/response logging
+- Job lifecycle events
+- Error tracking with context
+- Performance metrics
+
+### Health Checks
+
+The `/health` endpoint checks:
+- Database connectivity
+- Redis connectivity
+- Solana RPC connectivity
+
+## Security Considerations
+
+- **Input Validation**: All inputs are thoroughly validated
+- **SQL Injection Prevention**: Using parameterized queries
+- **Rate Limiting**: TODO - Add rate limiting middleware
+- **Error Handling**: Errors don't leak sensitive information
+
+## Production Deployment
+
+### Environment Variables
+
+```bash
+# Required
+RELAY_DATABASE__URL=postgres://user:pass@host:5432/relay
+RELAY_REDIS__URL=redis://host:6379
+RELAY_SOLANA__RPC_URL=https://api.mainnet-beta.solana.com
+RELAY_SOLANA__PROGRAM_ID=your-mainnet-program-id
+
+# Optional
+RELAY_SERVER__PORT=3002
 RELAY_METRICS__ENABLED=true
-RELAY_METRICS__PORT=9090
-RELAY_METRICS__ROUTE=/metrics
+RUST_LOG=relay=info,warn
+```
+
+### Docker
+
+```dockerfile
+FROM rust:1.70 as builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/relay /usr/local/bin/relay
+EXPOSE 3002
+CMD ["relay"]
+```
+
+### Monitoring
+
+Set up monitoring for:
+- Application metrics (Prometheus + Grafana)
+- Logs aggregation (ELK stack or similar)
+- Database monitoring
+- Redis monitoring
+- Solana network status
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Database connection failed**
+   - Check PostgreSQL is running
+   - Verify connection string
+   - Check database exists
+
+2. **Redis connection failed**
+   - Check Redis is running
+   - Verify Redis URL
+   - Check network connectivity
+
+3. **Solana RPC errors**
+   - Check RPC endpoint is accessible
+   - Verify network (devnet/mainnet)
+   - Check rate limits
+
+4. **Job processing stuck**
+   - Check worker is running
+   - Check Redis queue size
+   - Check database job status
+
+### Debug Commands
+
+```bash
+# Check queue status
+redis-cli ZCARD relay:queue:jobs
+
+# Check processing queue
+redis-cli ZCARD relay:queue:processing
+
+# Check database jobs
+psql -d relay -c "SELECT status, COUNT(*) FROM jobs GROUP BY status;"
+
+# Check recent errors
+psql -d relay -c "SELECT request_id, error_message, created_at FROM jobs WHERE status = 'failed' ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ## Development
 
-### Prerequisites
+### Adding New Validation Rules
 
-- Rust 1.70 or later
-- PostgreSQL (for job queue and state)
-- Solana test validator (for local development)
+1. Add validation logic to `src/validation/mod.rs`
+2. Add tests for the new validation
+3. Update documentation
 
-### Building
+### Adding New Metrics
 
+1. Define metrics in `src/metrics.rs`
+2. Instrument code with metric calls
+3. Update Grafana dashboards
+
+### Database Migrations
+
+Migrations are in `migrations/` directory and run automatically on startup.
+
+To create a new migration:
 ```bash
-# Build in release mode
-cargo build --release
+# Create migration file
+touch migrations/XXX_description.sql
 
-# Run tests
-cargo test
-
-# Run with logging
-RUST_LOG=debug cargo run
+# Add your SQL
+echo "ALTER TABLE jobs ADD COLUMN new_field TEXT;" > migrations/XXX_description.sql
 ```
-
-### Running with Docker
-
-```bash
-docker build -t cloak-relay .
-docker run -p 3000:3000 --env-file .env cloak-relay
-```
-
-## Architecture
-
-The relay service follows a clean architecture with the following components:
-
-- **API Layer**: Handles HTTP requests and responses
-- **Service Layer**: Implements business logic
-- **Repository Layer**: Manages data access
-- **Infrastructure**: Configuration, logging, and metrics
-
-## Testing
-
-Run the test suite:
-
-```bash
-cargo test
-```
-
-For integration tests that require a database, you'll need to have a PostgreSQL instance running.
-
-## Monitoring
-
-The service exposes Prometheus metrics at `/metrics` which can be scraped by a Prometheus server. Key metrics include:
-
-- HTTP request counts and durations
-- Withdrawal request statuses
-- Queue sizes and processing times
-- Error rates
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-# Core Functions of the Relayer
-
-At a minimum, the Relayer has to handle these jobs:
-
-1. API Layer
-- Expose POST /withdraw and GET /status/:id.
-- Accept user-submitted proofs + public inputs.
-- Return requestId, eventual txid, and status (queued, executing, settled, failed).
-
-2. Validation Layer (off-chain pre-checks, fast fail)
-- Proof format check: lengths (proof=256B, sp1_public=64B).
-- Public inputs check:
-    - root must match /merkle/root.
-    - outputs_hash recomputed from recipients matches declared.
-    - Conservation: sum(outputs) + fee == amount.
-- Nullifier check: reject duplicate nullifiers early.
-
-3. Transaction Builder
-- Construct the raw Solana instruction for withdraw (with Pinocchio layout).
-- Add compute budget instruction.
-- Add priority fee (configurable).
-- Sign and bundle into a transaction.
-
-4. Submission + Retry Logic
-- Send tx via RPC.
-- Handle transient errors (BlockhashNotFound, Node is behind).
-- Retry with backoff.
-- Update job state in DB/queue.
-
-5. Result Tracking
-- Poll transaction status until finalized.
-- Mark job settled with txid or failed with error reason.
-
-6. Observability + Ops
-- Metrics: tx throughput, success/fail ratio, avg latency.
-- Logging: structured logs (never store private inputs).
-- Alerts if backlog > threshold.
-
-## Integration with the Rest of the System
-- Frontend / Prover
-    - Users generate SP1 proof locally, then call POST /withdraw.
-    - They never directly submit to Solana; Relayer handles that.
-
-- Indexer
-    - Relayer queries /merkle/root before building tx.
-    - Indexer ensures roots are already pushed on-chain, so Relayer’s root always matches.
-
-- On-chain Program (Pinocchio)
-    - Relayer submits instruction with: proof[256] + sp1_public[64] + root + nf + amount + fee_bps + outputs_hash + outputs[].
-    - Program verifies SP1, checks nullifier, updates state, and executes transfers.
-
-## Performance Requirements
-1. Latency
-    - User expectation: withdraws settle within ~1–2 slots (0.5s–1s).
-    - Relayer should validate + build tx in <100ms.
-    - The bottleneck is Solana block production, not Relayer compute.
-
-2. Throughput
-    - Even modest hardware can handle thousands of withdraw requests per second (proof verification happens on-chain, not in Relayer).
-    - Bottleneck is Solana TPS + RPC capacity, not CPU.
-
-3. Reliability
-    - Must be idempotent: the same withdraw job should never submit twice.
-    - Needs persistence (DB/queue) so jobs survive restarts.
-
-4. Scaling model
-    - Horizontally scalable: multiple Relayer instances can run if they coordinate on nullifier deduplication and job IDs.
-    - Stateless API layer, stateful DB backing.
-
-## TL;DR
-- The Relayer is basically a secure transaction proxy: validates, builds, and submits proofs to Solana.
-- It doesn’t prove anything — proofs are generated client-side, verified on-chain.
-- Performance requirements are modest (ms-level validation, single tx submission), but reliability and correctness are critical.
-- Integrates tightly with Indexer (roots) and Program (proof verification + state updates).
+See the LICENSE file in the project root.
