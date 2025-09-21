@@ -43,12 +43,12 @@ fn main() -> Result<()> {
             // Setup
             let client = ProverClient::from_env();
             let (pk, _vk) = client.setup(ELF);
-            
+
             // Read input files
             let private_json = fs::read_to_string(&private)?;
             let public_json = fs::read_to_string(&public)?;
             let outputs_json = fs::read_to_string(&outputs)?;
-            
+
             // Create combined input
             let combined_input = format!(
                 r#"{{
@@ -58,26 +58,29 @@ fn main() -> Result<()> {
                 }}"#,
                 private_json, public_json, outputs_json
             );
-            
+
             // Generate proof
             let mut stdin = SP1Stdin::new();
             stdin.write(&combined_input);
-            
+
             let proof_result = client.prove(&pk, &stdin).groth16().run()?;
-            
+
             // Save proof
             proof_result.save(&proof)?;
-            
+
             // Save public inputs
             let sp1_proof_with_public_values = SP1ProofWithPublicValues::load(&proof)?;
             let public_inputs = sp1_proof_with_public_values.public_values.to_vec();
             let public_inputs_len = public_inputs.len();
             fs::write(&pubout, public_inputs)?;
-            
+
             println!("Proof generated successfully!");
-            println!("Proof size: {} bytes", sp1_proof_with_public_values.bytes().len());
+            println!(
+                "Proof size: {} bytes",
+                sp1_proof_with_public_values.bytes().len()
+            );
             println!("Public inputs size: {} bytes", public_inputs_len);
-            
+
             Ok(())
         }
     }

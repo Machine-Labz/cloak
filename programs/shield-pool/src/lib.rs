@@ -49,18 +49,4 @@ pub fn process_instruction(
         ShieldPoolInstruction::Withdraw => process_withdraw_instruction(accounts, instruction_data),
     }
 }
-pub fn compute_outputs_hash_blake3(
-    recipient: &Pubkey,
-    amount: u64,
-) -> Result<[u8; HASH_SIZE], ProgramError> {
-    // Prepare input data for BLAKE3
-    let mut input_data = Vec::new();
-    input_data.extend_from_slice(recipient.as_ref());
-    input_data.extend_from_slice(&amount.to_le_bytes());
 
-    let mut hash_result = [0u8; HASH_SIZE];
-    let hash = blake3::hash(&input_data);
-    hash_result.copy_from_slice(hash.as_bytes());
-
-    Ok(hash_result)
-}

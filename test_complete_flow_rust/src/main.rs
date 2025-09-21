@@ -14,6 +14,8 @@ use solana_sdk::{
 };
 use std::str::FromStr;
 
+const SOL_TO_LAMPORTS: u64 = 1_000_000_000;
+
 #[derive(Debug, Serialize, Deserialize)]
 struct MerkleProof {
     pathElements: Vec<String>,
@@ -228,16 +230,16 @@ fn create_withdraw_instruction(
     nullifier_shard_pubkey: &Pubkey,
     recipient_pubkey: &Pubkey,
     program_id: &Pubkey,
-    sp1_proof: &[u8],
-    sp1_public_inputs: &[u8],
+    proof_bytes: &[u8],
+    raw_public_inputs: &[u8],
     nullifier: &[u8; 32],
     num_outputs: u8,
     recipient_amount: u64,
 ) -> Instruction {
     let mut data = Vec::new();
     data.push(3u8); // Withdraw discriminator
-    data.extend_from_slice(sp1_proof); // 260 bytes
-    data.extend_from_slice(sp1_public_inputs); // 106 bytes (root + nf + fee_bps + outputs_hash + amount)
+    data.extend_from_slice(proof_bytes); // Full proof bytes (as in official example)
+    data.extend_from_slice(raw_public_inputs); // Raw public inputs (as in official example)
     data.extend_from_slice(nullifier); // 32 bytes (for nullifier check)
     data.push(num_outputs); // 1 byte
     data.extend_from_slice(&recipient_pubkey.to_bytes()); // 32 bytes
@@ -284,7 +286,20 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
         Keypair::from_bytes(&admin_keypair_data).unwrap()
     };
+    let recipient_keypair = {
+        let user_keypair_data: Vec<u8> = serde_json::from_str(
+            &std::fs::read_to_string("recipient-keypair.json")
+                .unwrap_or_else(|_| panic!("Failed to read recipient-keypair.json")),
+        )
+        .unwrap();
+        Keypair::from_bytes(&user_keypair_data).unwrap()
+    };
     let program_id = Pubkey::from_str("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp")?;
+
+    println!("   Recipient ({}): {} SOL", 
+        recipient_keypair.pubkey(),
+        client.get_balance(&recipient_keypair.pubkey())? / SOL_TO_LAMPORTS
+    );
 
     // Check balances
     let user_balance = client.get_balance(&user_keypair.pubkey())?;
@@ -293,26 +308,30 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "   User ({}): {} SOL",
         user_keypair.pubkey(),
-        user_balance / 1_000_000_000
+        user_balance / SOL_TO_LAMPORTS
     );
     println!(
         "   Admin ({}): {} SOL",
         admin_keypair.pubkey(),
-        admin_balance / 1_000_000_000
+        admin_balance / SOL_TO_LAMPORTS
     );
 
-    // Transfer SOL from admin to user for testing
-    println!("\n💰 Transferring SOL from admin to user...");
-    let transfer_ix = system_instruction::transfer(
-        &admin_keypair.pubkey(),
-        &user_keypair.pubkey(),
-        50_000_000_000,
-    ); // 50 SOL
-    let mut transfer_tx =
-        Transaction::new_with_payer(&[transfer_ix], Some(&admin_keypair.pubkey()));
-    transfer_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
-    client.send_and_confirm_transaction(&transfer_tx)?;
-    println!("   ✅ Transfer successful");
+    // Transfer SOL from admin to user for testing (only if user has <100 SOL)
+    if user_balance < 100_000_000_000 {
+        println!("\n💰 Transferring SOL from admin to user...");
+        let transfer_ix = system_instruction::transfer(
+            &admin_keypair.pubkey(),
+            &user_keypair.pubkey(),
+            50_000_000_000,
+        ); // 50 SOL
+        let mut transfer_tx =
+            Transaction::new_with_payer(&[transfer_ix], Some(&admin_keypair.pubkey()));
+        transfer_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
+        client.send_and_confirm_transaction(&transfer_tx)?;
+        println!("   ✅ Transfer successful");
+    } else {
+        println!("\n💰 User has sufficient SOL ({} SOL), skipping transfer", user_balance / SOL_TO_LAMPORTS);
+    }
 
     // Step 0: Deploy the program
     println!("\n🚀 Step 0: Deploying Program...");
@@ -361,11 +380,10 @@ async fn main() -> anyhow::Result<()> {
     println!("   - Nullifier Shard: {}", nullifier_shard_pubkey);
     println!("   - Treasury: {}", treasury_pubkey);
 
-    // Step 2: Fund pool account
-    println!("\n💰 Step 2: Funding Pool Account...");
-    let fund_amount = 1_000_000_000; // 1 SOL
-    fund_pool(&client, &user_keypair, &pool_pubkey, fund_amount).await?;
-    println!("   ✅ Pool funded with {} lamports", fund_amount);
+    // Step 2: Pool account created (no funding needed - will be filled by deposits)
+    println!("\n💰 Step 2: Pool Account Ready...");
+    println!("   ✅ Pool account created with rent-exempt minimum balance");
+    println!("   ℹ️  Pool will be filled by user deposits, not admin funding");
 
     // Step 3: Generate test data
     println!("\n🔨 Step 3: Generating Test Data...");
@@ -413,7 +431,7 @@ async fn main() -> anyhow::Result<()> {
         leafCommit: commitment_hex.clone(),
         encryptedOutput: base64::encode(format!(
             "Deposit {} SOL at {}",
-            amount / 1_000_000_000,
+            amount / SOL_TO_LAMPORTS,
             timestamp
         )),
         txSignature: format!("deposit_{}", timestamp),
@@ -463,6 +481,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Step 6: Create real deposit transaction
     println!("\n💰 Step 6: Creating Real Deposit Transaction...");
+    
+    // Log balances before deposit
+    let user_balance_before_deposit = client.get_balance(&user_keypair.pubkey())?;
+    let pool_balance_before_deposit = client.get_balance(&pool_pubkey)?;
+    
+    println!("   📊 Balances BEFORE deposit:");
+    println!("      - User wallet: {} SOL", user_balance_before_deposit / SOL_TO_LAMPORTS);
+    println!("      - Pool account: {} SOL", pool_balance_before_deposit / SOL_TO_LAMPORTS);
+    
     let commitment_array: [u8; 32] = hex::decode(&commitment_hex).unwrap().try_into().unwrap();
     let deposit_ix = create_deposit_instruction(
         &user_keypair.pubkey(),
@@ -476,6 +503,21 @@ async fn main() -> anyhow::Result<()> {
     let mut deposit_tx = Transaction::new_with_payer(&[deposit_ix], Some(&user_keypair.pubkey()));
     deposit_tx.sign(&[&user_keypair], client.get_latest_blockhash()?);
     client.send_and_confirm_transaction(&deposit_tx)?;
+    
+    // Log balances after deposit
+    let user_balance_after_deposit = client.get_balance(&user_keypair.pubkey())?;
+    let pool_balance_after_deposit = client.get_balance(&pool_pubkey)?;
+    
+    println!("   📊 Balances AFTER deposit:");
+    println!("      - User wallet: {} SOL (Δ: {:+})", 
+        user_balance_after_deposit / SOL_TO_LAMPORTS,
+        (user_balance_after_deposit as i64 - user_balance_before_deposit as i64) / SOL_TO_LAMPORTS as i64
+    );
+    println!("      - Pool account: {} SOL (Δ: {:+})", 
+        pool_balance_after_deposit / SOL_TO_LAMPORTS,
+        (pool_balance_after_deposit as i64 - pool_balance_before_deposit as i64) / SOL_TO_LAMPORTS as i64
+    );
+    
     println!("   ✅ Real deposit transaction successful");
 
     // Step 7: Get Merkle root from indexer
@@ -618,24 +660,28 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Create single output (amount - fee = 1,000,000,000 - 6,000,000 = 994,000,000)
-    let fee = (amount * 60) / 10000; // 0.6% fee
-    let total_outputs = amount - fee;
+    // Calculate fees: 0.05 SOL fixed + 0.005% variable
+    let fixed_fee = 50_000_000; // 0.05 SOL
+    let variable_fee = (amount * 5) / 100000; // 0.005% = 5/100000
+    let total_fee = fixed_fee + variable_fee;
+    let total_outputs = amount - total_fee;
     let outputs = serde_json::json!([
         {
-            "address": user_keypair.pubkey().to_string(),
+            "address": recipient_keypair.pubkey().to_string(),
             "amount": total_outputs  // Single output gets all remaining amount
         }
     ]);
 
-    println!("   - Fee (60 bps): {} lamports", fee);
+    println!("   - Fixed fee (0.05 SOL): {} lamports", fixed_fee);
+    println!("   - Variable fee (0.005%): {} lamports", variable_fee);
+    println!("   - Total fee: {} lamports", total_fee);
     println!("   - Total outputs: {} lamports", total_outputs);
 
     // Compute outputs hash exactly like SP1 guest program
     let mut hasher = Hasher::new();
 
     // Single output
-    let recipient_address = user_keypair.pubkey().to_bytes();
+    let recipient_address = recipient_keypair.pubkey().to_bytes();
     hasher.update(&recipient_address);
     hasher.update(&total_outputs.to_le_bytes());
 
@@ -644,10 +690,10 @@ async fn main() -> anyhow::Result<()> {
     println!("   - Outputs hash: {}", outputs_hash_hex);
 
     // Update public inputs with correct outputs hash
+    // Note: fee_bps removed since fee is fixed in the program
     let public_inputs = serde_json::json!({
         "root": merkle_root,
         "nf": hex::encode(nullifier.as_bytes()),
-        "fee_bps": 60,
         "outputs_hash": outputs_hash_hex,
         "amount": amount
     });
@@ -713,6 +759,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Step 13: Execute Withdraw Transaction
     println!("\n💸 Step 13: Executing Withdraw Transaction...");
+    
+    // Log balances before withdraw
+    let user_balance_before = client.get_balance(&user_keypair.pubkey())?;
+    let admin_balance_before = client.get_balance(&admin_keypair.pubkey())?;
+    let pool_balance_before = client.get_balance(&pool_pubkey)?;
+    let recipient_balance_before = client.get_balance(&recipient_keypair.pubkey())?;
+    
+    println!("   📊 Balances BEFORE withdraw:");
+    println!("      - User wallet: {} SOL", user_balance_before / SOL_TO_LAMPORTS);
+    println!("      - Admin wallet: {} SOL", admin_balance_before / SOL_TO_LAMPORTS);
+    println!("      - Pool account: {} SOL", pool_balance_before / SOL_TO_LAMPORTS);
+    println!("      - Recipient wallet: {} SOL", recipient_balance_before / SOL_TO_LAMPORTS);
 
     // Read the generated proof files using SP1 SDK proper deserialization
     use sp1_sdk::SP1ProofWithPublicValues;
@@ -720,26 +778,44 @@ async fn main() -> anyhow::Result<()> {
     let sp1_proof_with_public_values =
         SP1ProofWithPublicValues::load("packages/zk-guest-sp1/out/proof_live.bin")?;
 
-    // Extract the Groth16 proof bytes (exactly 260 bytes)
+    // Use the proof bytes directly as in the official example
     let full_proof_bytes = sp1_proof_with_public_values.bytes();
-    let sp1_proof_bytes = full_proof_bytes[0..260].to_vec(); // Take only the first 260 bytes (Groth16 portion)
-    let sp1_proof = &sp1_proof_bytes;
+    let raw_public_inputs = sp1_proof_with_public_values.public_values.to_vec();
 
     println!(
-        "   - SP1 proof size: {} bytes (extracted Groth16: {} bytes)",
-        full_proof_bytes.len(),
-        sp1_proof.len()
+        "   - Full SP1 proof size: {} bytes",
+        full_proof_bytes.len()
+    );
+    println!(
+        "   - Raw public inputs size: {} bytes",
+        raw_public_inputs.len()
+    );
+
+    // Extract the 256-byte proof (without vkey hash) as in the working example
+    let proof_bytes = &full_proof_bytes[4..]; // Skip 4-byte vkey hash, get 256 bytes
+    println!(
+        "   - Extracted proof size: {} bytes",
+        proof_bytes.len()
+    );
+
+    // Use the full 104-byte public inputs (our format)
+    let public_inputs_104 = &raw_public_inputs;
+    println!(
+        "   - Using full public inputs size: {} bytes",
+        public_inputs_104.len()
     );
 
     // Prepare withdraw data
-    let fee_bps = 60u16;
-    let fee = (amount * fee_bps as u64) / 10000;
-    let recipient_amount = total_outputs; // Use the same amount as total_outputs
+    let fee_bps = 5u16; // 0.005% = 5 bps
+    let fixed_fee = 50_000_000; // 0.05 SOL
+    let variable_fee = (amount * fee_bps as u64) / 100000; // 0.005% = 5/100000
+    let total_fee = fixed_fee + variable_fee;
+    let recipient_amount = amount - total_fee; // Use the same amount as total_outputs
     let num_outputs = 1u8;
 
     // Compute outputs hash for withdraw
     let mut outputs_hasher = Hasher::new();
-    outputs_hasher.update(&user_keypair.pubkey().to_bytes());
+    outputs_hasher.update(&recipient_keypair.pubkey().to_bytes());
     outputs_hasher.update(&recipient_amount.to_le_bytes());
     let outputs_hash = outputs_hasher.finalize();
     let outputs_hash_array: [u8; 32] = *outputs_hash.as_bytes();
@@ -759,15 +835,16 @@ async fn main() -> anyhow::Result<()> {
     let sp1_public_inputs = &public_inputs;
 
     // Create withdraw instruction with proper Groth16 proof format
+    // We send: [260 bytes proof with vkey hash][104 bytes public inputs]
     let withdraw_ix = create_withdraw_instruction(
         &pool_pubkey,
         &treasury_pubkey,
         &roots_ring_pubkey,
         &nullifier_shard_pubkey,
-        &user_keypair.pubkey(),
+        &recipient_keypair.pubkey(),
         &program_id,
-        sp1_proof,         // 260 bytes Groth16 proof
-        sp1_public_inputs, // 106 bytes public inputs
+        &full_proof_bytes,  // 260-byte proof (with vkey hash)
+        public_inputs_104,  // 104-byte public inputs (our format)
         &nullifier.as_bytes(),
         num_outputs,
         recipient_amount,
@@ -779,28 +856,56 @@ async fn main() -> anyhow::Result<()> {
     );
     println!(
         "   - Expected minimum size: {} bytes",
-        260 + 106 + 32 + 1 + 32 + 8
-    ); // without discriminator
+        260 + 104 + 32 + 1 + 32 + 8
+    ); // 260-byte proof + 104-byte public inputs + other data (without discriminator)
 
     // Set higher compute unit limit for SP1 proof verification
     let compute_unit_ix = ComputeBudgetInstruction::set_compute_unit_limit(500_000);
     let mut withdraw_tx = Transaction::new_with_payer(
-        &[compute_unit_ix, withdraw_ix],
-        Some(&user_keypair.pubkey()),
+        &[
+            // compute_unit_ix, 
+            withdraw_ix
+        ],
+        Some(&admin_keypair.pubkey()), // Admin pays for withdraw transaction to maintain privacy
     );
-    withdraw_tx.sign(&[&user_keypair], client.get_latest_blockhash()?);
+    withdraw_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
 
     match client.send_and_confirm_transaction(&withdraw_tx) {
         Ok(signature) => {
             println!("   🎉 WITHDRAW SUCCESSFUL!");
             println!("   📝 Transaction signature: {}", signature);
+            
+            // Log balances after withdraw
+            let user_balance_after = client.get_balance(&user_keypair.pubkey())?;
+            let admin_balance_after = client.get_balance(&admin_keypair.pubkey())?;
+            let pool_balance_after = client.get_balance(&pool_pubkey)?;
+            let recipient_balance_after = client.get_balance(&recipient_keypair.pubkey())?;
+            
+            println!("   📊 Balances AFTER withdraw:");
+            println!("      - User wallet: {} SOL (Δ: {:+})", 
+                user_balance_after / SOL_TO_LAMPORTS,
+                (user_balance_after as i64 - user_balance_before as i64) / SOL_TO_LAMPORTS as i64
+            );
+            println!("      - Admin wallet: {} SOL (Δ: {:+})", 
+                admin_balance_after / SOL_TO_LAMPORTS,
+                (admin_balance_after as i64 - admin_balance_before as i64) / SOL_TO_LAMPORTS as i64
+            );
+            println!("      - Pool account: {} SOL (Δ: {:+})", 
+                pool_balance_after / SOL_TO_LAMPORTS,
+                (pool_balance_after as i64 - pool_balance_before as i64) / SOL_TO_LAMPORTS as i64
+            );
+            println!("      - Recipient wallet: {} SOL (Δ: {:+})", 
+                recipient_balance_after / SOL_TO_LAMPORTS,
+                (recipient_balance_after as i64 - recipient_balance_before as i64) / SOL_TO_LAMPORTS as i64
+            );
+            
             println!(
                 "   💰 Amount withdrawn: {} lamports ({:.2} SOL)",
                 recipient_amount,
-                recipient_amount as f64 / 1_000_000_000.0
+                recipient_amount as f64 / SOL_TO_LAMPORTS as f64
             );
             println!("   🔐 Used Merkle root: {}", merkle_root);
-            println!("   🎯 Recipient: {}", user_keypair.pubkey());
+            println!("   🎯 Recipient: {}", recipient_keypair.pubkey());
         }
         Err(error) => {
             println!("   ❌ Withdraw failed: {}", error);
@@ -833,7 +938,7 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "   - Amount: {} lamports ({} SOL)",
         amount,
-        amount / 1_000_000_000
+        amount / SOL_TO_LAMPORTS
     );
 
     println!("\n🚀 The Cloak privacy protocol is now fully functional!");
