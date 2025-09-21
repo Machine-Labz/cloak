@@ -117,9 +117,57 @@ pub fn parse_address(addr_str: &str) -> Result<[u8; 32]> {
     parse_hex32(addr_str)
 }
 
+// Custom serde for hex arrays
+mod hex_array_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(elements: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_strings: Vec<String> = elements.iter().map(|e| hex::encode(e)).collect();
+        hex_strings.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 32]>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_strings = Vec::<String>::deserialize(deserializer)?;
+        hex_strings
+            .into_iter()
+            .map(|s| parse_hex32(&s).map_err(serde::de::Error::custom))
+            .collect()
+    }
+}
+
+// Custom serde for address field to handle both base58 and hex
+mod address_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(address: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_str = hex::encode(address);
+        serializer.serialize_str(&hex_str)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        parse_address(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Output structure for withdraw
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Output {
+    #[serde(with = "address_serde")]
     pub address: [u8; 32],
     pub amount: u64,
 }
@@ -147,6 +195,7 @@ pub struct PublicInputs {
 /// Merkle path structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerklePath {
+    #[serde(with = "hex_array_serde")]
     pub path_elements: Vec<[u8; 32]>,
     pub path_indices: Vec<u8>,
 }

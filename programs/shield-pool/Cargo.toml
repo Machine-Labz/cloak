@@ -12,12 +12,15 @@ default = []
 no-entrypoint = []
 
 [dependencies]
-pinocchio = { workspace = true }
+pinocchio.workspace = true
+pinocchio-system = { workspace = true }
 sp1-solana = { workspace = true }
 five8_const = { workspace = true }
 hex = { workspace = true }
 blake3 = { workspace = true }
 solana-blake3-hasher = "3.0.0"
+sha2 = { workspace = true }
+pinocchio-token = { workspace = true }
 
 [dev-dependencies]
 solana-program-test = { workspace = true }
