@@ -29,7 +29,7 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 # Database (simplified for now)
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono", "json"] }
 
 # Redis for job queue
 redis = { version = "0.23", features = ["tokio-comp"] }

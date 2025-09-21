@@ -4,34 +4,46 @@ use axum::{
     Json,
 };
 use uuid::Uuid;
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 
 use crate::{
     api::{ApiResponse, StatusResponse},
     AppState,
+    db::repository::JobRepository,
     error::Error,
 };
 
 pub async fn get_status(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(request_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, Error> {
+    info!("Status endpoint called for request: {}", request_id);
     debug!("Getting status for request: {}", request_id);
 
-    // For now, we'll return a mock response since we don't have full DB integration
-    // In a real implementation, this would query the database
-    
-    // Simulate some basic logic - in reality this would come from the database
-    let response = StatusResponse {
-        request_id,
-        status: "completed".to_string(), // Mock status
-        tx_id: Some("mock_tx_123456789".to_string()),
-        error: None,
-        created_at: chrono::Utc::now() - chrono::Duration::minutes(5), // 5 minutes ago
-        completed_at: Some(chrono::Utc::now() - chrono::Duration::minutes(1)), // 1 minute ago
-    };
-
-    Ok(Json(ApiResponse::success(response)))
+    // Look up job by request ID
+    info!("Querying database for job with request_id: {}", request_id);
+    match state.job_repo.get_job_by_request_id(request_id).await {
+        Ok(Some(job)) => {
+            info!("Job found in database: {:?}", job.status);
+            let response = StatusResponse {
+                request_id,
+                status: job.status.to_string(),
+                tx_id: job.tx_id.clone(),
+                error: job.error_message.clone(),
+                created_at: job.created_at,
+                completed_at: job.completed_at,
+            };
+            Ok(Json(ApiResponse::success(response)))
+        }
+        Ok(None) => {
+            warn!("Job not found in database for request ID: {}", request_id);
+            Err(Error::NotFound)
+        }
+        Err(e) => {
+            warn!("Database error while looking up job {}: {}", request_id, e);
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -4,13 +4,16 @@ use axum::{
     Json,
 };
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use tracing::info;
 
 use crate::{
     api::{ApiResponse, WithdrawResponse},
+    db::models::CreateJob,
+    db::repository::{JobRepository, NullifierRepository},
     error::Error,
+    queue::JobMessage,
     AppState,
 };
 
@@ -22,7 +25,7 @@ pub struct WithdrawRequest {
     pub proof_bytes: String, // base64 encoded
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Output {
     pub recipient: String, // Solana address as string
     pub amount: u64,
@@ -43,7 +46,7 @@ pub struct PublicInputs {
 }
 
 pub async fn handle_withdraw(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
     info!("Received withdraw request");
@@ -51,35 +54,59 @@ pub async fn handle_withdraw(
     // Validate the request
     validate_request(&payload)?;
 
-    // For now, we'll create a mock response since we don't have full DB integration
     let request_id = Uuid::new_v4();
-    
     info!("Processing withdraw request with ID: {}", request_id);
 
-    // Simulate basic validation
-    let fee_amount = (payload.public_inputs.amount * payload.public_inputs.fee_bps as u64) / 10000;
-    let total_output_amount: u64 = payload.outputs.iter().map(|o| o.amount).sum();
-    
-    // Check conservation
-    if total_output_amount + fee_amount != payload.public_inputs.amount {
-        return Err(Error::ValidationError(
-            "Conservation check failed: outputs + fee != amount".to_string()
-        ));
-    }
-
-    // Check policy consistency
-    if payload.policy.fee_bps != payload.public_inputs.fee_bps {
-        return Err(Error::ValidationError(
-            "Fee BPS mismatch between policy and public inputs".to_string()
-        ));
-    }
-
-    // Decode proof bytes to validate format
-    let _proof_bytes = base64::engine::general_purpose::STANDARD
+    // Decode and validate proof bytes
+    let proof_bytes = base64::engine::general_purpose::STANDARD
         .decode(&payload.proof_bytes)
         .map_err(|e| Error::ValidationError(format!("Invalid proof base64: {}", e)))?;
 
-    info!("Withdraw request validated successfully");
+    // Parse public inputs
+    let root_hash = hex::decode(&payload.public_inputs.root)
+        .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
+    let nullifier = hex::decode(&payload.public_inputs.nf)
+        .map_err(|e| Error::ValidationError(format!("Invalid nullifier hex: {}", e)))?;
+    let outputs_hash = hex::decode(&payload.public_inputs.outputs_hash)
+        .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
+
+    // Check for nullifier double-spend
+    if state.nullifier_repo.exists_nullifier(&nullifier).await? {
+        return Err(Error::ValidationError("Nullifier already exists (double spend)".to_string()));
+    }
+
+    // Encode public inputs for storage
+    let mut public_inputs_bytes = Vec::new();
+    public_inputs_bytes.extend_from_slice(&root_hash);
+    public_inputs_bytes.extend_from_slice(&nullifier);
+    public_inputs_bytes.extend_from_slice(&payload.public_inputs.amount.to_le_bytes());
+    public_inputs_bytes.extend_from_slice(&payload.public_inputs.fee_bps.to_le_bytes());
+    public_inputs_bytes.extend_from_slice(&outputs_hash);
+
+    // Create job in database
+    let create_job = CreateJob {
+        request_id,
+        proof_bytes,
+        public_inputs: public_inputs_bytes,
+        outputs_json: serde_json::to_value(&payload.outputs)
+            .map_err(|e| Error::InternalServerError(format!("Failed to serialize outputs: {}", e)))?,
+        fee_bps: payload.policy.fee_bps as i16,
+        root_hash,
+        nullifier: nullifier.clone(),
+        amount: payload.public_inputs.amount as i64,
+        outputs_hash,
+    };
+    
+    let job = state.job_repo.create_job(create_job).await?;
+    
+    // Create nullifier record
+    state.nullifier_repo.create_nullifier(nullifier, job.id).await?;
+    
+    // Add to processing queue
+    let job_message = JobMessage::new(job.id, request_id);
+    state.queue.enqueue(job_message).await?;
+
+    info!("Withdraw request queued successfully: {}", request_id);
 
     // Create successful response
     let response = WithdrawResponse {
@@ -119,6 +146,23 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
 
     if request.public_inputs.fee_bps > 10000 {
         return Err(Error::ValidationError("Fee BPS cannot exceed 10000".to_string()));
+    }
+
+    // Check conservation
+    let fee_amount = (request.public_inputs.amount * request.public_inputs.fee_bps as u64) / 10000;
+    let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
+    
+    if total_output_amount + fee_amount != request.public_inputs.amount {
+        return Err(Error::ValidationError(
+            "Conservation check failed: outputs + fee != amount".to_string()
+        ));
+    }
+
+    // Check policy consistency
+    if request.policy.fee_bps != request.public_inputs.fee_bps {
+        return Err(Error::ValidationError(
+            "Fee BPS mismatch between policy and public inputs".to_string()
+        ));
     }
 
     // Validate hex strings

@@ -1,5 +1,7 @@
 mod api;
+mod db;
 mod error;
+mod queue;
 
 use axum::{
     response::Json,
@@ -7,24 +9,55 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use crate::db::repository::{PostgresJobRepository, PostgresNullifierRepository};
+use crate::queue::{redis_queue::RedisJobQueue, JobQueue, QueueConfig};
+
 #[derive(Clone)]
 pub struct AppState {
-    // For now, this is empty since we're using mock implementations
-    // In the future, this would contain database pools, Redis connections, etc.
+    pub db_pool: db::DatabasePool,
+    pub job_repo: Arc<PostgresJobRepository>,
+    pub nullifier_repo: Arc<PostgresNullifierRepository>,
+    pub queue: Arc<dyn JobQueue>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self {}
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        // Database connection
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/relay".to_string());
+        
+        let db_pool = db::connect(&database_url).await?;
+        db::run_migrations(&db_pool).await?;
+
+        // Create repositories
+        let job_repo = Arc::new(PostgresJobRepository::new(db_pool.clone()));
+        let nullifier_repo = Arc::new(PostgresNullifierRepository::new(db_pool.clone()));
+
+        // Redis connection
+        let redis_url = std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string());
+        
+        let queue_config = QueueConfig::default();
+        let queue: Arc<dyn JobQueue> = Arc::new(
+            RedisJobQueue::new(&redis_url, queue_config).await?
+        );
+
+        Ok(Self {
+            db_pool,
+            job_repo,
+            nullifier_repo,
+            queue,
+        })
     }
 
     #[cfg(test)]
     pub fn mock() -> Self {
-        Self {}
+        // This would need proper mock implementations for testing
+        panic!("Mock implementation not available yet")
     }
 }
 
@@ -37,8 +70,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Cloak Relay Service");
 
-    // Create application state
-    let app_state = AppState::new();
+    // Create application state with real connections
+    let app_state = AppState::new().await?;
 
     // Build our application with routes
     let app = Router::new()
@@ -47,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
         .layer(TraceLayer::new_for_http())
-        .with_state(app_state);
+        .with_state(app_state.clone());
 
     // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));

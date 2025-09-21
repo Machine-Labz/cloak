@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::types::JsonValue;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "job_status", rename_all = "lowercase")]
 pub enum JobStatus {
     Queued,
-    Processing, 
+    Processing,
     Completed,
     Failed,
     Cancelled,
@@ -25,7 +25,7 @@ impl std::fmt::Display for JobStatus {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Job {
     pub id: Uuid,
     pub request_id: Uuid,
@@ -34,10 +34,10 @@ pub struct Job {
     // Request data
     pub proof_bytes: Vec<u8>,
     pub public_inputs: Vec<u8>,
-    pub outputs_json: serde_json::Value,
+    pub outputs_json: JsonValue,
     pub fee_bps: i16,
     
-    // Extracted public inputs
+    // Extracted public inputs for indexing
     pub root_hash: Vec<u8>,
     pub nullifier: Vec<u8>,
     pub amount: i64,
@@ -57,12 +57,12 @@ pub struct Job {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CreateJob {
     pub request_id: Uuid,
     pub proof_bytes: Vec<u8>,
     pub public_inputs: Vec<u8>,
-    pub outputs_json: serde_json::Value,
+    pub outputs_json: JsonValue,
     pub fee_bps: i16,
     pub root_hash: Vec<u8>,
     pub nullifier: Vec<u8>,
@@ -70,7 +70,7 @@ pub struct CreateJob {
     pub outputs_hash: Vec<u8>,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Nullifier {
     pub nullifier: Vec<u8>,
     pub job_id: Uuid,

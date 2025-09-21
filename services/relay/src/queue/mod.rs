@@ -1,4 +1,3 @@
-pub mod processor;
 pub mod redis_queue;
 
 use async_trait::async_trait;
@@ -22,7 +21,7 @@ impl JobMessage {
         Self {
             job_id,
             request_id,
-            priority: 128, // Default priority
+            priority: 100, // Default priority
             retry_count: 0,
             created_at: chrono::Utc::now().timestamp(),
         }
@@ -33,8 +32,37 @@ impl JobMessage {
         self
     }
 
-    pub fn increment_retry(&mut self) {
-        self.retry_count += 1;
+    pub fn with_retry_count(mut self, retry_count: u32) -> Self {
+        self.retry_count = retry_count;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct QueueConfig {
+    pub max_retries: u32,
+    pub base_retry_delay: Duration,
+    pub max_retry_delay: Duration,
+    pub processing_timeout: Duration,
+    pub cleanup_interval: Duration,
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_retry_delay: Duration::from_secs(30),
+            max_retry_delay: Duration::from_secs(300), // 5 minutes
+            processing_timeout: Duration::from_secs(600), // 10 minutes
+            cleanup_interval: Duration::from_secs(60), // 1 minute
+        }
+    }
+}
+
+impl QueueConfig {
+    pub fn calculate_retry_delay(&self, retry_count: u32) -> Duration {
+        let delay = self.base_retry_delay.as_secs() * 2_u64.pow(retry_count);
+        Duration::from_secs(delay.min(self.max_retry_delay.as_secs()))
     }
 }
 
@@ -46,41 +74,4 @@ pub trait JobQueue: Send + Sync {
     async fn dead_letter(&self, message: JobMessage, reason: String) -> Result<(), Error>;
     async fn queue_size(&self) -> Result<u64, Error>;
     async fn health_check(&self) -> Result<(), Error>;
-}
-
-#[derive(Debug, Clone)]
-pub struct QueueConfig {
-    pub max_retries: u32,
-    pub retry_delay_base: Duration,
-    pub retry_delay_max: Duration,
-    pub processing_timeout: Duration,
-    pub dead_letter_ttl: Duration,
-}
-
-impl Default for QueueConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            retry_delay_base: Duration::from_secs(1),
-            retry_delay_max: Duration::from_secs(300), // 5 minutes
-            processing_timeout: Duration::from_secs(300), // 5 minutes
-            dead_letter_ttl: Duration::from_secs(86400), // 24 hours
-        }
-    }
-}
-
-impl QueueConfig {
-    pub fn calculate_retry_delay(&self, retry_count: u32) -> Duration {
-        // Exponential backoff with jitter
-        let base_delay = self.retry_delay_base.as_secs() as f64;
-        let exponential_delay = base_delay * 2_f64.powi(retry_count as i32);
-        let max_delay = self.retry_delay_max.as_secs() as f64;
-        
-        // Add some jitter (±20%)
-        let jitter = fastrand::f64() * 0.4 - 0.2; // -0.2 to +0.2
-        let jittered_delay = exponential_delay * (1.0 + jitter);
-        
-        let final_delay = jittered_delay.min(max_delay).max(base_delay);
-        Duration::from_secs_f64(final_delay)
-    }
 } 
