@@ -9,11 +9,9 @@ use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 /// SP1 Withdraw Circuit VKey Hash
 const WITHDRAW_VKEY_HASH: &str =
-    "004e55c1fe353704d5c7eb1a2f4df449da8c1707127e54b4c1a5b54535fc0366";
+    "0x00ab69d3704d354ff877c8a424a2c9476dbae2fb800abea129e8795f12e96142";
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    msg!(&format!("withdraw_instruction_data:{}", hex::encode(data)));
-
     // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipients..., system]
     let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program_info] =
         accounts
@@ -27,8 +25,9 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         // public_nf (32 bytes) + public_amount (8 bytes) + public_fee_bps (2 bytes) +
         // public_outputs_hash (32 bytes) + num_outputs (1 byte) + outputs (variable)
 
-        // Check minimum data size
-        let min_data_size = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 3 + 8 + 2 + 1 + PUBKEY_SIZE + 8;
+        // Check minimum data size (we need at least the proof + public inputs + other data)
+        let min_data_size =
+            SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE + 1 + PUBKEY_SIZE + 8; // proof + public inputs + nullifier + num_outputs + recipient + amount
         if data.len() < min_data_size {
             return Err(ShieldPoolError::InvalidInstructionData.into());
         }
@@ -36,24 +35,38 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         // Read the SP1 proof and public inputs from the instruction data
         let sp1_proof = &data[0..SP1_PROOF_SIZE];
         let sp1_public_inputs = &data[SP1_PROOF_SIZE..SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE];
-        
-        // Read the specific values we need for validation
+
+        // Parse the public inputs in the correct order:
+        // root(32) + nf(32) + fee_bps(2) + outputs_hash(32) + amount(8)
+        let public_inputs_offset = SP1_PROOF_SIZE;
+        let public_root = *((data.as_ptr()).add(public_inputs_offset) as *const [u8; HASH_SIZE]);
+        let public_nf =
+            *((data.as_ptr()).add(public_inputs_offset + HASH_SIZE) as *const [u8; HASH_SIZE]);
+        let public_fee_bps =
+            *((data.as_ptr()).add(public_inputs_offset + HASH_SIZE * 2) as *const u16);
+        let _public_outputs_hash = *((data.as_ptr()).add(public_inputs_offset + HASH_SIZE * 2 + 2)
+            as *const [u8; HASH_SIZE]);
+        let public_amount =
+            *((data.as_ptr()).add(public_inputs_offset + HASH_SIZE * 3 + 2) as *const u64);
+
+        // Read the remaining instruction data
         let data_offset = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE;
-        let public_root = *((data.as_ptr()).add(data_offset) as *const [u8; HASH_SIZE]);
-        let public_nf = *((data.as_ptr()).add(data_offset + HASH_SIZE) as *const [u8; HASH_SIZE]);
-        let public_amount = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2) as *const u64);
-        let public_fee_bps = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8) as *const u16);
-        let _public_outputs_hash = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8 + 2) as *const [u8; HASH_SIZE]);
-        let num_outputs = *((data.as_ptr()).add(data_offset + HASH_SIZE * 3 + 8 + 2) as *const u8);
+        let nullifier_check = *((data.as_ptr()).add(data_offset) as *const [u8; HASH_SIZE]);
+        let num_outputs = *((data.as_ptr()).add(data_offset + HASH_SIZE) as *const u8);
 
         // For simplicity, assume single output (can be extended later)
         if num_outputs != 1 {
             return Err(ShieldPoolError::InvalidInstructionData.into());
         }
 
-        let output_offset = data_offset + HASH_SIZE * 3 + 8 + 2 + 1;
+        let output_offset = data_offset + HASH_SIZE + 1; // after nullifier + num_outputs
         let recipient_pubkey = *((data.as_ptr()).add(output_offset) as *const Pubkey);
         let recipient_amount = *((data.as_ptr()).add(output_offset + PUBKEY_SIZE) as *const u64);
+
+        // Verify nullifier consistency
+        if nullifier_check != public_nf {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
 
         // 1. Verify SP1 proof
         verify_proof(

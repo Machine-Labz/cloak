@@ -10,7 +10,7 @@ pub const TAG_WITHDRAW: u8 = 0x03;
 
 /// SP1 proof constants
 pub const SP1_PROOF_SIZE: usize = 260;
-pub const SP1_PUBLIC_INPUTS_SIZE: usize = 283; // Actual size from SP1
+pub const SP1_PUBLIC_INPUTS_SIZE: usize = 106; // root(32) + nf(32) + fee_bps(2) + outputs_hash(32) + amount(8)
 
 /// Hash sizes
 pub const HASH_SIZE: usize = 32;

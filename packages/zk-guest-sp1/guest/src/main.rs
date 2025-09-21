@@ -73,8 +73,13 @@ pub fn main() {
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
 
-    // Commit public inputs to the proof
-    sp1_zkvm::io::commit(&inputs.public);
+    // Commit public inputs to the proof as individual primitive values
+    // This matches the format expected by the Solana verifier
+    sp1_zkvm::io::commit(&inputs.public.root);
+    sp1_zkvm::io::commit(&inputs.public.nf);
+    sp1_zkvm::io::commit(&inputs.public.fee_bps);
+    sp1_zkvm::io::commit(&inputs.public.outputs_hash);
+    sp1_zkvm::io::commit(&inputs.public.amount);
 }
 
 fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
