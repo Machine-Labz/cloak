@@ -3,6 +3,14 @@ name = "test-complete-flow-rust"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "test-complete-flow-rust"
+path = "src/main.rs"
+
+[[bin]]
+name = "testnet-test"
+path = "src/testnet_test.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
@@ -16,4 +24,6 @@ solana-sdk = "2.0"
 solana-program = "2.0"
 bs58 = "0.5"
 anyhow = "1.0"
+ctrlc = "3.4"
 sp1-sdk.workspace = true
+shield-pool = { path = "../programs/shield-pool" }

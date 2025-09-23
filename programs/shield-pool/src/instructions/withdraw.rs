@@ -1,125 +1,151 @@
-use crate::compute_outputs_hash_blake3;
 use crate::constants::{
-    FEE_BASIS_POINTS_DENOMINATOR, HASH_SIZE, PUBKEY_SIZE, SP1_PROOF_SIZE, SP1_PUBLIC_INPUTS_SIZE,
+    PROOF_LEN, PROOF_OFF, PUB_AMOUNT_OFF, PUB_LEN, PUB_NF_OFF, PUB_OFF, PUB_OUT_HASH_OFF,
+    PUB_ROOT_OFF, RECIP_ADDR_LEN, RECIP_AMT_OFF, RECIP_OFF, WITHDRAW_VKEY_HASH,
 };
 use crate::error::ShieldPoolError;
-use crate::state::{NullifierShard, RootsRing};
-use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
+use pinocchio::{account_info::AccountInfo, ProgramResult};
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
-/// SP1 Withdraw Circuit VKey Hash
-const WITHDRAW_VKEY_HASH: &str =
-    "004e55c1fe353704d5c7eb1a2f4df449da8c1707127e54b4c1a5b54535fc0366";
-
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    msg!(&format!("withdraw_instruction_data:{}", hex::encode(data)));
+    // Basic validation
+    if accounts.len() < 6 || data.len() < 437 {
+        return Err(ShieldPoolError::MissingAccounts.into());
+    }
 
-    // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipients..., system]
-    let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program_info] =
+    // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipient, system]
+    let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program] =
         accounts
     else {
         return Err(ShieldPoolError::MissingAccounts.into());
     };
 
-    unsafe {
-        // Parse instruction data layout:
-        // sp1_proof (256 bytes) + sp1_public_inputs (64 bytes) + public_root (32 bytes) +
-        // public_nf (32 bytes) + public_amount (8 bytes) + public_fee_bps (2 bytes) +
-        // public_outputs_hash (32 bytes) + num_outputs (1 byte) + outputs (variable)
+    // Program ownership check - ensure pool is owned by this program
+    if pool_info.owner() != &crate::ID {
+        return Err(ShieldPoolError::InvalidAccountOwner.into());
+    }
 
-        // Check minimum data size
-        let min_data_size = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE + HASH_SIZE * 3 + 8 + 2 + 1 + PUBKEY_SIZE + 8;
-        if data.len() < min_data_size {
-            return Err(ShieldPoolError::InvalidInstructionData.into());
-        }
+    // Writable checks
+    if !pool_info.is_writable() || !treasury_info.is_writable() || !recipient_account.is_writable()
+    {
+        return Err(ShieldPoolError::BadAccounts.into());
+    }
 
-        // Read the SP1 proof and public inputs from the instruction data
-        let sp1_proof = &data[0..SP1_PROOF_SIZE];
-        let sp1_public_inputs = &data[SP1_PROOF_SIZE..SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE];
-        
-        // Read the specific values we need for validation
-        let data_offset = SP1_PROOF_SIZE + SP1_PUBLIC_INPUTS_SIZE;
-        let public_root = *((data.as_ptr()).add(data_offset) as *const [u8; HASH_SIZE]);
-        let public_nf = *((data.as_ptr()).add(data_offset + HASH_SIZE) as *const [u8; HASH_SIZE]);
-        let public_amount = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2) as *const u64);
-        let public_fee_bps = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8) as *const u16);
-        let _public_outputs_hash = *((data.as_ptr()).add(data_offset + HASH_SIZE * 2 + 8 + 2) as *const [u8; HASH_SIZE]);
-        let num_outputs = *((data.as_ptr()).add(data_offset + HASH_SIZE * 3 + 8 + 2) as *const u8);
+    // Extract proof and public inputs using constants
+    let sp1_proof = &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
+    let raw_public_inputs = &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
 
-        // For simplicity, assume single output (can be extended later)
-        if num_outputs != 1 {
-            return Err(ShieldPoolError::InvalidInstructionData.into());
-        }
+    // Verify SP1 proof (essential for security)
+    verify_proof(
+        sp1_proof,
+        raw_public_inputs,
+        WITHDRAW_VKEY_HASH,
+        GROTH16_VK_5_0_0_BYTES,
+    )
+    .map_err(|_| ShieldPoolError::ProofInvalid)?;
 
-        let output_offset = data_offset + HASH_SIZE * 3 + 8 + 2 + 1;
-        let recipient_pubkey = *((data.as_ptr()).add(output_offset) as *const Pubkey);
-        let recipient_amount = *((data.as_ptr()).add(output_offset + PUBKEY_SIZE) as *const u64);
-
-        // 1. Verify SP1 proof
-        verify_proof(
-            sp1_proof,
-            sp1_public_inputs,
-            WITHDRAW_VKEY_HASH,
-            GROTH16_VK_5_0_0_BYTES,
+    // Extract public inputs using unaligned reads
+    let public_amount = unsafe {
+        core::ptr::read_unaligned(
+            raw_public_inputs.as_ptr().add(PUB_AMOUNT_OFF - PUB_OFF) as *const u64
         )
-        .map_err(|_| ShieldPoolError::ProofInvalid)?;
+    };
 
-        // 2. Check root exists in RootsRing
-        let roots_ring = RootsRing::from_account_info(roots_ring_info)?;
-        if !roots_ring.contains_root(&public_root) {
-            return Err(ShieldPoolError::RootNotFound.into());
-        }
+    // Extract root from public inputs
+    let mut root = [0u8; 32];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            raw_public_inputs.as_ptr().add(PUB_ROOT_OFF - PUB_OFF),
+            root.as_mut_ptr(),
+            32,
+        );
+    }
 
-        // 3. Check for double-spend
-        let mut nullifier_shard = NullifierShard::from_account_info(nullifier_shard_info)?;
-        if nullifier_shard.contains_nullifier(&public_nf) {
-            return Err(ShieldPoolError::DoubleSpend.into());
-        }
+    // Extract nullifier from public inputs
+    let mut nf = [0u8; 32];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            raw_public_inputs.as_ptr().add(PUB_NF_OFF - PUB_OFF),
+            nf.as_mut_ptr(),
+            32,
+        );
+    }
 
-        // 4. Verify outputs hash
-        let computed_outputs_hash =
-            compute_outputs_hash_blake3(&recipient_pubkey, recipient_amount)?;
-        if computed_outputs_hash != _public_outputs_hash {
-            return Err(ShieldPoolError::OutputsMismatch.into());
-        }
+    // Extract outputs_hash from public inputs
+    let mut outputs_hash_public = [0u8; 32];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            raw_public_inputs.as_ptr().add(PUB_OUT_HASH_OFF - PUB_OFF),
+            outputs_hash_public.as_mut_ptr(),
+            32,
+        );
+    }
 
-        // 5. Calculate fee
-        let fee = public_amount
-            .checked_mul(public_fee_bps as u64)
-            .ok_or(ShieldPoolError::MathOverflow)?
-            .checked_div(FEE_BASIS_POINTS_DENOMINATOR)
-            .ok_or(ShieldPoolError::DivisionByZero)?;
+    // Extract recipient data
+    let mut recipient_addr = [0u8; 32];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            data.as_ptr().add(RECIP_OFF),
+            recipient_addr.as_mut_ptr(),
+            RECIP_ADDR_LEN,
+        );
+    }
 
-        // 6. Verify conservation (recipient_amount + fee == public_amount)
-        let expected_total = recipient_amount
-            .checked_add(fee)
-            .ok_or(ShieldPoolError::MathOverflow)?;
+    let recipient_amount =
+        unsafe { core::ptr::read_unaligned(data.as_ptr().add(RECIP_AMT_OFF) as *const u64) };
 
-        if expected_total != public_amount {
-            return Err(ShieldPoolError::Conservation.into());
-        }
+    // Verify root exists in RootsRing
+    let roots_ring = crate::state::RootsRing::from_account_info(roots_ring_info)?;
+    if !roots_ring.contains_root(&root) {
+        return Err(ShieldPoolError::RootNotFound.into());
+    }
 
-        // 7. Transfer lamports
-        // Debit pool
-        *pool_info.borrow_mut_lamports_unchecked() = pool_info
-            .lamports()
-            .checked_sub(public_amount)
-            .ok_or(ShieldPoolError::InsufficientLamports)?;
+    // Check for double-spend
+    let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
+    if shard.contains_nullifier(&nf) {
+        return Err(ShieldPoolError::DoubleSpend.into());
+    }
 
-        // Credit recipient
-        *recipient_account.borrow_mut_lamports_unchecked() = recipient_account
-            .lamports()
-            .checked_add(recipient_amount)
-            .ok_or(ShieldPoolError::MathOverflow)?;
+    // Bind outputs_hash to actual recipient and amount
+    let mut buf = [0u8; 32 + 8];
+    unsafe {
+        core::ptr::copy_nonoverlapping(recipient_addr.as_ptr(), buf.as_mut_ptr(), 32);
+    }
+    buf[32..40].copy_from_slice(&recipient_amount.to_le_bytes());
+    let outputs_hash_local = *blake3::hash(&buf).as_bytes();
 
-        // Credit treasury with fee
-        *treasury_info.borrow_mut_lamports_unchecked() = treasury_info
-            .lamports()
-            .checked_add(fee)
-            .ok_or(ShieldPoolError::MathOverflow)?;
+    if outputs_hash_local != outputs_hash_public {
+        return Err(ShieldPoolError::InvalidOutputsHash.into());
+    }
 
-        // 8. Record nullifier
-        nullifier_shard.add_nullifier(&public_nf)?;
+    // Validate amounts and calculate fee
+    if recipient_amount > public_amount {
+        return Err(ShieldPoolError::InvalidAmount.into());
+    }
+
+    let expected_fee = {
+        const FIXED: u64 = 2_500_000; // 0.0025 SOL
+        const VAR_NUM: u64 = 5; // 0.5%
+        const VAR_DEN: u64 = 1_000; // 0.5% = 5/1000
+        FIXED + ((public_amount.saturating_mul(VAR_NUM)) / VAR_DEN)
+    };
+    let total_fee = public_amount - recipient_amount;
+    if total_fee != expected_fee {
+        return Err(ShieldPoolError::Conservation.into());
+    }
+
+    // Check pool has sufficient balance
+    if pool_info.lamports() < public_amount {
+        return Err(ShieldPoolError::InsufficientLamports.into());
+    }
+
+    // Record nullifier before moving funds (fail-closed)
+    shard.add_nullifier(&nf)?;
+
+    // Perform lamport transfers
+    unsafe {
+        *pool_info.borrow_mut_lamports_unchecked() -= public_amount;
+        *recipient_account.borrow_mut_lamports_unchecked() += recipient_amount;
+        *treasury_info.borrow_mut_lamports_unchecked() += total_fee;
     }
 
     Ok(())

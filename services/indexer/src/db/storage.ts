@@ -60,17 +60,38 @@ export class PostgresTreeStorage implements TreeStorageInterface {
 
   /**
    * Get the maximum leaf index (used to initialize nextIndex on startup)
+   * Returns the next consecutive index, not just max + 1
    */
   async getMaxLeafIndex(): Promise<number> {
     try {
-      const result = await db.query<{ max_index: number | null }>(
-        'SELECT MAX(index_at_level) as max_index FROM merkle_tree_nodes WHERE level = 0'
+      // Get all leaf indices in order
+      const result = await db.query<{ index_at_level: number }>(
+        'SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level'
       );
 
-      const maxIndex = result.rows[0]?.max_index ?? null;
-      const nextIndex = maxIndex !== null && maxIndex !== undefined ? maxIndex + 1 : 0;
+      const indices = result.rows.map(row => row.index_at_level);
       
-      logger.info('Retrieved max leaf index', { maxIndex, nextIndex });
+      if (indices.length === 0) {
+        logger.info('No leaves found, starting from index 0');
+        return 0;
+      }
+
+      // Find the first gap or return the next consecutive index
+      let nextIndex = indices.length; // Start with the length (next available index)
+      for (let i = 0; i < indices.length; i++) {
+        if (indices[i] !== i) {
+          nextIndex = i; // Found a gap, use that index
+          break;
+        }
+      }
+
+      logger.info('Retrieved max leaf index', { 
+        totalLeaves: indices.length, 
+        maxIndex: Math.max(...indices), 
+        nextIndex,
+        indices: indices.slice(0, 10) // Show first 10 indices for debugging
+      });
+      
       return nextIndex;
     } catch (error) {
       logger.error('Failed to get max leaf index', { error });

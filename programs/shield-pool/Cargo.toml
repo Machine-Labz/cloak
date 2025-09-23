@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
@@ -18,7 +18,6 @@ sp1-solana = { workspace = true }
 five8_const = { workspace = true }
 hex = { workspace = true }
 blake3 = { workspace = true }
-solana-blake3-hasher = "3.0.0"
 sha2 = { workspace = true }
 pinocchio-token = { workspace = true }
 

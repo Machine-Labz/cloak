@@ -5,7 +5,7 @@ edition = "2021"
 
 [[bin]]
 name = "cloak-zk"
-path = "src/main.rs"
+path = "src/bin/cloak-zk.rs"
 
 [[bin]]
 name = "generate_examples"
