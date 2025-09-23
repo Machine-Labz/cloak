@@ -1,20 +1,23 @@
-/// Program constants
-pub const ROOTS_RING_SIZE: usize = 64;
-pub const ROOTS_RING_LEN: usize = 8 + (ROOTS_RING_SIZE * 32); // head + roots
-pub const NULLIFIER_SHARD_HEADER_SIZE: usize = 4; // count field
+/// SP1 Withdraw Circuit VKey Hash
+pub const WITHDRAW_VKEY_HASH: &str =
+    "0x00bd8641c64a42569ccb77a27f17ef25ebd948047ab0791466eaca34a8da76ad";
 
-/// Instruction discriminators
-pub const TAG_DEPOSIT: u8 = 0x01;
-pub const TAG_ADMIN_PUSH_ROOT: u8 = 0x02;
-pub const TAG_WITHDRAW: u8 = 0x03;
+// Constants for proof and public input offsets
+pub const PROOF_LEN: usize = 260;
+pub const PUB_LEN: usize = 104;
 
-/// SP1 proof constants
-pub const SP1_PROOF_SIZE: usize = 260;
-pub const SP1_PUBLIC_INPUTS_SIZE: usize = 283; // Actual size from SP1
+pub const PROOF_OFF: usize = 0;
+pub const PUB_OFF: usize = PROOF_OFF + PROOF_LEN;
 
-/// Hash sizes
-pub const HASH_SIZE: usize = 32;
-pub const PUBKEY_SIZE: usize = 32;
+pub const PUB_ROOT_OFF: usize = PUB_OFF + 0;
+pub const PUB_NF_OFF: usize = PUB_OFF + 32;
+pub const PUB_OUT_HASH_OFF: usize = PUB_OFF + 64;
+pub const PUB_AMOUNT_OFF: usize = PUB_OFF + 96;
 
-/// Fee calculation
-pub const FEE_BASIS_POINTS_DENOMINATOR: u64 = 10_000;
+// Recipient data offsets
+pub const NULLIFIER_OFF: usize = PUB_OFF + PUB_LEN; // 364
+pub const NULLIFIER_LEN: usize = 32;
+pub const NUM_OUTPUTS_OFF: usize = NULLIFIER_OFF + NULLIFIER_LEN; // 396
+pub const RECIP_OFF: usize = NUM_OUTPUTS_OFF + 1; // 397
+pub const RECIP_ADDR_LEN: usize = 32;
+pub const RECIP_AMT_OFF: usize = RECIP_OFF + RECIP_ADDR_LEN; // 429

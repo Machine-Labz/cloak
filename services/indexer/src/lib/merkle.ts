@@ -93,6 +93,14 @@ export class MerkleTree {
       const isLeftChild = currentIndex % 2 === 0;
       const parentIndex = Math.floor(currentIndex / 2);
       
+      logger.debug('Processing tree level', { 
+        level, 
+        currentIndex, 
+        isLeftChild, 
+        parentIndex, 
+        leafIndex 
+      });
+      
       let leftChild: string;
       let rightChild: string;
 
@@ -101,20 +109,36 @@ export class MerkleTree {
         // Try to get right sibling from storage, otherwise use zero value
         const rightSibling = await storageInterface.getNode(level, currentIndex + 1);
         rightChild = rightSibling ?? this.zeroValues[level]!;
+        logger.debug('Left child processing', { 
+          level, 
+          currentIndex, 
+          rightSibling: rightSibling ? 'found' : 'not found',
+          usingZeroValue: !rightSibling
+        });
       } else {
-        // Left sibling must exist since we're processing leaves in order
+        // For right children, get the left sibling
         const leftSibling = await storageInterface.getNode(level, currentIndex - 1);
         if (!leftSibling) {
-          throw new Error(`Missing left sibling at level ${level}, index ${currentIndex - 1}`);
+          logger.warn('Missing left sibling detected, this indicates a tree inconsistency', { 
+            level, 
+            currentIndex, 
+            leafIndex 
+          });
+          throw new Error(`Missing left sibling at level ${level}, index ${currentIndex - 1}. This indicates the tree is in an inconsistent state.`);
         }
         leftChild = leftSibling;
         rightChild = currentValue;
+        logger.debug('Right child processing', { 
+          level, 
+          currentIndex, 
+          leftSibling: leftSibling ? 'found' : 'not found'
+        });
       }
 
       // Compute parent hash
       const parentValue = this.hashPair(leftChild, rightChild);
       
-      // Store parent node
+      // Store parent node (this will update if it already exists)
       await storageInterface.storeNode(level + 1, parentIndex, parentValue);
       
       // Move up the tree
@@ -260,6 +284,7 @@ export class MerkleTree {
     this.nextIndex = index;
     logger.info('Set next index', { nextIndex: this.nextIndex });
   }
+
 }
 
 /**

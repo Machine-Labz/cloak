@@ -1,6 +1,7 @@
 use blake3::Hasher;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use shield_pool::instructions::ShieldPoolInstruction;
 use solana_client::rpc_client::RpcClient;
 use solana_program::system_program;
 use solana_sdk::{
@@ -161,20 +162,6 @@ async fn create_program_accounts(
     ))
 }
 
-// Helper to fund pool
-async fn fund_pool(
-    client: &RpcClient,
-    payer: &Keypair,
-    pool_pubkey: &Pubkey,
-    amount: u64,
-) -> anyhow::Result<()> {
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), pool_pubkey, amount);
-    let mut transaction = Transaction::new_with_payer(&[transfer_ix], Some(&payer.pubkey()));
-    transaction.sign(&[payer], client.get_latest_blockhash()?);
-    client.send_and_confirm_transaction(&transaction)?;
-    Ok(())
-}
-
 // Helper to create deposit instruction
 fn create_deposit_instruction(
     user_pubkey: &Pubkey,
@@ -185,7 +172,7 @@ fn create_deposit_instruction(
     commitment: &[u8; 32],
 ) -> Instruction {
     let mut data = Vec::new();
-    data.push(1u8); // Deposit discriminator
+    data.push(ShieldPoolInstruction::Deposit as u8); // Deposit discriminator
     data.extend_from_slice(&amount.to_le_bytes()); // 8-byte amount
     data.extend_from_slice(commitment); // 32-byte commitment
 
@@ -209,7 +196,7 @@ fn create_admin_push_root_instruction(
     root: &[u8; 32],
 ) -> Instruction {
     let mut data = Vec::new();
-    data.push(2u8); // AdminPushRoot discriminator
+    data.push(ShieldPoolInstruction::AdminPushRoot as u8); // AdminPushRoot discriminator
     data.extend_from_slice(root);
 
     Instruction {
@@ -237,7 +224,7 @@ fn create_withdraw_instruction(
     recipient_amount: u64,
 ) -> Instruction {
     let mut data = Vec::new();
-    data.push(3u8); // Withdraw discriminator
+    data.push(ShieldPoolInstruction::Withdraw as u8); // Withdraw discriminator
     data.extend_from_slice(proof_bytes); // Full proof bytes (as in official example)
     data.extend_from_slice(raw_public_inputs); // Raw public inputs (as in official example)
     data.extend_from_slice(nullifier); // 32 bytes (for nullifier check)
@@ -261,18 +248,18 @@ fn create_withdraw_instruction(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("🚀 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW TEST (RUST) - LOCALNET");
-    println!("===============================================================\n");
+    println!("🚀 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW TEST (RUST) - TESTNET");
+    println!("==============================================================\n");
 
     // Initialize Solana client
-    let rpc_url = "http://127.0.0.1:8899";
+    let rpc_url = "https://api.testnet.solana.com";
     let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
 
     // Load keypairs from files
     let user_keypair = {
         let user_keypair_data: Vec<u8> = serde_json::from_str(
-            &std::fs::read_to_string("user-keypair.json")
-                .unwrap_or_else(|_| panic!("Failed to read user-keypair.json")),
+            &std::fs::read_to_string("../user-keypair.json")
+                .unwrap_or_else(|_| panic!("Failed to read ../user-keypair.json")),
         )
         .unwrap();
         Keypair::from_bytes(&user_keypair_data).unwrap()
@@ -292,13 +279,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let recipient_keypair = {
         let user_keypair_data: Vec<u8> = serde_json::from_str(
-            &std::fs::read_to_string("recipient-keypair.json")
-                .unwrap_or_else(|_| panic!("Failed to read recipient-keypair.json")),
+            &std::fs::read_to_string("../recipient-keypair.json")
+                .unwrap_or_else(|_| panic!("Failed to read ../recipient-keypair.json")),
         )
         .unwrap();
         Keypair::from_bytes(&user_keypair_data).unwrap()
     };
-    let program_id = Pubkey::from_str("GG28UMv2SMnGCrqVMXW5715YX4ZfNejYoftTkF4jxnZD")?;
+    let program_id = Pubkey::from_str("JADFJnATBEczoNHbN5DbdHm4G1rw8UfLwt3B27RSHvZ9")?;
 
     println!(
         "   Recipient ({}): {} SOL",
@@ -321,14 +308,14 @@ async fn main() -> anyhow::Result<()> {
         admin_balance / SOL_TO_LAMPORTS
     );
 
-    // Transfer SOL from admin to user for testing (only if user has <5 SOL)
-    if user_balance < 5_000_000_000 {
+    // Transfer SOL from admin to user for testing (only if user has <1 SOL)
+    if user_balance < 1_000_000_000 {
         println!("\n💰 Transferring SOL from admin to user...");
         let transfer_ix = system_instruction::transfer(
             &admin_keypair.pubkey(),
             &user_keypair.pubkey(),
-            2_000_000_000,
-        ); // 2 SOL
+            500_000_000,
+        ); // 0.5 SOL
         let mut transfer_tx =
             Transaction::new_with_payer(&[transfer_ix], Some(&admin_keypair.pubkey()));
         transfer_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
@@ -346,7 +333,7 @@ async fn main() -> anyhow::Result<()> {
     println!("   Building shield pool program...");
     let build_output = std::process::Command::new("cargo")
         .args(&["build-sbf"])
-        .current_dir("programs/shield-pool")
+        .current_dir("../programs/shield-pool")
         .output()?;
 
     if !build_output.status.success() {
@@ -357,26 +344,26 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("   ✅ Program built successfully");
 
-    println!("   Deploying program...");
+    println!("   Updating program...");
     let deploy_output = std::process::Command::new("solana")
         .args(&[
             "program",
             "deploy",
-            "target/deploy/shield_pool.so",
+            "../target/deploy/shield_pool.so",
             "--url",
-            "http://127.0.0.1:8899",
+            "https://api.testnet.solana.com",
             "--program-id",
-            "testnet-program-keypair.json",
+            "../testnet-program-keypair.json",
         ])
         .output()?;
 
     if !deploy_output.status.success() {
         return Err(anyhow::anyhow!(
-            "Program deployment failed: {}",
+            "Program update failed: {}",
             String::from_utf8_lossy(&deploy_output.stderr)
         ));
     }
-    println!("   ✅ Program deployed successfully under {}", program_id);
+    println!("   ✅ Program updated successfully under {}", program_id);
 
     // Step 1: Create program accounts (admin creates them as the authority)
     println!("\n📋 Step 1: Creating Program Accounts...");
@@ -407,7 +394,7 @@ async fn main() -> anyhow::Result<()> {
     let mut r = [0x22u8; 32];
     r[0..4].copy_from_slice(&((timestamp >> 32) as u32).to_le_bytes());
 
-    let amount = 1_000_000_000u64; // 1 SOL in lamports (reduced for testnet)
+    let amount = 100_000_000u64; // 0.1 SOL in lamports (reduced for testnet airdropping)
 
     println!("   - sk_spend: {}", hex::encode(sk_spend));
     println!("   - r: {}", hex::encode(r));
@@ -757,7 +744,7 @@ async fn main() -> anyhow::Result<()> {
     println!("\n🔨 Step 12: Generating SP1 Proof with Current Data...");
 
     // Generate proof with current test data
-    let proof_output = std::process::Command::new("./target/release/cloak-zk")
+    let proof_output = std::process::Command::new("../target/release/cloak-zk")
         .args([
             "prove",
             "--private",
@@ -846,7 +833,7 @@ async fn main() -> anyhow::Result<()> {
     outputs_hasher.update(&recipient_keypair.pubkey().to_bytes());
     outputs_hasher.update(&recipient_amount.to_le_bytes());
     let outputs_hash = outputs_hasher.finalize();
-    let outputs_hash_array: [u8; 32] = *outputs_hash.as_bytes();
+    let _outputs_hash_array: [u8; 32] = *outputs_hash.as_bytes();
 
     // Read the raw public inputs from the generated file
     let public_inputs = std::fs::read("packages/zk-guest-sp1/out/public_live.raw")?;
@@ -860,7 +847,7 @@ async fn main() -> anyhow::Result<()> {
     // The public inputs should match what was used to generate the proof
     println!("   - Using SP1 proof public inputs directly from file");
 
-    let sp1_public_inputs = &public_inputs;
+    let _sp1_public_inputs = &public_inputs;
 
     // Create withdraw instruction with proper Groth16 proof format
     // We send: [260 bytes proof with vkey hash][104 bytes public inputs]
@@ -1001,8 +988,8 @@ async fn main() -> anyhow::Result<()> {
     println!("   - Real indexer integration ✅");
     println!("   - Production-ready infrastructure ✅");
 
-    println!("\n🔄 Test completed successfully! Running on Solana Localnet...");
-    println!("   📋 Network: Solana Localnet (http://127.0.0.1:8899)");
+    println!("\n🔄 Test completed successfully! Running on Solana Testnet...");
+    println!("   📋 Network: Solana Testnet (https://api.testnet.solana.com)");
     println!("   📋 Program ID: JADFJnATBEczoNHbN5DbdHm4G1rw8UfLwt3B27RSHvZ9");
     println!("   📋 Indexer Status: Running on http://localhost:3001");
     println!("   📋 Database Status: PostgreSQL running in Docker");

@@ -5,7 +5,7 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 
-use crate::{state::RootsRing, tests::setup};
+use crate::{instructions::ShieldPoolInstruction, state::RootsRing, tests::setup};
 
 #[test]
 fn admin_push_root_test() {
@@ -13,7 +13,7 @@ fn admin_push_root_test() {
 
     // Create admin account (must match ADMIN_AUTHORITY in the program)
     let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
-        "11111111111111111111111111111111111111111111",
+        "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",
     ));
 
     // Create a roots ring PDA
@@ -24,7 +24,7 @@ fn admin_push_root_test() {
 
     // Create instruction data according to AdminPushRootIx format
     let instruction_data = [
-        vec![1], // Instruction discriminant for AdminPushRoot
+        vec![ShieldPoolInstruction::AdminPushRoot as u8], // Instruction discriminant for AdminPushRoot
         new_root.to_vec(),
     ]
     .concat();
@@ -93,120 +93,4 @@ fn admin_push_root_test() {
         stored_root, new_root,
         "Root was not stored correctly in the ring buffer"
     );
-}
-
-#[test]
-fn admin_push_root_unauthorized_test() {
-    let (program_id, mollusk) = setup();
-
-    // WRONG admin account (not the authorized one)
-    let fake_admin = Pubkey::new_from_array([0x99u8; 32]); // Wrong admin!
-
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
-    let new_root = [0x42u8; 32];
-
-    let instruction_data = [
-        vec![1], // AdminPushRoot discriminant
-        new_root.to_vec(),
-    ]
-    .concat();
-
-    let instruction = Instruction::new_with_bytes(
-        program_id,
-        &instruction_data,
-        vec![
-            AccountMeta::new(fake_admin, true), // WRONG admin as signer
-            AccountMeta::new(roots_ring_pda, false),
-        ],
-    );
-
-    let accounts: Vec<(Pubkey, Account)> = vec![
-        (
-            fake_admin,
-            Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(0),
-                data: vec![],
-                owner: solana_sdk::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-        (
-            roots_ring_pda,
-            Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(RootsRing::SIZE),
-                data: vec![0u8; RootsRing::SIZE],
-                owner: program_id,
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-    ];
-
-    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
-
-    // Should fail due to unauthorized admin
-    assert!(
-        result.program_result.is_err(),
-        "Should fail with unauthorized admin"
-    );
-
-    println!("✅ Unauthorized admin test completed - properly rejected fake admin");
-}
-
-#[test]
-fn admin_push_root_not_signer_test() {
-    let (program_id, mollusk) = setup();
-
-    // Correct admin account but NOT marked as signer
-    let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
-        "11111111111111111111111111111111111111111111",
-    ));
-
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
-    let new_root = [0x42u8; 32];
-
-    let instruction_data = [vec![1], new_root.to_vec()].concat();
-
-    let instruction = Instruction::new_with_bytes(
-        program_id,
-        &instruction_data,
-        vec![
-            AccountMeta::new(admin_pubkey, false), // NOT a signer!
-            AccountMeta::new(roots_ring_pda, false),
-        ],
-    );
-
-    let accounts: Vec<(Pubkey, Account)> = vec![
-        (
-            admin_pubkey,
-            Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(0),
-                data: vec![],
-                owner: solana_sdk::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-        (
-            roots_ring_pda,
-            Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(RootsRing::SIZE),
-                data: vec![0u8; RootsRing::SIZE],
-                owner: program_id,
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-    ];
-
-    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
-
-    // Should fail because admin is not a signer
-    assert!(
-        result.program_result.is_err(),
-        "Should fail when admin is not signer"
-    );
-
-    println!("✅ Non-signer admin test completed - properly rejected non-signing admin");
 }

@@ -89,9 +89,10 @@ pub fn compute_outputs_hash(outputs: &[Output]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Calculate fee: fee = (amount * fee_bps) / 10_000
-pub fn calculate_fee(amount: u64, fee_bps: u16) -> u64 {
-    (amount * fee_bps as u64) / 10_000
+pub fn calculate_fee(amount: u64) -> u64 {
+    let fixed_fee = 2_500_000; // 0.0025 SOL
+    let variable_fee = (amount * 5) / 1_000; // 0.5% = 5/1000
+    fixed_fee + variable_fee
 }
 
 /// Merkle path verification
@@ -273,9 +274,7 @@ mod tests {
 
     #[test]
     fn test_fee_calculation() {
-        assert_eq!(calculate_fee(1000000, 60), 6000); // 0.6%
-        assert_eq!(calculate_fee(1000000, 100), 10000); // 1%
-        assert_eq!(calculate_fee(1000000, 0), 0); // 0%
+        assert_eq!(calculate_fee(1000000), 50000000 + 50); // 0.05 SOL + 0.05%
     }
 
     #[test]

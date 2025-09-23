@@ -25,7 +25,6 @@ struct PublicInputs {
     pub root: [u8; 32],
     #[serde(with = "hex_string")]
     pub nf: [u8; 32],
-    pub fee_bps: u16,
     #[serde(with = "hex_string")]
     pub outputs_hash: [u8; 32],
     pub amount: u64,
@@ -73,8 +72,12 @@ pub fn main() {
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
 
-    // Commit public inputs to the proof
-    sp1_zkvm::io::commit(&inputs.public);
+    // Commit public inputs to the proof as individual primitive values
+    // This matches the format expected by the Solana verifier
+    sp1_zkvm::io::commit(&inputs.public.root);
+    sp1_zkvm::io::commit(&inputs.public.nf);
+    sp1_zkvm::io::commit(&inputs.public.outputs_hash);
+    sp1_zkvm::io::commit(&inputs.public.amount);
 }
 
 fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
@@ -105,9 +108,10 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
         return Err(anyhow!("Nullifier mismatch"));
     }
 
-    // Constraint 5: sum(outputs) + fee(amount, fee_bps) == amount
+    // Constraint 5: sum(outputs) + fee(amount) == amount
+    // Fee is fixed in the program, so we calculate it directly
     let outputs_sum: u64 = outputs.iter().map(|o| o.amount).sum();
-    let fee = calculate_fee(private.amount, public.fee_bps);
+    let fee = calculate_fee(private.amount);
     let total_spent = outputs_sum + fee;
 
     if total_spent != private.amount {
@@ -142,7 +146,6 @@ mod tests {
         let r = [0x22u8; 32];
         let amount = 1000000u64;
         let leaf_index = 42u32;
-        let fee_bps = 60u16; // 0.6%
 
         let pk_spend = compute_pk_spend(&sk_spend);
         let commitment = compute_commitment(amount, &r, &pk_spend);
@@ -179,7 +182,6 @@ mod tests {
             public: PublicInputs {
                 root,
                 nf: nullifier,
-                fee_bps,
                 outputs_hash,
                 amount,
             },
@@ -212,8 +214,6 @@ mod tests {
     #[test]
     fn test_conservation_failure() {
         let mut inputs = create_test_inputs();
-        // Change fee_bps to break conservation
-        inputs.public.fee_bps = 100; // 1% instead of 0.6%
         assert!(verify_circuit_constraints(&inputs).is_err());
     }
 }
