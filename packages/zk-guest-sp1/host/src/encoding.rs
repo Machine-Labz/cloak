@@ -50,9 +50,11 @@ pub fn compute_outputs_hash(outputs: &[Output]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Calculate fee: fee = (amount * fee_bps) / 10_000
+/// Calculate fee: fee = fixed_fee + (amount * variable_rate) / 1000
 pub fn calculate_fee(amount: u64, fee_bps: u16) -> u64 {
-    (amount * fee_bps as u64) / 10_000
+    let fixed_fee = 2_500_000; // 0.0025 SOL
+    let variable_fee = (amount * fee_bps as u64) / 1_000; // 0.5% = 5/1000
+    fixed_fee + variable_fee
 }
 
 /// Merkle path verification

@@ -1,5 +1,5 @@
 # Tooling
 
-- Localnet scripts for Anchor deploy + faucet
+- Localnet scripts for program deploy + faucet
 - Seed scripts for Indexer DB
 - E2E runner: deposit -> index -> prove -> withdraw

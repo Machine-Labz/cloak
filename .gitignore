@@ -43,9 +43,14 @@ Thumbs.db
 *.temp
 
 # SP1 outputs
-packages/zk-guest-sp1/out/
-packages/zk-guest-sp1/guest/target/
-packages/zk-guest-sp1/host/target/
+**/out/
+**/out/*.json
+**/out/*.bin
+**/guest/target/
+**/host/target/
 
 # Test artifacts
-test_complete_flow_rust/target/
+**/test_complete_flow_rust/target/
+
+# Context
+.context/

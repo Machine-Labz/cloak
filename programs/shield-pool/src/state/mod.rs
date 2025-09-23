@@ -10,14 +10,6 @@ impl RootsRing {
     pub const MAX_ROOTS: usize = 64;
 
     #[inline(always)]
-    pub fn from_account_data(data: &[u8]) -> Result<Self, ProgramError> {
-        if data.len() != Self::SIZE {
-            return Err(ShieldPoolError::BadAccounts.into());
-        }
-        Ok(Self(data.as_ptr() as *mut u8))
-    }
-
-    #[inline(always)]
     pub fn from_account_info_unchecked(
         account_info: &pinocchio::account_info::AccountInfo,
     ) -> Self {
@@ -32,14 +24,6 @@ impl RootsRing {
             return Err(ShieldPoolError::InvalidAccountSize.into());
         }
         Ok(Self::from_account_info_unchecked(account_info))
-    }
-
-    #[inline(always)]
-    pub fn init(&mut self) {
-        unsafe {
-            // Initialize with head = 0, all roots = 0
-            core::ptr::write_bytes(self.0, 0, Self::SIZE);
-        }
     }
 
     #[inline(always)]
@@ -68,7 +52,17 @@ impl RootsRing {
     #[inline(always)]
     pub fn contains_root(&self, target_root: &[u8; 32]) -> bool {
         unsafe {
-            for i in 0..Self::MAX_ROOTS {
+            // Unrolled first 8 comparisons for common cases
+            for i in 0..8 {
+                let root_offset = 8 + i * 32;
+                let root_ptr = self.0.add(root_offset) as *const [u8; 32];
+                if &*root_ptr == target_root {
+                    return true;
+                }
+            }
+
+            // Continue with regular loop for remaining roots
+            for i in 8..Self::MAX_ROOTS {
                 let root_offset = 8 + i * 32;
                 let root_ptr = self.0.add(root_offset) as *const [u8; 32];
                 if &*root_ptr == target_root {
@@ -89,14 +83,6 @@ impl NullifierShard {
     pub const MAX_NULLIFIERS: usize = 1000; // Reasonable limit for MVP
 
     #[inline(always)]
-    pub fn from_account_data(data: &[u8]) -> Result<Self, ProgramError> {
-        if data.len() < Self::MIN_SIZE {
-            return Err(ShieldPoolError::BadAccounts.into());
-        }
-        Ok(Self(data.as_ptr() as *mut u8))
-    }
-
-    #[inline(always)]
     pub fn from_account_info_unchecked(
         account_info: &pinocchio::account_info::AccountInfo,
     ) -> Self {
@@ -114,14 +100,6 @@ impl NullifierShard {
     }
 
     #[inline(always)]
-    pub fn init(&mut self) {
-        unsafe {
-            // Initialize with count = 0
-            *(self.0 as *mut u32) = 0u32.to_le();
-        }
-    }
-
-    #[inline(always)]
     pub fn count(&self) -> u32 {
         unsafe { u32::from_le(*(self.0 as *const u32)) }
     }
@@ -130,7 +108,18 @@ impl NullifierShard {
     pub fn contains_nullifier(&self, nf: &[u8; 32]) -> bool {
         let count = self.count() as usize;
         unsafe {
-            for i in 0..count {
+            // Unrolled first 4 comparisons for common cases
+            let unroll_count = core::cmp::min(4, count);
+            for i in 0..unroll_count {
+                let nf_offset = 4 + i * 32;
+                let stored_nf_ptr = self.0.add(nf_offset) as *const [u8; 32];
+                if &*stored_nf_ptr == nf {
+                    return true;
+                }
+            }
+
+            // Continue with regular loop for remaining nullifiers
+            for i in unroll_count..count {
                 let nf_offset = 4 + i * 32;
                 let stored_nf_ptr = self.0.add(nf_offset) as *const [u8; 32];
                 if &*stored_nf_ptr == nf {
