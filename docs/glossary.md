@@ -9,4 +9,7 @@
 - **Merkle `root`:** tree root over all `C` leaves (append-only).
 - **Merkle proof:** pathElements + pathIndices proving leaf→root inclusion.
 - **outputs_hash:** `H( canonical_serialize(outputs[]) )`, binds the circuit to the actual recipients on-chain.
-- **fee_bps:** protocol fee in basis points.
+- **fee_bps:** protocol fee in basis points (currently 0% for deposits, 0.5% for withdrawals).
+- **fixed_fee:** fixed protocol fee in lamports (currently 0.0025 SOL = 2,500,000 lamports).
+- **variable_fee:** percentage-based fee calculated as (amount * 5) / 1000 (0.5%).
+- **total_fee:** combined variable and fixed fees (variable_fee + fixed_fee).

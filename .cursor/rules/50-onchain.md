@@ -1,4 +1,4 @@
-# On-chain Program (Anchor) – shield-pool
+# On-chain Program (Pinocchio) – shield-pool
 
 **Status:** ✅ **IMPLEMENTED & WORKING**  
 **Program ID:** `c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp`

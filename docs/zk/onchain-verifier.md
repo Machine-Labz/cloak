@@ -1,4 +1,4 @@
-# On-chain Verifier & Program (Anchor)
+# On-chain Verifier & Program (Pinocchio)
 
 Program **`shield-pool`** responsibilities:
 - Store `RootsRing` (K latest).
