@@ -64,15 +64,15 @@ export class PostgresTreeStorage implements TreeStorageInterface {
    */
   async getMaxLeafIndex(): Promise<number> {
     try {
-      // Get all leaf indices in order
-      const result = await db.query<{ index_at_level: number }>(
-        'SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level'
+      // Get all leaf indices from the notes table (which has the unique constraint)
+      const result = await db.query<{ leaf_index: number }>(
+        'SELECT leaf_index FROM notes ORDER BY leaf_index'
       );
 
-      const indices = result.rows.map(row => row.index_at_level);
+      const indices = result.rows.map(row => row.leaf_index);
       
       if (indices.length === 0) {
-        logger.info('No leaves found, starting from index 0');
+        logger.info('No notes found, starting from index 0');
         return 0;
       }
 
@@ -86,7 +86,7 @@ export class PostgresTreeStorage implements TreeStorageInterface {
       }
 
       logger.info('Retrieved max leaf index', { 
-        totalLeaves: indices.length, 
+        totalNotes: indices.length, 
         maxIndex: Math.max(...indices), 
         nextIndex,
         indices: indices.slice(0, 10) // Show first 10 indices for debugging
@@ -113,6 +113,21 @@ export class PostgresTreeStorage implements TreeStorageInterface {
     const cleanCommit = leafCommit.replace('0x', '').toLowerCase();
     
     try {
+      // Check if leaf index already exists to prevent duplicate key violations
+      const existingNote = await db.query(
+        'SELECT leaf_index FROM notes WHERE leaf_index = $1',
+        [leafIndex]
+      );
+
+      if (existingNote.rows.length > 0) {
+        logger.error('Leaf index already exists', { 
+          leafIndex, 
+          existingCommit: existingNote.rows[0]?.leaf_commit,
+          newCommit: cleanCommit
+        });
+        throw new Error(`Leaf index ${leafIndex} already exists in notes table`);
+      }
+
       await db.query(
         `INSERT INTO notes (leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time) 
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -214,6 +229,29 @@ export class PostgresTreeStorage implements TreeStorageInterface {
       return result.rows[0]!;
     } catch (error) {
       logger.error('Failed to get note by index', { leafIndex, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get a specific note by commitment (for duplicate checking)
+   */
+  async getNoteByCommitment(leafCommit: string): Promise<StoredNote | null> {
+    try {
+      const result = await db.query<StoredNote>(
+        `SELECT id, leaf_commit as "leafCommit", encrypted_output as "encryptedOutput", leaf_index as "leafIndex", tx_signature as "txSignature", slot, block_time as timestamp, created_at as "createdAt"
+         FROM notes 
+         WHERE leaf_commit = $1`,
+        [leafCommit]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return result.rows[0]!;
+    } catch (error) {
+      logger.error('Failed to get note by commitment', { leafCommit, error });
       throw error;
     }
   }
@@ -350,6 +388,30 @@ export class PostgresTreeStorage implements TreeStorageInterface {
           error: error instanceof Error ? error.message : String(error)
         }
       };
+    }
+  }
+
+  /**
+   * Clean up all database data (for testing)
+   */
+  async cleanupDatabase(): Promise<void> {
+    try {
+      logger.info('Starting database cleanup');
+      
+      // Clean up all data in the correct order (respecting foreign key constraints)
+      await db.query('DELETE FROM event_processing_log WHERE id >= 0');
+      await db.query('DELETE FROM notes WHERE id >= 0');
+      await db.query('DELETE FROM merkle_tree_nodes WHERE level >= 0');
+      
+      // Reset metadata
+      await db.query('UPDATE indexer_metadata SET value = \'0\' WHERE key = \'next_leaf_index\'');
+      await db.query('UPDATE indexer_metadata SET value = \'0\' WHERE key = \'last_processed_slot\'');
+      await db.query('UPDATE indexer_metadata SET value = \'\' WHERE key = \'last_processed_signature\'');
+      
+      logger.info('Database cleanup completed');
+    } catch (error) {
+      logger.error('Failed to cleanup database', { error });
+      throw error;
     }
   }
 }

@@ -226,6 +226,22 @@ export function createRouter(): Router {
       slot
     });
     
+    // Check if commitment already exists (CRITICAL: Privacy protocol requires unique commitments)
+    const existingNote = await treeStorage.getNoteByCommitment(leafCommit);
+    if (existingNote) {
+      logger.warn('Duplicate commitment rejected', { 
+        leafCommit, 
+        existingLeafIndex: existingNote.leafIndex,
+        existingTxSignature: existingNote.txSignature
+      });
+      return res.status(400).json({
+        error: 'Commitment already exists',
+        message: 'This commitment has already been deposited. Each commitment must be unique for privacy.',
+        existingLeafIndex: existingNote.leafIndex,
+        existingTxSignature: existingNote.txSignature
+      });
+    }
+    
     // Insert leaf into tree and get new root
     const { root, leafIndex } = await merkleTree.insertLeaf(leafCommit, treeStorage);
     
@@ -249,7 +265,7 @@ export function createRouter(): Router {
       nextIndex: leafIndex + 1
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       leafIndex,
       root,
@@ -313,6 +329,30 @@ export function createRouter(): Router {
       leafCommit: leafCommit.toLowerCase(),
       message: 'Leaf inserted successfully'
     });
+  }));
+
+  // POST /admin/cleanup - Admin endpoint to clean up database (for testing)
+  router.post('/admin/cleanup', asyncHandler(async (req: Request, res: Response) => {
+    // TODO: Add authentication middleware
+    logger.info('Admin cleanup requested');
+    
+    try {
+      // Clean up all data
+      await treeStorage.cleanupDatabase();
+      
+      // Reset tree initialization flag
+      treeInitialized = false;
+      
+      logger.info('Database cleanup completed');
+      
+      res.json({
+        success: true,
+        message: 'Database cleanup completed successfully'
+      });
+    } catch (error) {
+      logger.error('Database cleanup failed', { error });
+      throw error;
+    }
   }));
 
   // Error handling middleware
