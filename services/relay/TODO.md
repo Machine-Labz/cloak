@@ -1,70 +1,70 @@
 # Relay Service Implementation TODO
 
 ## Phase 1: Project Setup and Core Structure
-- [ ] Initialize project with Cargo (Rust)
-- [ ] Set up project structure:
-  - [ ] `src/`
-    - [ ] `main.rs` - Entry point and server setup
-    - [ ] `api/` - API handlers and routes
-    - [ ] `models/` - Data structures and validation
-    - [ ] `queue/` - Job queue implementation
-    - [ ] `solana/` - Solana client and transaction building
-    - [ ] `config/` - Configuration management
-    - [ ] `db/` - Database layer for job persistence
-    - [ ] `metrics/` - Observability and monitoring
+- [x] Initialize project with Cargo (Rust)
+- [x] Set up project structure:
+  - [x] `src/`
+    - [x] `main.rs` - Entry point and server setup
+    - [x] `api/` - API handlers and routes
+    - [x] `models/` - Data structures and validation
+    - [x] `queue/` - Job queue implementation
+    - [x] `solana/` - Solana client and transaction building
+    - [x] `config/` - Configuration management
+    - [x] `db/` - Database layer for job persistence
+    - [x] `metrics/` - Observability and monitoring
 
 ## Phase 2: Core Functionality
-- [ ] Implement API Layer (`/withdraw` endpoint)
-  - [ ] Request validation
-  - [ ] Job creation and queuing
-  - [ ] Response handling
+- [x] Implement API Layer (`/withdraw` endpoint)
+  - [x] Request validation
+  - [x] Job creation and queuing
+  - [x] Response handling
 - [ ] Implement Job Processing
   - [ ] Queue worker implementation
-  - [ ] Job state management
-  - [ ] Retry logic with backoff
+  - [x] Job state management
+  - [x] Retry logic with backoff
 - [ ] Implement Solana Integration
-  - [ ] RPC client setup
+  - [x] RPC client setup
   - [ ] Transaction building and signing
-  - [ ] Transaction submission and confirmation
+  - [x] Transaction submission and confirmation
 
 ## Phase 3: Validation Layer
 - [ ] Proof validation
-  - [ ] Proof format verification
-  - [ ] Public inputs validation
+  - [ ] Proof format verification 
+  - [x] Public inputs validation
   - [ ] Merkle root verification
-- [ ] Business logic validation
-  - [ ] Outputs hash verification
-  - [ ] Conservation check (sum(outputs) + fee == amount)
-  - [ ] Nullifier check for double-spend prevention
+- [x] Business logic validation
+  - [x] Outputs hash verification
+  - [x] Conservation check (sum(outputs) + fee == amount)
+  - [x] Nullifier check for double-spend prevention
 
 ## Phase 4: Reliability and Observability
-- [ ] Implement persistence
-  - [ ] Job state storage
-  - [ ] Nullifier tracking
-- [ ] Add metrics and logging
-  - [ ] Request/response logging
-  - [ ] Performance metrics
-  - [ ] Error tracking
-- [ ] Add health checks
-  - [ ] Readiness probe
-  - [ ] Liveness probe
+- [x] Implement persistence
+  - [x] Job state storage
+  - [x] Nullifier tracking
+- [x] Add metrics and logging
+  - [x] Request/response logging
+  - [x] Performance metrics
+  - [x] Error tracking
+- [x] Add health checks
+  - [x] Readiness probe
+  - [x] Liveness probe
 
 ## Phase 5: Testing
-- [ ] Unit tests
-- [ ] Integration tests
+- [x] Unit tests
+- [x] Integration tests
 - [ ] Load testing
 - [ ] E2E test with local validator
 
 ## Phase 6: Documentation and Deployment
-- [ ] API documentation (OpenAPI/Swagger)
-- [ ] Deployment configuration
-- [ ] Monitoring setup
-- [ ] Runbook/operational guide
+- [x] API documentation (OpenAPI/Swagger)
+- [x] Deployment configuration
+- [x] Monitoring setup
+- [x] Runbook/operational guide
 
 ## Dependencies
-- [ ] axum/actix-web for HTTP server
-- [ ] tokio for async runtime
-- [ ] solana-client for Solana RPC
-- [ ] redis/sqlx for job queue and persistence
-- [ ] prometheus for metrics
-- [ ] tracing for structured logging
+- [x] axum/actix-web for HTTP server
+- [x] tokio for async runtime
+- [x] solana-client for Solana RPC
+- [x] redis/sqlx for job queue and persistence
+- [x] prometheus for metrics
+- [x] tracing for structured logging
