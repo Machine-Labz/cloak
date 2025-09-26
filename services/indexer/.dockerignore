@@ -1,12 +1,6 @@
-# Node modules
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
 # Build artifacts
-dist/
-build/
+target/
+Cargo.lock
 
 # Environment files
 .env*
@@ -15,6 +9,27 @@ build/
 # Logs
 logs/
 *.log
+
+# Artifacts (auto-generated)
+artifacts/*.elf
+artifacts/*.vk
+artifacts/*/*.elf
+artifacts/*/*.vk
+!artifacts/.gitkeep
+
+# Documentation
+README.md
+docs/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS generated files
 .DS_Store
@@ -25,18 +40,9 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Git
-.git/
-.gitignore
-
 # Test coverage
 coverage/
+*.profraw
 
 # Temporary files
 *.tmp
@@ -45,7 +51,3 @@ coverage/
 # Database files
 *.db
 *.sqlite
-
-# Documentation
-README.md
-docs/
