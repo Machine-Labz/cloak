@@ -5,6 +5,7 @@ members = [
     "packages/zk-guest-sp1/host",
     "packages/vkey-generator",
     "programs/shield-pool",
+    "services/relay",
     "test_complete_flow_rust",
 ]
 resolver = "2"
