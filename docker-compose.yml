@@ -23,13 +23,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # Indexer microservice
+  # Indexer microservice (Rust)
   indexer:
     build:
-      context: ./services/indexer
+      context: ./services/indexer-rs
       dockerfile: Dockerfile
-      target: development
-    container_name: cloak-indexer
+    container_name: cloak-indexer-rs
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
@@ -45,11 +44,11 @@ services:
       - TREE_HEIGHT=32
       - ARTIFACTS_BASE_PATH=./artifacts
       - SP1_VERSION=v2.0.0
+      - RUST_LOG=cloak_indexer=info,sqlx=warn
+      - RUST_BACKTRACE=1
     ports:
       - "3001:3001"
     volumes:
-      - ./services/indexer:/app
-      - /app/node_modules
       - indexer_logs:/app/logs
       - indexer_artifacts:/app/artifacts
     networks:
@@ -58,7 +57,20 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    command: npm run dev
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3001/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # Relay microservice (placeholder for future)
   # relay:

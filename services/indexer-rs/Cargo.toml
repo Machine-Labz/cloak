@@ -1,0 +1,91 @@
+[package]
+name = "cloak-indexer"
+version.workspace = true
+edition.workspace = true
+description = "Cloak indexer microservice - maintains append-only Merkle tree and serves proofs"
+authors.workspace = true
+license.workspace = true
+default-run = "cloak-indexer"
+
+[[bin]]
+name = "cloak-indexer"
+path = "src/main.rs"
+
+[[bin]]
+name = "migrate"
+path = "src/bin/migrate.rs"
+
+[dependencies]
+# Web framework and async runtime
+axum = { version = "0.7", features = ["macros", "tower-log"] }
+tokio = { version = "1.0", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = [
+    "cors",
+    "trace",
+    "compression-gzip",
+] }
+
+# Database
+sqlx = { version = "0.7", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "uuid",
+    "json",
+] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Cryptography
+blake3 = { workspace = true }
+hex = { workspace = true }
+
+# Configuration and environment
+config = "0.14"
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Time and UUID
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Base64 encoding/decoding
+base64 = "0.22"
+
+# Async trait support
+async-trait = "0.1"
+
+# SHA-256 hashing
+sha2 = { workspace = true }
+
+# HTTP client for health checks and testing
+reqwest = { version = "0.11", features = ["json"] }
+
+# File system operations
+tokio-fs = "0.1"
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
+tower-test = "0.4"
+http-body-util = "0.1"
+tempfile = "3.0"
+
+# Test database setup
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = ["postgres"] }
+
+# Profile configuration moved to workspace root

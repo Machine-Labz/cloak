@@ -1,0 +1,195 @@
+# Justfile for Cloak Indexer (Rust)
+# Run commands with: just <command>
+
+# Default recipe
+default:
+    @just --list
+
+# Build the project
+build:
+    cargo build
+
+# Build for release
+build-release:
+    cargo build --release
+
+# Run the indexer service
+run: build
+    cargo run --bin cloak-indexer
+
+# Run in development mode with auto-reload
+dev:
+    cargo watch -x "run --bin cloak-indexer"
+
+# Run database migrations
+migrate:
+    cargo run --bin migrate
+
+# Run all tests
+test:
+    cargo test
+
+# Run tests with output
+test-verbose:
+    cargo test -- --nocapture
+
+# Run tests with coverage (requires cargo-tarpaulin)
+test-coverage:
+    cargo tarpaulin --out html --output-dir coverage
+
+# Format code
+fmt:
+    cargo fmt
+
+# Check code without building
+check:
+    cargo check
+
+# Run clippy linting
+lint:
+    cargo clippy -- -D warnings
+
+# Run all quality checks
+qa: fmt lint test
+
+# Clean build artifacts
+clean:
+    cargo clean
+    rm -rf target/
+    rm -rf logs/
+    rm -rf coverage/
+
+# Set up development environment
+setup:
+    cp env.example .env
+    @echo "Edit .env file with your database credentials"
+    @echo "Then run: just start-deps && just migrate && just run"
+
+# Start dependencies (PostgreSQL)
+start-deps:
+    docker-compose up -d postgres
+
+# Stop dependencies
+stop-deps:
+    docker-compose down
+
+# Start full stack
+start-stack:
+    docker-compose up -d
+
+# View logs
+logs:
+    docker-compose logs -f indexer
+
+# Build Docker image
+docker-build:
+    docker build -t cloak-indexer:latest .
+
+# Run Docker container
+docker-run: docker-build
+    docker run --rm -p 3001:3001 --env-file .env cloak-indexer:latest
+
+# Health check
+health:
+    curl -s http://localhost:3001/health | jq
+
+# Test deposit endpoint
+test-deposit:
+    curl -X POST http://localhost:3001/api/v1/deposit \
+      -H "Content-Type: application/json" \
+      -d '{"leafCommit":"1111111111111111111111111111111111111111111111111111111111111111","encryptedOutput":"dGVzdA=="}'
+
+# Get merkle root
+get-root:
+    curl -s http://localhost:3001/api/v1/merkle/root | jq
+
+# Get merkle proof (usage: just get-proof 0)
+get-proof INDEX:
+    curl -s http://localhost:3001/api/v1/merkle/proof/{{INDEX}} | jq
+
+# Get notes range
+get-notes:
+    curl -s "http://localhost:3001/api/v1/notes/range?start=0&end=10&limit=5" | jq
+
+# Get artifacts
+get-artifacts VERSION="v2.0.0":
+    curl -s http://localhost:3001/api/v1/artifacts/withdraw/{{VERSION}} | jq
+
+# Run performance benchmark
+bench:
+    @echo "Building optimized binary..."
+    cargo build --release
+    @echo "Running simple load test..."
+    @echo "This requires 'wrk' to be installed: brew install wrk"
+    wrk -t2 -c10 -d30s http://localhost:3001/health
+
+# Check dependencies for updates
+check-updates:
+    cargo outdated
+
+# Generate documentation
+docs:
+    cargo doc --open
+
+# Install dev tools
+install-tools:
+    cargo install cargo-watch cargo-tarpaulin cargo-outdated
+
+# Database console
+db-console:
+    docker-compose exec postgres psql -U cloak -d cloak_indexer
+
+# Reset database (WARNING: destroys all data)
+reset-db:
+    docker-compose down -v
+    docker-compose up -d postgres
+    sleep 5
+    just migrate
+
+# Integration test flow
+test-flow: start-deps
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    echo "🧪 Running integration test flow..."
+    
+    # Wait for postgres
+    sleep 5
+    
+    # Run migrations
+    just migrate
+    
+    # Start the server in background
+    cargo run --bin cloak-indexer &
+    SERVER_PID=$!
+    
+    # Wait for server to start
+    sleep 5
+    
+    # Test health
+    echo "Testing health endpoint..."
+    just health
+    
+    # Test deposit
+    echo "Testing deposit..."
+    just test-deposit
+    
+    # Test merkle operations
+    echo "Testing merkle root..."
+    just get-root
+    
+    echo "Testing merkle proof..."
+    just get-proof 0
+    
+    # Test notes
+    echo "Testing notes range..."
+    just get-notes
+    
+    # Test artifacts
+    echo "Testing artifacts..."
+    just get-artifacts
+    
+    # Clean up
+    kill $SERVER_PID || true
+    
+    echo "✅ Integration test completed successfully!"
