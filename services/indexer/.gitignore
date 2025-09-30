@@ -1,14 +1,6 @@
-# Dependencies
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-
-
-# Build output
-dist/
-build/
+# Rust
+/target/
+Cargo.lock
 
 # Environment variables
 .env
@@ -23,6 +15,19 @@ logs/
 *.db
 *.sqlite
 
+# Artifacts (auto-generated)
+artifacts/*.elf
+artifacts/*.vk
+artifacts/*/*.elf
+artifacts/*/*.vk
+!artifacts/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -32,28 +37,10 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # Test coverage
 coverage/
-*.lcov
-
-# Jest
-jest.config.js.bak
-
-# Artifacts
-artifacts/*.elf
-artifacts/*.vk
-artifacts/*/*.elf
-artifacts/*/*.vk
-!artifacts/.gitkeep
+*.profraw
 
 # Temporary files
 *.tmp
 *.temp
-
-

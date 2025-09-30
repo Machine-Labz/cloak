@@ -5,6 +5,7 @@ members = [
     "packages/zk-guest-sp1/host",
     "packages/vkey-generator",
     "programs/shield-pool",
+    "services/indexer",
     "services/relay",
     "test_complete_flow_rust",
 ]
@@ -18,7 +19,7 @@ authors = [
     "marcelofeitoza",
     "BretasArthur1",
     "vict0rcarvalh0",
-    "matheusmacedosantos"
+    "matheusmacedosantos",
 ]
 license = "MIT"
 repository = "https://github.com/cloak-labz/cloak"
@@ -32,7 +33,9 @@ sp1-build = "5.2.1"
 
 # Serialization
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.143", default-features = false, features = ["alloc"] }
+serde_json = { version = "1.0.143", default-features = false, features = [
+    "alloc",
+] }
 
 # CLI
 clap = { version = "4.5.47", features = ["derive", "env"] }
@@ -70,5 +73,3 @@ sha2 = "0.10.9"
 ark-bn254 = "0.4.0"
 ark-serialize = "0.4.2"
 ark-ff = "0.4.2"
-
-
