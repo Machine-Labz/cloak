@@ -1,14 +1,14 @@
 [package]
-name = "cloak-indexer"
+name = "indexer"
 version.workspace = true
 edition.workspace = true
 description = "Cloak indexer microservice - maintains append-only Merkle tree and serves proofs"
 authors.workspace = true
 license.workspace = true
-default-run = "cloak-indexer"
+default-run = "indexer"
 
 [[bin]]
-name = "cloak-indexer"
+name = "indexer"
 path = "src/main.rs"
 
 [[bin]]

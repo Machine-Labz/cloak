@@ -1,6 +1,3 @@
-[workspace]
-# Empty workspace to make this package independent
-
 [package]
 name = "relay"
 version = "0.1.0"
@@ -29,7 +26,13 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 # Database (simplified for now)
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono", "json"] }
+sqlx = { version = "0.6", features = [
+    "runtime-tokio-native-tls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+] }
 
 # Redis for job queue
 redis = { version = "0.23", features = ["tokio-comp"] }
