@@ -41,7 +41,7 @@ build-zk:
 # Build only the indexer service
 build-indexer:
     @echo "🔨 Building indexer service..."
-    @cargo build -p cloak-indexer --release
+    @cargo build -p indexer --release
     @echo "✅ Indexer service built!"
 
 # 🧪 TEST COMMANDS
@@ -65,7 +65,7 @@ test-zk:
 # Run only indexer tests
 test-indexer:
     @echo "🧪 Running indexer tests..."
-    @cargo test -p cloak-indexer --release
+    @cargo test -p indexer --release
 
 # Run integration tests with real validator
 test-integration: build-program build-indexer
@@ -108,7 +108,7 @@ generate-examples: build-zk
 # Start the indexer service (development mode)
 start-indexer: build-indexer
     @echo "🌐 Starting indexer service..."
-    @cargo run -p cloak-indexer -- --rpc-url http://127.0.0.1:8899 --port 3030
+    @cargo run -p indexer -- --rpc-url http://127.0.0.1:8899 --port 3030
 
 # Start a local Solana validator for testing
 start-validator:
@@ -203,7 +203,7 @@ status:
     @echo ""
     @echo "🏗️  Build Status:"
     @test -f target/deploy/shield_pool.so && echo "   ✅ Shield pool program built" || echo "   ❌ Shield pool program not built"
-    @test -f target/release/cloak-indexer && echo "   ✅ Indexer service built" || echo "   ❌ Indexer service not built"
+    @test -f target/release/indexer && echo "   ✅ Indexer service built" || echo "   ❌ Indexer service not built"
     @test -f target/release/cloak-zk && echo "   ✅ ZK tools built" || echo "   ❌ ZK tools not built"
 
 # Show recent git activity

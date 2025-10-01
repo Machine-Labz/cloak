@@ -26,9 +26,9 @@ services:
   # Indexer microservice (Rust)
   indexer:
     build:
-      context: ./services/indexer-rs
+      context: ./services/indexer
       dockerfile: Dockerfile
-    container_name: cloak-indexer-rs
+    container_name: cloak-indexer
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
