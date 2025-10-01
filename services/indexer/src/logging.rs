@@ -60,7 +60,11 @@ where
         let _ = (attrs, id, ctx);
     }
 
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         // Custom event handling if needed
         let _ = event;
     }

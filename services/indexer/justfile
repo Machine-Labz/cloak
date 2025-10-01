@@ -15,11 +15,11 @@ build-release:
 
 # Run the indexer service
 run: build
-    cargo run --bin cloak-indexer
+    cargo run --bin indexer
 
 # Run in development mode with auto-reload
 dev:
-    cargo watch -x "run --bin cloak-indexer"
+    cargo watch -x "run --bin indexer"
 
 # Run database migrations
 migrate:
@@ -83,11 +83,11 @@ logs:
 
 # Build Docker image
 docker-build:
-    docker build -t cloak-indexer:latest .
+    docker build -t indexer:latest .
 
 # Run Docker container
 docker-run: docker-build
-    docker run --rm -p 3001:3001 --env-file .env cloak-indexer:latest
+    docker run --rm -p 3001:3001 --env-file .env indexer:latest
 
 # Health check
 health:
@@ -160,7 +160,7 @@ test-flow: start-deps
     just migrate
     
     # Start the server in background
-    cargo run --bin cloak-indexer &
+    cargo run --bin indexer &
     SERVER_PID=$!
     
     # Wait for server to start

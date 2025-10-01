@@ -74,4 +74,4 @@ pub trait JobQueue: Send + Sync {
     async fn dead_letter(&self, message: JobMessage, reason: String) -> Result<(), Error>;
     async fn queue_size(&self) -> Result<u64, Error>;
     async fn health_check(&self) -> Result<(), Error>;
-} 
+}

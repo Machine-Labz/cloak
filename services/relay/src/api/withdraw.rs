@@ -1,12 +1,8 @@
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     api::{ApiResponse, WithdrawResponse},
@@ -72,7 +68,9 @@ pub async fn handle_withdraw(
 
     // Check for nullifier double-spend
     if state.nullifier_repo.exists_nullifier(&nullifier).await? {
-        return Err(Error::ValidationError("Nullifier already exists (double spend)".to_string()));
+        return Err(Error::ValidationError(
+            "Nullifier already exists (double spend)".to_string(),
+        ));
     }
 
     // Encode public inputs for storage
@@ -88,20 +86,24 @@ pub async fn handle_withdraw(
         request_id,
         proof_bytes,
         public_inputs: public_inputs_bytes,
-        outputs_json: serde_json::to_value(&payload.outputs)
-            .map_err(|e| Error::InternalServerError(format!("Failed to serialize outputs: {}", e)))?,
+        outputs_json: serde_json::to_value(&payload.outputs).map_err(|e| {
+            Error::InternalServerError(format!("Failed to serialize outputs: {}", e))
+        })?,
         fee_bps: payload.policy.fee_bps as i16,
         root_hash,
         nullifier: nullifier.clone(),
         amount: payload.public_inputs.amount as i64,
         outputs_hash,
     };
-    
+
     let job = state.job_repo.create_job(create_job).await?;
-    
+
     // Create nullifier record
-    state.nullifier_repo.create_nullifier(nullifier, job.id).await?;
-    
+    state
+        .nullifier_repo
+        .create_nullifier(nullifier, job.id)
+        .await?;
+
     // Add to processing queue
     let job_message = JobMessage::new(job.id, request_id);
     state.queue.enqueue(job_message).await?;
@@ -125,17 +127,23 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     }
 
     if request.outputs.len() > 10 {
-        return Err(Error::ValidationError("Too many outputs (max 10)".to_string()));
+        return Err(Error::ValidationError(
+            "Too many outputs (max 10)".to_string(),
+        ));
     }
 
     // Validate amounts
     for output in &request.outputs {
         if output.amount == 0 {
-            return Err(Error::ValidationError("Output amount cannot be zero".to_string()));
+            return Err(Error::ValidationError(
+                "Output amount cannot be zero".to_string(),
+            ));
         }
-        
+
         if output.recipient.len() < 32 {
-            return Err(Error::ValidationError("Invalid recipient address".to_string()));
+            return Err(Error::ValidationError(
+                "Invalid recipient address".to_string(),
+            ));
         }
     }
 
@@ -145,52 +153,62 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     }
 
     if request.public_inputs.fee_bps > 10000 {
-        return Err(Error::ValidationError("Fee BPS cannot exceed 10000".to_string()));
+        return Err(Error::ValidationError(
+            "Fee BPS cannot exceed 10000".to_string(),
+        ));
     }
 
     // Check conservation
     let fee_amount = (request.public_inputs.amount * request.public_inputs.fee_bps as u64) / 10000;
     let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
-    
+
     if total_output_amount + fee_amount != request.public_inputs.amount {
         return Err(Error::ValidationError(
-            "Conservation check failed: outputs + fee != amount".to_string()
+            "Conservation check failed: outputs + fee != amount".to_string(),
         ));
     }
 
     // Check policy consistency
     if request.policy.fee_bps != request.public_inputs.fee_bps {
         return Err(Error::ValidationError(
-            "Fee BPS mismatch between policy and public inputs".to_string()
+            "Fee BPS mismatch between policy and public inputs".to_string(),
         ));
     }
 
     // Validate hex strings
     if request.public_inputs.root.len() != 64 {
-        return Err(Error::ValidationError("Root must be 64 hex characters".to_string()));
+        return Err(Error::ValidationError(
+            "Root must be 64 hex characters".to_string(),
+        ));
     }
 
     if request.public_inputs.nf.len() != 64 {
-        return Err(Error::ValidationError("Nullifier must be 64 hex characters".to_string()));
+        return Err(Error::ValidationError(
+            "Nullifier must be 64 hex characters".to_string(),
+        ));
     }
 
     if request.public_inputs.outputs_hash.len() != 64 {
-        return Err(Error::ValidationError("Outputs hash must be 64 hex characters".to_string()));
+        return Err(Error::ValidationError(
+            "Outputs hash must be 64 hex characters".to_string(),
+        ));
     }
 
     // Validate hex format
     hex::decode(&request.public_inputs.root)
         .map_err(|_| Error::ValidationError("Root must be valid hex".to_string()))?;
-    
+
     hex::decode(&request.public_inputs.nf)
         .map_err(|_| Error::ValidationError("Nullifier must be valid hex".to_string()))?;
-    
+
     hex::decode(&request.public_inputs.outputs_hash)
         .map_err(|_| Error::ValidationError("Outputs hash must be valid hex".to_string()))?;
 
     // Validate proof bytes are valid base64
     if request.proof_bytes.is_empty() {
-        return Err(Error::ValidationError("Proof bytes cannot be empty".to_string()));
+        return Err(Error::ValidationError(
+            "Proof bytes cannot be empty".to_string(),
+        ));
     }
 
     Ok(())
@@ -218,7 +236,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
         };
-        
+
         assert!(validate_request(&valid_request).is_ok());
     }
 
@@ -236,7 +254,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
         };
-        
+
         assert!(validate_request(&invalid_request).is_err());
     }
 
@@ -257,7 +275,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
         };
-        
+
         assert!(validate_request(&invalid_request).is_err());
     }
 
@@ -278,7 +296,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
         };
-        
+
         assert!(validate_request(&invalid_request).is_err());
     }
 
@@ -299,7 +317,7 @@ mod tests {
             },
             proof_bytes: "".to_string(), // Empty base64
         };
-        
+
         assert!(validate_request(&invalid_request).is_err());
     }
 }

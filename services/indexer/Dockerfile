@@ -14,17 +14,19 @@ RUN apk add --no-cache \
 # Set up the working directory
 WORKDIR /app
 
-# Copy manifests
+# Copy workspace root files
 COPY Cargo.toml Cargo.lock ./
 
-# Copy source code
-COPY src ./src
-COPY migrations ./migrations
+# Copy all workspace members
+COPY packages ./packages/
+COPY programs ./programs/
+COPY services ./services/
+COPY test_complete_flow_rust ./test_complete_flow_rust/
 
 # Build the application in release mode
 ENV CARGO_TARGET_DIR=/tmp/target
 ENV RUSTFLAGS="-C target-feature=-crt-static"
-RUN cargo build --release --bin cloak-indexer
+RUN cargo build --release --bin indexer -p indexer
 
 # Runtime stage
 FROM alpine:latest AS runtime
@@ -44,14 +46,14 @@ RUN mkdir -p /app/logs /app/artifacts && \
     chown -R indexer:indexer /app
 
 # Copy the binary from builder stage
-COPY --from=builder /tmp/target/release/cloak-indexer /app/cloak-indexer
+COPY --from=builder /tmp/target/release/indexer /app/indexer
 
 # Copy migrations
-COPY --from=builder /app/migrations /app/migrations
+COPY --from=builder /app/services/indexer/src/migrations /app/migrations
 
 # Set permissions
-RUN chmod +x /app/cloak-indexer && \
-    chown indexer:indexer /app/cloak-indexer
+RUN chmod +x /app/indexer && \
+    chown indexer:indexer /app/indexer
 
 # Switch to non-root user
 USER indexer
@@ -69,4 +71,4 @@ ENV RUST_LOG=info
 ENV RUST_BACKTRACE=1
 
 # Start the application
-CMD ["./cloak-indexer"]
+CMD ["./indexer"]

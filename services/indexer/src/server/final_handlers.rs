@@ -44,9 +44,15 @@ pub async fn api_info() -> impl IntoResponse {
     endpoints.insert("health".to_string(), "/health".to_string());
     endpoints.insert("deposit".to_string(), "/api/v1/deposit".to_string());
     endpoints.insert("merkle_root".to_string(), "/api/v1/merkle/root".to_string());
-    endpoints.insert("merkle_proof".to_string(), "/api/v1/merkle/proof/:index".to_string());
+    endpoints.insert(
+        "merkle_proof".to_string(),
+        "/api/v1/merkle/proof/:index".to_string(),
+    );
     endpoints.insert("notes_range".to_string(), "/api/v1/notes/range".to_string());
-    endpoints.insert("artifacts".to_string(), "/api/v1/artifacts/withdraw/:version".to_string());
+    endpoints.insert(
+        "artifacts".to_string(),
+        "/api/v1/artifacts/withdraw/:version".to_string(),
+    );
 
     Json(serde_json::json!({
         "name": "Cloak Indexer API",
@@ -83,7 +89,7 @@ pub async fn deposit(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "Leaf commit must be 64 characters"
-            }))
+            })),
         );
     }
 
@@ -92,19 +98,22 @@ pub async fn deposit(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "Encrypted output cannot be empty"
-            }))
+            })),
         );
     }
 
     // Return success response (actual implementation would use the merkle tree)
-    (StatusCode::CREATED, Json(serde_json::json!({
-        "success": true,
-        "leaf_index": 0,
-        "root": "dummy_root_hash_placeholder".repeat(2),
-        "next_index": 1,
-        "leaf_commit": request.leaf_commit.to_lowercase(),
-        "message": "Deposit processed successfully"
-    })))
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "success": true,
+            "leaf_index": 0,
+            "root": "dummy_root_hash_placeholder".repeat(2),
+            "next_index": 1,
+            "leaf_commit": request.leaf_commit.to_lowercase(),
+            "message": "Deposit processed successfully"
+        })),
+    )
 }
 
 pub async fn get_merkle_root(State(_state): State<AppState>) -> impl IntoResponse {
@@ -123,14 +132,17 @@ pub async fn get_merkle_proof(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "Index too large"
-            }))
+            })),
         );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "path_elements": vec!["dummy_element".repeat(2); 31],
-        "path_indices": vec![0; 31]
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "path_elements": vec!["dummy_element".repeat(2); 31],
+            "path_indices": vec![0; 31]
+        })),
+    )
 }
 
 pub async fn get_notes_range(
@@ -145,17 +157,20 @@ pub async fn get_notes_range(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "End must be >= start"
-            }))
+            })),
         );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "encrypted_outputs": [],
-        "has_more": false,
-        "total": 0,
-        "start": start,
-        "end": end
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "encrypted_outputs": [],
+            "has_more": false,
+            "total": 0,
+            "start": start,
+            "end": end
+        })),
+    )
 }
 
 pub async fn get_withdraw_artifacts(
@@ -167,19 +182,22 @@ pub async fn get_withdraw_artifacts(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "Invalid version format"
-            }))
+            })),
         );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "guest_elf_url": format!("/api/v1/artifacts/files/{}/guest.elf", version),
-        "vk": "dummy_vk_base64",
-        "sha256": {
-            "elf": "a".repeat(64),
-            "vk": "b".repeat(64)
-        },
-        "sp1_version": "v2.0.0"
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "guest_elf_url": format!("/api/v1/artifacts/files/{}/guest.elf", version),
+            "vk": "dummy_vk_base64",
+            "sha256": {
+                "elf": "a".repeat(64),
+                "vk": "b".repeat(64)
+            },
+            "sp1_version": "v2.0.0"
+        })),
+    )
 }
 
 pub async fn serve_artifact_file(
@@ -191,13 +209,16 @@ pub async fn serve_artifact_file(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "Invalid filename"
-            }))
+            })),
         );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "content": "dummy_file_content"
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "content": "dummy_file_content"
+        })),
+    )
 }
 
 pub async fn admin_push_root(

@@ -12,7 +12,12 @@ pub trait JobRepository: Send + Sync {
     async fn get_job_by_request_id(&self, request_id: Uuid) -> Result<Option<Job>, Error>;
     async fn update_job_status(&self, id: Uuid, status: JobStatus) -> Result<(), Error>;
     async fn update_job_processing(&self, id: Uuid, tx_id: Option<String>) -> Result<(), Error>;
-    async fn update_job_completed(&self, id: Uuid, tx_id: String, signature: String) -> Result<(), Error>;
+    async fn update_job_completed(
+        &self,
+        id: Uuid,
+        tx_id: String,
+        signature: String,
+    ) -> Result<(), Error>;
     async fn update_job_failed(&self, id: Uuid, error: String) -> Result<(), Error>;
     async fn increment_retry_count(&self, id: Uuid) -> Result<(), Error>;
     async fn get_queued_jobs(&self, limit: i64) -> Result<Vec<Job>, Error>;
@@ -24,7 +29,12 @@ pub trait NullifierRepository: Send + Sync {
     async fn create_nullifier(&self, nullifier: Vec<u8>, job_id: Uuid) -> Result<(), Error>;
     async fn exists_nullifier(&self, nullifier: &[u8]) -> Result<bool, Error>;
     async fn get_nullifier(&self, nullifier: &[u8]) -> Result<Option<Nullifier>, Error>;
-    async fn update_nullifier_block_info(&self, nullifier: &[u8], block_height: i64, tx_signature: String) -> Result<(), Error>;
+    async fn update_nullifier_block_info(
+        &self,
+        nullifier: &[u8],
+        block_height: i64,
+        tx_signature: String,
+    ) -> Result<(), Error>;
 }
 
 pub struct PostgresJobRepository {
@@ -141,7 +151,12 @@ impl JobRepository for PostgresJobRepository {
         Ok(())
     }
 
-    async fn update_job_completed(&self, id: Uuid, tx_id: String, signature: String) -> Result<(), Error> {
+    async fn update_job_completed(
+        &self,
+        id: Uuid,
+        tx_id: String,
+        signature: String,
+    ) -> Result<(), Error> {
         sqlx::query!(
             r#"
             UPDATE jobs 
@@ -294,7 +309,12 @@ impl NullifierRepository for PostgresNullifierRepository {
         Ok(nullifier_record)
     }
 
-    async fn update_nullifier_block_info(&self, nullifier: &[u8], block_height: i64, tx_signature: String) -> Result<(), Error> {
+    async fn update_nullifier_block_info(
+        &self,
+        nullifier: &[u8],
+        block_height: i64,
+        tx_signature: String,
+    ) -> Result<(), Error> {
         sqlx::query!(
             r#"
             UPDATE nullifiers 
@@ -307,8 +327,10 @@ impl NullifierRepository for PostgresNullifierRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to update nullifier block info: {}", e)))?;
+        .map_err(|e| {
+            Error::DatabaseError(format!("Failed to update nullifier block info: {}", e))
+        })?;
 
         Ok(())
     }
-} 
+}

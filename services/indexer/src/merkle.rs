@@ -129,7 +129,10 @@ impl MerkleTree {
         );
 
         // Validate leaf value
-        let clean_leaf = leaf_value.strip_prefix("0x").unwrap_or(leaf_value).to_lowercase();
+        let clean_leaf = leaf_value
+            .strip_prefix("0x")
+            .unwrap_or(leaf_value)
+            .to_lowercase();
         if clean_leaf.len() != 64 {
             return Err(IndexerError::merkle_tree(
                 "Leaf value must be a 64-character hex string (32 bytes)",
@@ -294,8 +297,14 @@ impl MerkleTree {
             return Ok(false);
         }
 
-        let clean_leaf = leaf_value.strip_prefix("0x").unwrap_or(leaf_value).to_lowercase();
-        let clean_root = expected_root.strip_prefix("0x").unwrap_or(expected_root).to_lowercase();
+        let clean_leaf = leaf_value
+            .strip_prefix("0x")
+            .unwrap_or(leaf_value)
+            .to_lowercase();
+        let clean_root = expected_root
+            .strip_prefix("0x")
+            .unwrap_or(expected_root)
+            .to_lowercase();
 
         let mut current_value = clean_leaf;
         let mut _current_index = leaf_index;

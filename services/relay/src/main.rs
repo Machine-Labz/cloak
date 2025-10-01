@@ -29,7 +29,7 @@ impl AppState {
         // Database connection
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/relay".to_string());
-        
+
         let db_pool = db::connect(&database_url).await?;
         db::run_migrations(&db_pool).await?;
 
@@ -38,13 +38,12 @@ impl AppState {
         let nullifier_repo = Arc::new(PostgresNullifierRepository::new(db_pool.clone()));
 
         // Redis connection
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string());
-        
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
         let queue_config = QueueConfig::default();
-        let queue: Arc<dyn JobQueue> = Arc::new(
-            RedisJobQueue::new(&redis_url, queue_config).await?
-        );
+        let queue: Arc<dyn JobQueue> =
+            Arc::new(RedisJobQueue::new(&redis_url, queue_config).await?);
 
         Ok(Self {
             db_pool,
