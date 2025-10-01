@@ -88,14 +88,14 @@ fn deposit_test() {
 
     // Test instruction creation and account setup validation
     // This verifies the instruction structure is correct without executing it
-    
+
     // Validate instruction data length
     assert!(
         instruction_data.len() >= 40,
         "Deposit instruction data should be at least 40 bytes, got: {}",
         instruction_data.len()
     );
-    
+
     // Validate account count
     assert_eq!(
         instruction.accounts.len(),
@@ -103,7 +103,7 @@ fn deposit_test() {
         "Deposit instruction should have 4 accounts, got: {}",
         instruction.accounts.len()
     );
-    
+
     // Validate account setup
     assert_eq!(
         accounts.len(),
@@ -111,38 +111,38 @@ fn deposit_test() {
         "Deposit accounts should have 4 accounts, got: {}",
         accounts.len()
     );
-    
+
     // Validate user account is signer
     assert!(
         instruction.accounts[0].is_signer,
         "User account should be marked as signer"
     );
-    
+
     // Validate pool account is writable
     assert!(
         instruction.accounts[1].is_writable,
         "Pool account should be writable"
     );
-    
+
     // Validate roots_ring account is writable
     assert!(
         instruction.accounts[2].is_writable,
         "Roots ring account should be writable"
     );
-    
+
     // Validate system program account is readonly
     assert!(
         !instruction.accounts[3].is_writable,
         "System program account should be readonly"
     );
-    
+
     // Validate amount is reasonable
     assert!(
         amount > 0,
         "Deposit amount should be positive, got: {}",
         amount
     );
-    
+
     // Validate leaf commit is correct size
     assert_eq!(
         leaf_commit.len(),

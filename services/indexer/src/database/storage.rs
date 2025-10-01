@@ -1,8 +1,8 @@
 use crate::error::{IndexerError, Result};
 use crate::merkle::TreeStorage;
-use sqlx::{Pool, Postgres};
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StoredNote {
@@ -54,10 +54,13 @@ impl PostgresTreeStorage {
         slot: i64,
         block_time: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        let clean_commit = leaf_commit.strip_prefix("0x").unwrap_or(leaf_commit).to_lowercase();
-        
+        let clean_commit = leaf_commit
+            .strip_prefix("0x")
+            .unwrap_or(leaf_commit)
+            .to_lowercase();
+
         let start = std::time::Instant::now();
-        
+
         sqlx::query(
             r#"
             INSERT INTO notes (leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time) 
@@ -118,14 +121,14 @@ impl PostgresTreeStorage {
 
         // Get total count in range
         let count_row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM notes WHERE leaf_index >= $1 AND leaf_index <= $2"
+            "SELECT COUNT(*) FROM notes WHERE leaf_index >= $1 AND leaf_index <= $2",
         )
         .bind(start)
         .bind(end)
         .fetch_one(&self.pool)
         .await
         .map_err(IndexerError::Database)?;
-        
+
         let total = count_row.0;
 
         // Get the actual notes
@@ -145,7 +148,10 @@ impl PostgresTreeStorage {
         .await
         .map_err(IndexerError::Database)?;
 
-        let encrypted_outputs: Vec<String> = notes.into_iter().map(|note| note.encrypted_output).collect();
+        let encrypted_outputs: Vec<String> = notes
+            .into_iter()
+            .map(|note| note.encrypted_output)
+            .collect();
         let has_more = total > limit;
 
         let duration = query_start.elapsed();
@@ -173,7 +179,7 @@ impl PostgresTreeStorage {
     /// Get a specific note by leaf index
     pub async fn get_note_by_index(&self, leaf_index: i64) -> Result<Option<StoredNote>> {
         let start = std::time::Instant::now();
-        
+
         let note = sqlx::query_as::<_, StoredNote>(
             r#"
             SELECT id, leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time, created_at 
@@ -195,14 +201,14 @@ impl PostgresTreeStorage {
     /// Update indexer metadata
     pub async fn update_metadata(&self, key: &str, value: &str) -> Result<()> {
         let start = std::time::Instant::now();
-        
+
         sqlx::query(
             r#"
             INSERT INTO indexer_metadata (key, value) 
             VALUES ($1, $2)
             ON CONFLICT (key) 
             DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            "#
+            "#,
         )
         .bind(key)
         .bind(value)
@@ -220,12 +226,13 @@ impl PostgresTreeStorage {
     /// Get indexer metadata value
     pub async fn get_metadata(&self, key: &str) -> Result<Option<String>> {
         let start = std::time::Instant::now();
-        
-        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM indexer_metadata WHERE key = $1")
-            .bind(key)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(IndexerError::Database)?;
+
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM indexer_metadata WHERE key = $1")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(IndexerError::Database)?;
 
         let duration = start.elapsed();
         crate::log_database_operation!("SELECT", "indexer_metadata", duration.as_millis() as u64);
@@ -243,7 +250,7 @@ impl PostgresTreeStorage {
         error_message: Option<&str>,
     ) -> Result<()> {
         let start = std::time::Instant::now();
-        
+
         sqlx::query(
             r#"
             INSERT INTO event_processing_log (tx_signature, slot, event_type, processing_status, error_message) 
@@ -265,7 +272,11 @@ impl PostgresTreeStorage {
         .map_err(IndexerError::Database)?;
 
         let duration = start.elapsed();
-        crate::log_database_operation!("UPSERT", "event_processing_log", duration.as_millis() as u64);
+        crate::log_database_operation!(
+            "UPSERT",
+            "event_processing_log",
+            duration.as_millis() as u64
+        );
 
         tracing::debug!(
             tx_signature = tx_signature,
@@ -281,14 +292,14 @@ impl PostgresTreeStorage {
     /// Get all tree nodes for a specific level
     pub async fn get_nodes_at_level(&self, level: u32) -> Result<Vec<MerkleTreeRow>> {
         let start = std::time::Instant::now();
-        
+
         let nodes = sqlx::query_as::<_, MerkleTreeRow>(
             r#"
             SELECT level, index_at_level, value, created_at, updated_at 
             FROM merkle_tree_nodes 
             WHERE level = $1 
             ORDER BY index_at_level
-            "#
+            "#,
         )
         .bind(level as i32)
         .fetch_all(&self.pool)
@@ -304,7 +315,7 @@ impl PostgresTreeStorage {
     /// Health check - verify database connectivity and basic operations
     pub async fn health_check(&self) -> Result<serde_json::Value> {
         let start = std::time::Instant::now();
-        
+
         // Test basic connectivity
         let time_row: (DateTime<Utc>,) = sqlx::query_as("SELECT NOW()")
             .fetch_one(&self.pool)
@@ -319,7 +330,7 @@ impl PostgresTreeStorage {
             WHERE table_schema = 'public' 
             AND table_name IN ('merkle_tree_nodes', 'notes', 'indexer_metadata')
             ORDER BY table_name
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -334,7 +345,7 @@ impl PostgresTreeStorage {
                 (SELECT COUNT(*) FROM merkle_tree_nodes) as tree_nodes,
                 (SELECT COUNT(*) FROM notes) as notes_count,
                 (SELECT value FROM indexer_metadata WHERE key = 'next_leaf_index') as next_index
-            "#
+            "#,
         )
         .fetch_optional(&self.pool)
         .await
@@ -364,7 +375,7 @@ impl PostgresTreeStorage {
 impl TreeStorage for PostgresTreeStorage {
     async fn store_node(&self, level: u32, index: u64, value: &str) -> Result<()> {
         let clean_value = value.strip_prefix("0x").unwrap_or(value).to_lowercase();
-        
+
         if clean_value.len() != 64 {
             return Err(IndexerError::bad_request(format!(
                 "Invalid node value length: {} (expected 64 hex chars)",
@@ -373,14 +384,14 @@ impl TreeStorage for PostgresTreeStorage {
         }
 
         let start = std::time::Instant::now();
-        
+
         sqlx::query(
             r#"
             INSERT INTO merkle_tree_nodes (level, index_at_level, value) 
             VALUES ($1, $2, $3)
             ON CONFLICT (level, index_at_level) 
             DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            "#
+            "#,
         )
         .bind(level as i32)
         .bind(index as i64)
@@ -413,9 +424,9 @@ impl TreeStorage for PostgresTreeStorage {
 
     async fn get_node(&self, level: u32, index: u64) -> Result<Option<String>> {
         let start = std::time::Instant::now();
-        
+
         let row: Option<(String,)> = sqlx::query_as(
-            "SELECT value FROM merkle_tree_nodes WHERE level = $1 AND index_at_level = $2"
+            "SELECT value FROM merkle_tree_nodes WHERE level = $1 AND index_at_level = $2",
         )
         .bind(level as i32)
         .bind(index as i64)
@@ -441,10 +452,10 @@ impl TreeStorage for PostgresTreeStorage {
 
     async fn get_max_leaf_index(&self) -> Result<u64> {
         let start = std::time::Instant::now();
-        
+
         // Get all leaf indices in order
         let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level"
+            "SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level",
         )
         .fetch_all(&self.pool)
         .await

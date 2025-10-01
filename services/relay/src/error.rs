@@ -40,8 +40,14 @@ impl axum::response::IntoResponse for Error {
         let (status, message) = match self {
             Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             Error::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
-            Error::ValidationError(msg) => (StatusCode::BAD_REQUEST, format!("Validation error: {}", msg)),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            Error::ValidationError(msg) => (
+                StatusCode::BAD_REQUEST,
+                format!("Validation error: {}", msg),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            ),
         };
 
         let body = Json(json!({

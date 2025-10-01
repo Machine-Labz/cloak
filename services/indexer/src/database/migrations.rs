@@ -16,10 +16,7 @@ pub async fn run_migrations(pool: &Pool<Postgres>) -> Result<()> {
 
     // Define migrations
     let migrations = get_migrations();
-    tracing::info!(
-        total_migrations = migrations.len(),
-        "Loaded migrations"
-    );
+    tracing::info!(total_migrations = migrations.len(), "Loaded migrations");
 
     // Apply pending migrations
     let mut applied_count = 0;

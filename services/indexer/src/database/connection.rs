@@ -12,7 +12,7 @@ impl Database {
     /// Create a new database connection pool
     pub async fn new(config: &Config) -> Result<Self> {
         let database_url = config.database_url();
-        
+
         tracing::info!(
             host = config.database.host,
             port = config.database.port,
@@ -35,12 +35,11 @@ impl Database {
             })?;
 
         // Test the connection
-        let row: (chrono::DateTime<chrono::Utc>, String) = sqlx::query_as(
-            "SELECT NOW() as current_time, version() as version"
-        )
-        .fetch_one(&pool)
-        .await
-        .map_err(IndexerError::Database)?;
+        let row: (chrono::DateTime<chrono::Utc>, String) =
+            sqlx::query_as("SELECT NOW() as current_time, version() as version")
+                .fetch_one(&pool)
+                .await
+                .map_err(IndexerError::Database)?;
 
         tracing::info!(
             current_time = %row.0,
@@ -82,7 +81,7 @@ impl Database {
     /// Execute a health check query
     pub async fn health_check(&self) -> Result<HealthCheckResult> {
         let start = std::time::Instant::now();
-        
+
         // Test basic connectivity
         let time_result: (chrono::DateTime<chrono::Utc>,) = sqlx::query_as("SELECT NOW()")
             .fetch_one(&self.pool)
@@ -97,7 +96,7 @@ impl Database {
             WHERE table_schema = 'public' 
             AND table_name IN ('merkle_tree_nodes', 'notes', 'indexer_metadata', 'artifacts')
             ORDER BY table_name
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -112,7 +111,7 @@ impl Database {
                 (SELECT COUNT(*) FROM merkle_tree_nodes) as tree_nodes,
                 (SELECT COUNT(*) FROM notes) as notes_count,
                 (SELECT value FROM indexer_metadata WHERE key = 'next_leaf_index') as next_index
-            "#
+            "#,
         )
         .fetch_optional(&self.pool)
         .await

@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # PostgreSQL database for the indexer
   postgres:
@@ -26,8 +24,8 @@ services:
   # Indexer microservice (Rust)
   indexer:
     build:
-      context: ./services/indexer
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/indexer/Dockerfile
     container_name: cloak-indexer
     environment:
       - NODE_ENV=development

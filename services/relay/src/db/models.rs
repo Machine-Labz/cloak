@@ -30,26 +30,26 @@ pub struct Job {
     pub id: Uuid,
     pub request_id: Uuid,
     pub status: JobStatus,
-    
+
     // Request data
     pub proof_bytes: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub outputs_json: JsonValue,
     pub fee_bps: i16,
-    
+
     // Extracted public inputs for indexing
     pub root_hash: Vec<u8>,
     pub nullifier: Vec<u8>,
     pub amount: i64,
     pub outputs_hash: Vec<u8>,
-    
+
     // Processing results
     pub tx_id: Option<String>,
     pub solana_signature: Option<String>,
     pub error_message: Option<String>,
     pub retry_count: i32,
     pub max_retries: i32,
-    
+
     // Timestamps
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -100,4 +100,4 @@ impl From<Job> for JobSummary {
             completed_at: job.completed_at,
         }
     }
-} 
+}

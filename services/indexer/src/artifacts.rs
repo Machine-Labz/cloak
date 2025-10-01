@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::error::{IndexerError, Result};
+use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tokio::fs;
-use base64::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WithdrawArtifacts {
@@ -240,10 +240,14 @@ impl ArtifactManager {
 
         // Create placeholder guest ELF (dummy binary data)
         if !guest_elf_path.exists() {
-            let placeholder_elf = format!("PLACEHOLDER_SP1_GUEST_ELF_{}_{}", version, chrono::Utc::now().timestamp())
-                .repeat(32)
-                .into_bytes();
-            
+            let placeholder_elf = format!(
+                "PLACEHOLDER_SP1_GUEST_ELF_{}_{}",
+                version,
+                chrono::Utc::now().timestamp()
+            )
+            .repeat(32)
+            .into_bytes();
+
             fs::write(&guest_elf_path, &placeholder_elf).await?;
             tracing::info!(
                 path = %guest_elf_path.display(),
@@ -254,10 +258,14 @@ impl ArtifactManager {
 
         // Create placeholder verification key
         if !vk_path.exists() {
-            let placeholder_vk = format!("PLACEHOLDER_VERIFICATION_KEY_{}_{}", version, chrono::Utc::now().timestamp())
-                .repeat(16)
-                .into_bytes();
-            
+            let placeholder_vk = format!(
+                "PLACEHOLDER_VERIFICATION_KEY_{}_{}",
+                version,
+                chrono::Utc::now().timestamp()
+            )
+            .repeat(16)
+            .into_bytes();
+
             fs::write(&vk_path, &placeholder_vk).await?;
             tracing::info!(
                 path = %vk_path.display(),

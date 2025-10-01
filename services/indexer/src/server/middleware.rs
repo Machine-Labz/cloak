@@ -7,10 +7,7 @@ use std::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware
-pub async fn logging_middleware(
-    request: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
+pub async fn logging_middleware(request: Request<axum::body::Body>, next: Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
     let uri = request.uri().clone();
@@ -23,7 +20,7 @@ pub async fn logging_middleware(
 
     // Process the request
     let response = next.run(request).await;
-    
+
     let duration = start.elapsed();
     let status = response.status();
 

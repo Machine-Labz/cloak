@@ -26,7 +26,6 @@ pub fn setup() -> (Pubkey, Mollusk) {
     (program_id, mollusk)
 }
 
-
 pub fn _pack_mint(mint_authority: &Pubkey, supply: u64) -> AccountSharedData {
     let mut account = AccountSharedData::new(0, spl_token::state::Mint::LEN, &spl_token::id());
     spl_token::state::Mint {

@@ -1,5 +1,5 @@
-pub mod withdraw;
 pub mod status;
+pub mod withdraw;
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -73,4 +73,3 @@ mod tests {
         assert_eq!(response.error, Some("test error".to_string()));
     }
 }
-
