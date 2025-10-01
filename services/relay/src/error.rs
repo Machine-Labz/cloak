@@ -1,0 +1,54 @@
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Not found")]
+    NotFound,
+
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Redis error: {0}")]
+    RedisError(String),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+
+    #[error("UUID error: {0}")]
+    UuidError(#[from] uuid::Error),
+
+    #[error("Base64 decode error: {0}")]
+    Base64Error(#[from] base64::DecodeError),
+
+    #[error("Redis error: {0}")]
+    RedisClientError(#[from] redis::RedisError),
+}
+
+impl axum::response::IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        use axum::http::StatusCode;
+        use axum::Json;
+        use serde_json::json;
+
+        let (status, message) = match self {
+            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            Error::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
+            Error::ValidationError(msg) => (StatusCode::BAD_REQUEST, format!("Validation error: {}", msg)),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+        };
+
+        let body = Json(json!({
+            "error": true,
+            "message": message
+        }));
+
+        (status, body).into_response()
+    }
+}

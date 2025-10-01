@@ -4,9 +4,25 @@ members = [
     "packages/zk-guest-sp1/guest",
     "packages/zk-guest-sp1/host",
     "programs/shield-pool",
-    "tooling/test",
+    "services/indexer",
+    "services/relay",
+    "test_complete_flow_rust",
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "Cloak Labz",
+    "marcelofeitoza",
+    "BretasArthur1",
+    "vict0rcarvalh0",
+    "matheusmacedosantos",
+]
+license = "MIT"
+repository = "https://github.com/cloak-labz/cloak"
+description = "Cloak - Privacy protocol for Solana"
 
 [workspace.dependencies]
 # SP1 dependencies
@@ -16,7 +32,9 @@ sp1-build = "5.2.1"
 
 # Serialization
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.143", default-features = false, features = ["alloc"] }
+serde_json = { version = "1.0.143", default-features = false, features = [
+    "alloc",
+] }
 
 # CLI
 clap = { version = "4.5.47", features = ["derive", "env"] }
@@ -54,18 +72,3 @@ sha2 = "0.10.9"
 ark-bn254 = "0.4.0"
 ark-serialize = "0.4.2"
 ark-ff = "0.4.2"
-
-[workspace.package]
-version = "0.1.0"
-edition = "2021"
-authors = [
-    "Cloak Labz", 
-    "marcelofeitoza", 
-    "BretasArthur1", 
-    "vict0rcarvalh0", 
-    "matheusmacedosantos"
-]
-license = "MIT"
-repository = "https://github.com/cloak-labz/cloak"
-description = "Cloak - Privacy protocol for Solana"
-

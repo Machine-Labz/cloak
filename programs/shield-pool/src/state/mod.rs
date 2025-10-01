@@ -1,4 +1,3 @@
-use crate::error::ShieldPoolError;
 use pinocchio::program_error::ProgramError;
 
 /// RootsRing: Fixed-size ring buffer of recent Merkle roots
