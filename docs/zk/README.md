@@ -8,7 +8,7 @@
 **Stack**
 - Prover: **SP1 zkVM** guest (Rust)
 - Hash: **BLAKE3-256** (MVP)
-- On-chain: Anchor program `shield-pool` + SP1 verifier CPI
+- On-chain: Pinocchio program `shield-pool` + SP1 verifier CPI
 - Indexer: append-only Merkle tree and note scans
 
 **Key docs**

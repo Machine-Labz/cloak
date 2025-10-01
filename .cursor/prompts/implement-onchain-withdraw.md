@@ -1,6 +1,6 @@
 # Task: Implement shield-pool::withdraw
 
-Goal: Anchor instruction verifying SP1 proof (CPI), root ring, nullifier shards, payouts.
+Goal: Pinocchio instruction verifying SP1 proof (CPI), root ring, nullifier shards, payouts.
 
 Deliver:
 - Accounts: Pool, Treasury, RootsRing, NullifierShard{prefix}

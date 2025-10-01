@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 no-entrypoint = []
+fixed_proof_mode = []
 
 [dependencies]
 pinocchio.workspace = true
@@ -29,3 +30,4 @@ serde_json = { workspace = true }
 mollusk-svm = "0.5.1"
 spl-token = "6.0.0"
 mollusk-svm-programs-token = "0.5.1"
+sp1-sdk.workspace = true

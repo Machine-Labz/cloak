@@ -3,7 +3,6 @@ members = [
     "packages/zk-guest-sp1",
     "packages/zk-guest-sp1/guest",
     "packages/zk-guest-sp1/host",
-    "packages/vkey-generator",
     "programs/shield-pool",
     "services/indexer",
     "services/relay",

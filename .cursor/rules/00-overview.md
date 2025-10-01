@@ -12,7 +12,7 @@
 ## Key references in this repo
 - `docs/COMPLETE_FLOW_STATUS.md` — **Current production status and capabilities**
 - `docs/zk/*` — source of truth for ZK design, encoding, Merkle, circuit, verifier, APIs, tests, threats.
-- `programs/shield-pool/` — **Anchor program (IMPLEMENTED & WORKING)**.
+- `programs/shield-pool/` — **Pinocchio program (IMPLEMENTED & WORKING)**.
 - `packages/zk-guest-sp1/` — **SP1 guest (IMPLEMENTED & WORKING)**.
 - `services/indexer/` — **Indexer service (IMPLEMENTED & WORKING)**.
 - `test_complete_flow_rust/` — **End-to-end test suite (WORKING)**.

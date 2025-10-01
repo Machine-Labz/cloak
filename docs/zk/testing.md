@@ -9,7 +9,7 @@
 - Randomized trees: inclusion holds, wrong sibling fails
 - Double-spend attempts: repeated `nf` rejected
 
-## On-chain (Anchor)
+## On-chain (Pinocchio)
 - `withdraw_ok` – pays recipients & fees, marks `nf`
 - `invalid_root` – rejected
 - `outputs_mismatch` – rejected

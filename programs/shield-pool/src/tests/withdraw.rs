@@ -33,9 +33,19 @@ fn test_withdraw_instruction() {
     };
     let recipient_amount = withdraw_amount - fee;
 
-    // Create SP1 proof data using real proof from proof_live.bin
-    // This is the actual 260-byte proof extracted from the generated proof file
-    let sp1_proof = [
+    use sp1_sdk::SP1ProofWithPublicValues;
+
+    let sp1_proof_with_public_values =
+        SP1ProofWithPublicValues::load("packages/zk-guest-sp1/out/proof_live.bin").unwrap();
+    let full_proof_bytes = sp1_proof_with_public_values.bytes();
+    let raw_public_inputs = sp1_proof_with_public_values.public_values.to_vec();
+
+    println!("full_proof_bytes: {:?}", full_proof_bytes);
+    println!("full_proof_bytes len: {:?}", full_proof_bytes.len());
+
+    println!("raw_public_inputs: {:?}", raw_public_inputs);
+
+    let sp1_proof: [u8; 256] = [
         // Real proof data extracted from proof_live.bin (offset 0x2b0)
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

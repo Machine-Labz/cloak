@@ -1,0 +1,5 @@
+onlyBuiltDependencies:
+  - blake3
+  - bufferutil
+  - esbuild
+  - utf-8-validate
