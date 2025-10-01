@@ -16,7 +16,10 @@ pub fn process_admin_push_root_instruction(
     };
 
     // Verify admin authorization
-    if !admin_info.is_signer() || admin_info.key() != &ADMIN_AUTHORITY || !roots_ring_info.is_writable() {
+    if !admin_info.is_signer()
+        || admin_info.key() != &ADMIN_AUTHORITY
+        || !roots_ring_info.is_writable()
+    {
         return Err(ShieldPoolError::BadAccounts.into());
     }
 

@@ -18,7 +18,7 @@ mod state;
 mod tests;
 
 // Shield Pool Program ID
-const ID: [u8; 32] = decode_32_const("11111111111111111111111111111111111111111111");
+const ID: [u8; 32] = decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 
 program_entrypoint!(process_instruction);
 default_allocator!();

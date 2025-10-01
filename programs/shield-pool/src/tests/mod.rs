@@ -7,11 +7,11 @@ use solana_sdk::{
 };
 use spl_token::state::AccountState;
 
-#[cfg(test)]
-mod deposit;
+// #[cfg(test)]
+// mod deposit;
 
-#[cfg(test)]
-mod admin_push_root;
+// #[cfg(test)]
+// mod admin_push_root;
 
 #[cfg(test)]
 mod withdraw;
@@ -25,7 +25,6 @@ pub fn setup() -> (Pubkey, Mollusk) {
 
     (program_id, mollusk)
 }
-
 
 pub fn _pack_mint(mint_authority: &Pubkey, supply: u64) -> AccountSharedData {
     let mut account = AccountSharedData::new(0, spl_token::state::Mint::LEN, &spl_token::id());

@@ -4,7 +4,7 @@ Cloak is a **privacy-preserving exit router** on Solana. This repo hosts the who
 
 - **ZK Notes (UTXO-style):** commitments, nullifiers, Merkle proofs
 - **Withdraw circuit (SP1):** inclusion + nullifier + conservation
-- **On-chain verification:** Anchor program `shield-pool`
+- **On-chain verification:** Pinocchio program `shield-pool`
 - **Indexer API:** append-only Merkle tree & proofs
 - **Relay:** submits withdraw txs (no Jito in MVP)
 

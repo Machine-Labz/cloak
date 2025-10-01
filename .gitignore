@@ -54,12 +54,3 @@ Thumbs.db
 
 # Context
 .context/
-.context/sp1-solana/Cargo.lock
-.context/sp1-solana/Cargo.toml
-.context/sp1-solana/example/program/Cargo.toml
-.context/sp1-solana/example/program/src/lib.rs
-.context/sp1-solana/example/script/Cargo.toml
-.context/sp1-solana/example/script/src/main.rs
-.context/sp1-solana/verifier/src/lib.rs
-.context/sp1-solana/verifier/src/test.rs
-.context/sp1-solana/verifier/src/utils.rs

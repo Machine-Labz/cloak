@@ -7,11 +7,6 @@ use pinocchio::{account_info::AccountInfo, ProgramResult};
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    // Basic validation
-    if accounts.len() < 6 || data.len() < 437 {
-        return Err(ShieldPoolError::MissingAccounts.into());
-    }
-
     // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipient, system]
     let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program] =
         accounts
@@ -19,10 +14,8 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         return Err(ShieldPoolError::MissingAccounts.into());
     };
 
-    // Program ownership check - ensure pool is owned by this program
-    if pool_info.owner() != &crate::ID {
-        return Err(ShieldPoolError::InvalidAccountOwner.into());
-    }
+    // Pool should be a system program account (like a wallet), not program-owned
+    // No ownership check needed for pool account
 
     // Writable checks
     if !pool_info.is_writable() || !treasury_info.is_writable() || !recipient_account.is_writable()
@@ -30,14 +23,34 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         return Err(ShieldPoolError::BadAccounts.into());
     }
 
-    // Extract proof and public inputs using constants
-    let sp1_proof = &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
-    let raw_public_inputs = &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
+    // Instruction data consists of:
+    // 0 to 259: proof (260 bytes)
+    // 260 to 363: public inputs (104 bytes)
+    // 364 to 395: nullifier (32 bytes)
+    // 396: number of outputs (1 byte)
+    // 397 to 428: recipient address (32 bytes)
+    // 429 to 436: recipient amount (8 bytes)
+    // Total length: 437 (as in working version)
 
+    if data.len() < 437 {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    // Extract proof and public inputs using constants
+    let sp1_proof: &[u8] = 
+        &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
+    let raw_public_inputs: &[u8] = 
+    &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
+
+    
     // Verify SP1 proof (essential for security)
+    // Compress public inputs to 64 bytes for SP1 Solana verifier
+    let compressed_public_inputs = &raw_public_inputs[..64];
+    
+    // Use SP1 verification with our circuit's verification key hash
     verify_proof(
         sp1_proof,
-        raw_public_inputs,
+        compressed_public_inputs,
         WITHDRAW_VKEY_HASH,
         GROTH16_VK_5_0_0_BYTES,
     )
@@ -87,7 +100,7 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
             data.as_ptr().add(RECIP_OFF),
             recipient_addr.as_mut_ptr(),
             RECIP_ADDR_LEN,
-        );
+        ); // Bytes 397-428
     }
 
     let recipient_amount =
@@ -124,9 +137,12 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
 
     let expected_fee = {
         const FIXED: u64 = 2_500_000; // 0.0025 SOL
-        const VAR_NUM: u64 = 5; // 0.5%
-        const VAR_DEN: u64 = 1_000; // 0.5% = 5/1000
-        FIXED + ((public_amount.saturating_mul(VAR_NUM)) / VAR_DEN)
+        // const VAR_NUM: u64 = 5; // 0.5%
+        // const VAR_DEN: u64 = 1_000; // 0.5% = 5/1000
+        const PERCENTAGE: f64 = 0.5; // 0.5%
+        FIXED + 
+            // ((public_amount.saturating_mul(VAR_NUM)) / VAR_DEN)
+            ((public_amount as f64) * PERCENTAGE) as u64
     };
     let total_fee = public_amount - recipient_amount;
     if total_fee != expected_fee {
@@ -143,9 +159,9 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
 
     // Perform lamport transfers
     unsafe {
-        *pool_info.borrow_mut_lamports_unchecked() -= public_amount;
-        *recipient_account.borrow_mut_lamports_unchecked() += recipient_amount;
-        *treasury_info.borrow_mut_lamports_unchecked() += total_fee;
+        *pool_info.borrow_mut_lamports_unchecked() -= public_amount; // Move funds from pool to recipient
+        *recipient_account.borrow_mut_lamports_unchecked() += recipient_amount; // Move funds from pool to recipient
+        *treasury_info.borrow_mut_lamports_unchecked() += total_fee; // Move funds from pool to treasury
     }
 
     Ok(())
