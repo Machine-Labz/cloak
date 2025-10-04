@@ -37,16 +37,13 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
     }
 
     // Extract proof and public inputs using constants
-    let sp1_proof: &[u8] = 
-        &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
-    let raw_public_inputs: &[u8] = 
-    &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
+    let sp1_proof: &[u8] = &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
+    let raw_public_inputs: &[u8] = &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
 
-    
     // Verify SP1 proof (essential for security)
     // Compress public inputs to 64 bytes for SP1 Solana verifier
     let compressed_public_inputs = &raw_public_inputs[..64];
-    
+
     // Use SP1 verification with our circuit's verification key hash
     verify_proof(
         sp1_proof,
@@ -137,12 +134,9 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
 
     let expected_fee = {
         const FIXED: u64 = 2_500_000; // 0.0025 SOL
-        // const VAR_NUM: u64 = 5; // 0.5%
-        // const VAR_DEN: u64 = 1_000; // 0.5% = 5/1000
-        const PERCENTAGE: f64 = 0.5; // 0.5%
-        FIXED + 
-            // ((public_amount.saturating_mul(VAR_NUM)) / VAR_DEN)
-            ((public_amount as f64) * PERCENTAGE) as u64
+        const VAR_NUM: u64 = 5; // 0.5%
+        const VAR_DEN: u64 = 1_000; // 0.5% = 5/1000
+        FIXED + ((public_amount.saturating_mul(VAR_NUM)) / VAR_DEN)
     };
     let total_fee = public_amount - recipient_amount;
     if total_fee != expected_fee {

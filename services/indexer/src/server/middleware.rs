@@ -55,15 +55,15 @@ pub fn cors_layer(cors_origins: &[String]) -> CorsLayer {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
         ])
-        .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(86400)); // 24 hours
 
     // Configure origins
     if cors_origins.len() == 1 && cors_origins[0] == "*" {
-        // Allow all origins in development
+        // Allow all origins in development (without credentials)
         cors = cors.allow_origin(Any);
     } else {
-        // Specific origins for production
+        // Specific origins for production (with credentials)
+        cors = cors.allow_credentials(true);
         for origin in cors_origins {
             if let Ok(origin_header) = origin.parse::<axum::http::HeaderValue>() {
                 cors = cors.allow_origin(origin_header);

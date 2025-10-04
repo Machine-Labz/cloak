@@ -1,6 +1,6 @@
 /// SP1 Withdraw Circuit VKey Hash
 pub const WITHDRAW_VKEY_HASH: &str =
-    "0x0019cf1c0567f3a494ec8cbbb132f39061d725ef83e84a69e6894b30c4c63cce";
+    "0x00a6032c69adbeace083d1177f54d81250a1c977444904099409288e37f44d3a";
 
 // Constants for proof and public input offsets
 pub const PROOF_LEN: usize = 260; // Groth16 proof length (with vkey hash, as in working version)
