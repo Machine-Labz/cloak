@@ -1,6 +1,9 @@
 use anyhow::Result;
-use test_complete_flow_rust::shared::{TestConfig, check_cluster_health, ensure_user_funding, load_keypair, print_config, validate_config, SOL_TO_LAMPORTS};
 use solana_sdk::signature::Signer;
+use test_complete_flow_rust::shared::{
+    check_cluster_health, ensure_user_funding, load_keypair, print_config, validate_config,
+    TestConfig, SOL_TO_LAMPORTS,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -9,7 +12,7 @@ async fn main() -> Result<()> {
 
     let config = TestConfig::testnet();
     print_config(&config);
-    
+
     // Validate configuration
     validate_config(&config)
         .map_err(|e| anyhow::anyhow!("Configuration validation failed: {}", e))?;
@@ -28,17 +31,32 @@ async fn main() -> Result<()> {
     let user_balance = client.get_balance(&user_keypair.pubkey())?;
     let admin_balance = client.get_balance(&admin_keypair.pubkey())?;
     let recipient_balance = client.get_balance(&recipient_keypair.pubkey())?;
-    
-    println!("   User ({}): {} SOL", user_keypair.pubkey(), user_balance / SOL_TO_LAMPORTS);
-    println!("   Admin ({}): {} SOL", admin_keypair.pubkey(), admin_balance / SOL_TO_LAMPORTS);
-    println!("   Recipient ({}): {} SOL", recipient_keypair.pubkey(), recipient_balance / SOL_TO_LAMPORTS);
+
+    println!(
+        "   User ({}): {} SOL",
+        user_keypair.pubkey(),
+        user_balance / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   Admin ({}): {} SOL",
+        admin_keypair.pubkey(),
+        admin_balance / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   Recipient ({}): {} SOL",
+        recipient_keypair.pubkey(),
+        recipient_balance / SOL_TO_LAMPORTS
+    );
 
     // Ensure user has sufficient SOL
     ensure_user_funding(&config.rpc_url, &user_keypair, &admin_keypair)?;
 
     // For testnet, we'll use a simplified flow since we don't want to deploy programs
     println!("\n🌐 Testnet Test - Simplified Flow");
-    println!("   - Using reduced amount: {} SOL", config.amount / SOL_TO_LAMPORTS);
+    println!(
+        "   - Using reduced amount: {} SOL",
+        config.amount / SOL_TO_LAMPORTS
+    );
     println!("   - Program ID: {}", config.program_id);
     println!("   - Indexer URL: {}", config.indexer_url);
 

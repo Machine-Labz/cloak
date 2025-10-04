@@ -4,8 +4,8 @@
 //!
 //! Run with: cargo run --bin migrate
 
-use cloak_indexer::database::Database;
-use cloak_indexer::{Config, IndexerError};
+use indexer::database::Database;
+use indexer::{Config, IndexerError};
 
 #[tokio::main]
 async fn main() -> Result<(), IndexerError> {
