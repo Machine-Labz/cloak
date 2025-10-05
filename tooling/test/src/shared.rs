@@ -9,7 +9,6 @@ use solana_sdk::{
     system_instruction,
     transaction::Transaction,
 };
-use std::time::Duration;
 
 /// Configuration for tests
 #[derive(Debug, Clone)]

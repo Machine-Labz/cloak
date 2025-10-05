@@ -117,8 +117,13 @@ async fn main() -> Result<()> {
 
     // Generate SP1 proof
     println!("\n🔐 Step 10: Generating SP1 Proof Inputs...");
-    let sp1_inputs =
-        generate_sp1_proof_inputs(&test_data, &merkle_proof, &merkle_root, leaf_index)?;
+    let sp1_inputs = generate_sp1_proof_inputs(
+        &test_data,
+        &merkle_proof,
+        &merkle_root,
+        leaf_index,
+        &recipient_keypair,
+    )?;
 
     println!("\n🔨 Step 11: Generating SP1 Proof with Current Data...");
     let sp1_proof = generate_sp1_proof(&sp1_inputs)?;
@@ -167,11 +172,8 @@ async fn main() -> Result<()> {
 }
 
 // Helper functions (simplified versions of the complex logic)
-fn deploy_program(
-    client: &RpcClient,
-) -> Result<Pubkey> {
+fn deploy_program(client: &RpcClient) -> Result<Pubkey> {
     println!("   Building shield pool program...");
-
 
     // Build the program
     let build_output = std::process::Command::new("cargo")
@@ -191,7 +193,7 @@ fn deploy_program(
     }
 
     println!("   ✅ Program built successfully");
-    
+
     // Check if the program account exists but isn't a program
     let account_check = std::process::Command::new("solana")
         .args([
@@ -201,7 +203,7 @@ fn deploy_program(
             "http://127.0.0.1:8899",
         ])
         .output();
-    
+
     if let Ok(output) = account_check {
         if output.status.success() {
             let account_info = String::from_utf8_lossy(&output.stdout);
@@ -219,16 +221,19 @@ fn deploy_program(
                     ])
                     .output()
                     .expect("Failed to execute solana transfer");
-                
+
                 if !transfer_output.status.success() {
-                    println!("   ⚠️  Failed to transfer SOL: {}", String::from_utf8_lossy(&transfer_output.stderr));
+                    println!(
+                        "   ⚠️  Failed to transfer SOL: {}",
+                        String::from_utf8_lossy(&transfer_output.stderr)
+                    );
                 } else {
                     println!("   ✅ Account closed successfully");
                 }
             }
         }
     }
-    
+
     println!("   Deploying program...");
 
     // Deploy the program
@@ -255,14 +260,14 @@ fn deploy_program(
     // Parse the deployed program ID from the output
     let stdout = String::from_utf8_lossy(&deploy_output.stdout);
     println!("   Deploy output: {}", stdout);
-    
+
     // Extract program ID from output (format: "Program Id: <program_id>")
     let program_id_str = stdout
         .lines()
         .find(|line| line.contains("Program Id:"))
         .and_then(|line| line.split_whitespace().nth(2))
         .ok_or_else(|| anyhow::anyhow!("Failed to parse program ID from deployment output"))?;
-    
+
     let program_id = Pubkey::from_str(program_id_str)?;
     println!("   ✅ Program deployed successfully under {}", program_id);
     Ok(program_id)
@@ -283,13 +288,14 @@ fn create_program_accounts(
 
     println!("   Creating pool account...");
 
-    // Create pool account (owned by system program, 0 lamports initially)
+    // Create pool account (owned by shield pool program, rent-exempt minimum)
+    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(0)?;
     let create_pool_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
         &pool_keypair.pubkey(),
-        0, // rent-exempt minimum
-        0, // 0 bytes data
-        &solana_sdk::system_program::id(),
+        pool_rent_exempt, // rent-exempt minimum for 0-byte account
+        0,                // 0 bytes data
+        &program_id,      // Owned by the shield pool program
     );
 
     println!("   Creating roots ring account...");
@@ -360,6 +366,15 @@ fn create_program_accounts(
         nullifier_shard_keypair.pubkey()
     );
     println!("   - Treasury account: {}", treasury_keypair.pubkey());
+
+    // Verify pool account ownership
+    let pool_account_info = client.get_account(&pool_keypair.pubkey())?;
+    println!("   🔍 Pool account owner: {}", pool_account_info.owner);
+    println!(
+        "   🔍 Pool account lamports: {}",
+        pool_account_info.lamports
+    );
+    println!("   🔍 Expected program ID: {}", program_id);
 
     Ok(ProgramAccounts {
         pool: pool_keypair.pubkey(),
@@ -719,6 +734,7 @@ fn generate_sp1_proof_inputs(
     merkle_proof: &MerkleProof,
     merkle_root: &str,
     leaf_index: u32,
+    recipient_keypair: &Keypair,
 ) -> Result<SP1Inputs> {
     use blake3::Hasher;
     use serde_json;
@@ -753,9 +769,11 @@ fn generate_sp1_proof_inputs(
     println!("   - Recipient amount: {} lamports", recipient_amount);
 
     // Create outputs exactly like the original main.rs
+    // Use the actual recipient address instead of placeholder
+    let recipient_address_hex = hex::encode(recipient_keypair.pubkey().to_bytes());
     let outputs = serde_json::json!([
         {
-            "address": "0101010101010101010101010101010101010101010101010101010101010101", // Placeholder recipient
+            "address": recipient_address_hex,
             "amount": recipient_amount  // Amount after fees
         }
     ]);
@@ -764,8 +782,7 @@ fn generate_sp1_proof_inputs(
     let mut hasher = Hasher::new();
 
     // Single output
-    let recipient_address =
-        hex::decode("0101010101010101010101010101010101010101010101010101010101010101").unwrap();
+    let recipient_address = recipient_keypair.pubkey().to_bytes();
     hasher.update(&recipient_address);
     hasher.update(&recipient_amount.to_le_bytes());
 
@@ -830,14 +847,25 @@ fn generate_sp1_proof(_inputs: &SP1Inputs) -> Result<SP1Proof> {
     // Ensure output directory exists
     std::fs::create_dir_all("packages/zk-guest-sp1/out")?;
 
-    // Write private inputs
-    std::fs::write("packages/zk-guest-sp1/out/private.json", &_inputs.private_inputs)?;
+    // Write private inputs (these are already JSON bytes)
+    std::fs::write(
+        "packages/zk-guest-sp1/out/private.json",
+        &_inputs.private_inputs,
+    )?;
 
-    // Write public inputs
-    std::fs::write("packages/zk-guest-sp1/out/public.json", &_inputs.public_inputs)?;
+    // Write public inputs (these are already JSON bytes)
+    std::fs::write(
+        "packages/zk-guest-sp1/out/public.json",
+        &_inputs.public_inputs,
+    )?;
 
-    // Write outputs
+    // Write outputs (these are already JSON bytes)
     std::fs::write("packages/zk-guest-sp1/out/outputs.json", &_inputs.outputs)?;
+
+    // Debug: Verify the files contain current data
+    println!("   🔍 Verifying input files contain current data...");
+    let public_content = std::fs::read_to_string("packages/zk-guest-sp1/out/public.json")?;
+    println!("   📄 Public inputs file content: {}", public_content);
 
     let write_time = write_start.elapsed();
     println!("   ⏱️  File writing took: {:?}", write_time);
@@ -997,16 +1025,16 @@ fn execute_withdraw_transaction(
 
     println!("   📊 Balances BEFORE withdraw:");
     println!(
-        "      - Pool: {} SOL",
-        pool_balance_before / SOL_TO_LAMPORTS
+        "      - Pool: {:.4} SOL",
+        pool_balance_before as f64 / SOL_TO_LAMPORTS as f64
     );
     println!(
-        "      - Recipient: {} SOL",
-        recipient_balance_before / SOL_TO_LAMPORTS
+        "      - Recipient: {:.4} SOL",
+        recipient_balance_before as f64 / SOL_TO_LAMPORTS as f64
     );
     println!(
-        "      - Treasury: {} SOL",
-        treasury_balance_before / SOL_TO_LAMPORTS
+        "      - Treasury: {:.4} SOL",
+        treasury_balance_before as f64 / SOL_TO_LAMPORTS as f64
     );
 
     println!("   🔍 Getting latest blockhash for withdraw...");
@@ -1029,21 +1057,22 @@ fn execute_withdraw_transaction(
 
             println!("   📊 Balances AFTER withdraw:");
             println!(
-                "      - Pool: {} SOL (Δ: {:+})",
-                pool_balance_after / SOL_TO_LAMPORTS,
-                (pool_balance_after as i64 - pool_balance_before as i64) / SOL_TO_LAMPORTS as i64
+                "      - Pool: {} SOL (Δ: {:.4})",
+                pool_balance_after as f64 / SOL_TO_LAMPORTS as f64,
+                (pool_balance_after as i64 - pool_balance_before as i64) as f64
+                    / SOL_TO_LAMPORTS as f64
             );
             println!(
-                "      - Recipient: {} SOL (Δ: {:+})",
-                recipient_balance_after / SOL_TO_LAMPORTS,
-                (recipient_balance_after as i64 - recipient_balance_before as i64)
-                    / SOL_TO_LAMPORTS as i64
+                "      - Recipient: {} SOL (Δ: {:.4})",
+                recipient_balance_after as f64 / SOL_TO_LAMPORTS as f64,
+                (recipient_balance_after as i64 - recipient_balance_before as i64) as f64
+                    / SOL_TO_LAMPORTS as f64
             );
             println!(
-                "      - Treasury: {} SOL (Δ: {:+})",
-                treasury_balance_after / SOL_TO_LAMPORTS,
-                (treasury_balance_after as i64 - treasury_balance_before as i64)
-                    / SOL_TO_LAMPORTS as i64
+                "      - Treasury: {} SOL (Δ: {:.4})",
+                treasury_balance_after as f64 / SOL_TO_LAMPORTS as f64,
+                (treasury_balance_after as i64 - treasury_balance_before as i64) as f64
+                    / SOL_TO_LAMPORTS as f64
             );
 
             println!("   ✅ WITHDRAW SUCCESSFUL!");

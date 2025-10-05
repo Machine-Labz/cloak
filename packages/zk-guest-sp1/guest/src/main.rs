@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_conservation_failure() {
-        let mut inputs = create_test_inputs();
+        let inputs = create_test_inputs();
         assert!(verify_circuit_constraints(&inputs).is_err());
     }
 }

@@ -97,7 +97,7 @@ async fn apply_migration(pool: &Pool<Postgres>, migration: &Migration) -> Result
     );
 
     // Use raw connection to execute multiple statements
-    let mut conn = tx.acquire().await.map_err(IndexerError::Database)?;
+    let conn = tx.acquire().await.map_err(IndexerError::Database)?;
     conn.execute(migration.sql).await.map_err(|e| {
         tracing::error!(
             id = migration.id,

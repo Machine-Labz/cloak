@@ -7,11 +7,11 @@ use solana_sdk::{
 };
 use spl_token::state::AccountState;
 
-// #[cfg(test)]
-// mod deposit;
+#[cfg(test)]
+mod deposit;
 
-// #[cfg(test)]
-// mod admin_push_root;
+#[cfg(test)]
+mod admin_push_root;
 
 #[cfg(test)]
 mod withdraw;

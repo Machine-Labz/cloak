@@ -1,5 +1,5 @@
 use crate::error::ShieldPoolError;
-use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
+use pinocchio::{account_info::AccountInfo, ProgramResult};
 use pinocchio_system::instructions::Transfer;
 
 #[inline(always)]
@@ -25,18 +25,16 @@ pub fn process_deposit_instruction(
     }
 
     // Direct transfer without validation
-    Transfer {
-        from: &user,
-        to: &pool,
-        lamports: amount,
+    // Transfer {
+    //     from: &user,
+    //     to: &pool,
+    //     lamports: amount,
+    // }
+    // .invoke()?;
+    unsafe {
+        *user.borrow_mut_lamports_unchecked() -= amount;
+        *pool.borrow_mut_lamports_unchecked() += amount;
     }
-    .invoke()?;
-
-    // Log info without string allocation
-    msg!("deposit_amount:");
-    msg!(&amount.to_string());
-    msg!("deposit_commit:");
-    msg!(&hex::encode(commit_bytes));
 
     Ok(())
 }
