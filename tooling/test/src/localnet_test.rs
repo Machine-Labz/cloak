@@ -5,6 +5,7 @@ use rand;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
+use std::str::FromStr;
 use test_complete_flow_rust::shared::{
     check_cluster_health, ensure_user_funding, load_keypair, print_config, validate_config,
     MerkleProof, TestConfig, SOL_TO_LAMPORTS,
@@ -44,7 +45,6 @@ async fn main() -> Result<()> {
     let user_keypair = load_keypair(&config.user_keypair_path)?;
     let recipient_keypair = load_keypair(&config.recipient_keypair_path)?;
     let admin_keypair = load_keypair("admin-keypair.json")?; // Use admin keypair for admin operations
-    let program_id = test_complete_flow_rust::shared::get_program_id(&config.program_keypair_path)?;
 
     println!("\n💰 Checking balances...");
     let client = RpcClient::new(&config.rpc_url);
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
 
     // Deploy program
     println!("\n🚀 Step 0: Deploying Program...");
-    deploy_program(&client, &program_id, &config.program_keypair_path)?;
+    let program_id = deploy_program(&client)?;
 
     // Create program accounts
     println!("\n📋 Step 1: Creating Program Accounts...");
@@ -169,23 +169,9 @@ async fn main() -> Result<()> {
 // Helper functions (simplified versions of the complex logic)
 fn deploy_program(
     client: &RpcClient,
-    program_id: &Pubkey,
-    program_keypair_path: &str,
-) -> Result<String> {
-    // Check if program is already deployed
-    match client.get_program_accounts(program_id) {
-        Ok(accounts) => {
-            if !accounts.is_empty() {
-                println!("   ✅ Program already deployed under {}", program_id);
-                return Ok("already_deployed".to_string());
-            }
-        }
-        Err(_) => {
-            // Program doesn't exist, proceed with deployment
-        }
-    }
-
+) -> Result<Pubkey> {
     println!("   Building shield pool program...");
+
 
     // Build the program
     let build_output = std::process::Command::new("cargo")
@@ -205,6 +191,44 @@ fn deploy_program(
     }
 
     println!("   ✅ Program built successfully");
+    
+    // Check if the program account exists but isn't a program
+    let account_check = std::process::Command::new("solana")
+        .args([
+            "account",
+            "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp",
+            "--url",
+            "http://127.0.0.1:8899",
+        ])
+        .output();
+    
+    if let Ok(output) = account_check {
+        if output.status.success() {
+            let account_info = String::from_utf8_lossy(&output.stdout);
+            if account_info.contains("Executable: false") {
+                println!("   🔄 Transferring SOL from existing account to close it...");
+                let transfer_output = std::process::Command::new("solana")
+                    .args([
+                        "transfer",
+                        "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",
+                        "2",
+                        "--from",
+                        "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp",
+                        "--url",
+                        "http://127.0.0.1:8899",
+                    ])
+                    .output()
+                    .expect("Failed to execute solana transfer");
+                
+                if !transfer_output.status.success() {
+                    println!("   ⚠️  Failed to transfer SOL: {}", String::from_utf8_lossy(&transfer_output.stderr));
+                } else {
+                    println!("   ✅ Account closed successfully");
+                }
+            }
+        }
+    }
+    
     println!("   Deploying program...");
 
     // Deploy the program
@@ -215,7 +239,7 @@ fn deploy_program(
             "--url",
             "http://127.0.0.1:8899",
             "--keypair",
-            program_keypair_path,
+            "admin-keypair.json", // Use admin keypair as authority
             "target/deploy/shield_pool.so",
         ])
         .output()
@@ -228,8 +252,20 @@ fn deploy_program(
         );
     }
 
+    // Parse the deployed program ID from the output
+    let stdout = String::from_utf8_lossy(&deploy_output.stdout);
+    println!("   Deploy output: {}", stdout);
+    
+    // Extract program ID from output (format: "Program Id: <program_id>")
+    let program_id_str = stdout
+        .lines()
+        .find(|line| line.contains("Program Id:"))
+        .and_then(|line| line.split_whitespace().nth(2))
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse program ID from deployment output"))?;
+    
+    let program_id = Pubkey::from_str(program_id_str)?;
     println!("   ✅ Program deployed successfully under {}", program_id);
-    Ok("deployed".to_string())
+    Ok(program_id)
 }
 
 fn create_program_accounts(
@@ -795,16 +831,13 @@ fn generate_sp1_proof(_inputs: &SP1Inputs) -> Result<SP1Proof> {
     std::fs::create_dir_all("packages/zk-guest-sp1/out")?;
 
     // Write private inputs
-    let private_json = serde_json::to_string_pretty(&_inputs.private_inputs)?;
-    std::fs::write("packages/zk-guest-sp1/out/private.json", private_json)?;
+    std::fs::write("packages/zk-guest-sp1/out/private.json", &_inputs.private_inputs)?;
 
     // Write public inputs
-    let public_json = serde_json::to_string_pretty(&_inputs.public_inputs)?;
-    std::fs::write("packages/zk-guest-sp1/out/public.json", public_json)?;
+    std::fs::write("packages/zk-guest-sp1/out/public.json", &_inputs.public_inputs)?;
 
     // Write outputs
-    let outputs_json = serde_json::to_string_pretty(&_inputs.outputs)?;
-    std::fs::write("packages/zk-guest-sp1/out/outputs.json", outputs_json)?;
+    std::fs::write("packages/zk-guest-sp1/out/outputs.json", &_inputs.outputs)?;
 
     let write_time = write_start.elapsed();
     println!("   ⏱️  File writing took: {:?}", write_time);

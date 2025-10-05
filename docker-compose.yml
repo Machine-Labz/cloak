@@ -29,11 +29,6 @@ services:
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
-      - DB_HOST=postgres
-      - DB_PORT=5432  # Internal port (container-to-container communication)
-      - DB_NAME=cloak_indexer
-      - DB_USER=cloak
-      - DB_PASSWORD=development_password_change_in_production
       - PORT=3001
       - LOG_LEVEL=info
       - SOLANA_RPC_URL=https://api.devnet.solana.com
