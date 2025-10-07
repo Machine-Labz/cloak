@@ -21,7 +21,7 @@ fn test_deposit_instruction() {
     let amount = 1_000_000_000u64; // 1 SOL
     let sk_spend = [0x42u8; 32];
     let r = [0x43u8; 32];
-    
+
     // Compute commitment = H(amount || r || pk_spend) exactly like SP1 guest program
     let pk_spend = blake3::hash(&sk_spend);
     let mut hasher = Hasher::new();
@@ -43,8 +43,8 @@ fn test_deposit_instruction() {
         program_id,
         &instruction_data,
         vec![
-            AccountMeta::new(user, true),      // user (signer)
-            AccountMeta::new(pool, false),     // pool (writable)
+            AccountMeta::new(user, true),        // user (signer)
+            AccountMeta::new(pool, false),       // pool (writable)
             AccountMeta::new(roots_ring, false), // roots_ring (writable)
             AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
         ],
@@ -127,14 +127,19 @@ fn test_deposit_instruction() {
         .expect("Pool account not found after deposit");
 
     assert_eq!(
-        updated_pool_account.lamports,
-        amount,
+        updated_pool_account.lamports, amount,
         "Pool balance should increase by deposit amount"
     );
 
     println!("✅ Deposit test completed successfully");
-    println!("   - User balance: {} SOL", updated_user_account.lamports / 1_000_000_000);
-    println!("   - Pool balance: {} SOL", updated_pool_account.lamports / 1_000_000_000);
+    println!(
+        "   - User balance: {} SOL",
+        updated_user_account.lamports / 1_000_000_000
+    );
+    println!(
+        "   - Pool balance: {} SOL",
+        updated_pool_account.lamports / 1_000_000_000
+    );
     println!("   - Commitment: {}", hex::encode(leaf_commit));
 }
 

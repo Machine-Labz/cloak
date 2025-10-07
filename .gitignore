@@ -55,3 +55,5 @@ Thumbs.db
 # Context
 .context/
 c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json
+*.bin
+*.raw

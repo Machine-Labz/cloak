@@ -26,7 +26,7 @@ struct MerkleRootResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let start_time = std::time::Instant::now();
+    let _start_time = std::time::Instant::now();
 
     println!("🚀 CLOAK PRIVACY PROTOCOL - TESTNET TEST");
     println!("==========================================\n");

@@ -16,6 +16,9 @@ mod admin_push_root;
 #[cfg(test)]
 mod withdraw;
 
+#[cfg(test)]
+mod batch_withdraw;
+
 pub fn setup() -> (Pubkey, Mollusk) {
     let program_id = Pubkey::new_from_array(five8_const::decode_32_const(
         "11111111111111111111111111111111111111111111",

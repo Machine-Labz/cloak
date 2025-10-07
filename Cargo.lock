@@ -3668,6 +3668,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "five8_const"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a0f1728185f277989ca573a402716ae0beaaea3f76a8ff87ef9dd8fb19436c5"
+dependencies = [
+ "five8_core",
+]
+
+[[package]]
 name = "five8_core"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6459,7 +6468,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb0225638cadcbebae8932cb7f49cb5da7c15c21beb19f048f05a5ca7d93f065"
 dependencies = [
- "five8_const",
+ "five8_const 0.1.4",
  "pinocchio",
  "sha2-const-stable",
 ]
@@ -8104,7 +8113,7 @@ name = "shield-pool"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "five8_const",
+ "five8_const 0.1.4",
  "hex",
  "mollusk-svm",
  "mollusk-svm-programs-token",
@@ -9797,7 +9806,7 @@ dependencies = [
  "bytemuck_derive",
  "curve25519-dalek 4.1.3",
  "five8",
- "five8_const",
+ "five8_const 0.1.4",
  "getrandom 0.2.16",
  "js-sys",
  "num-traits",
@@ -12831,6 +12840,7 @@ dependencies = [
  "blake3",
  "bs58",
  "ctrlc",
+ "five8_const 1.0.0",
  "hex",
  "rand 0.8.5",
  "reqwest 0.11.27",
@@ -14688,6 +14698,7 @@ dependencies = [
  "blake3",
  "clap",
  "hex",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "sp1-build",
