@@ -139,8 +139,8 @@ cargo run --release --bin batch-prove -- --batch batch.json --proof proof.bin --
 # Terminal 1: Start validator
 solana-test-validator
 
-# Terminal 2: Start indexer
-cd services/indexer && just run
+# Terminal 2: Start indexer and the database
+docker-compose up -d
 
 # Terminal 3: Run test
 cargo run --release -p test-complete-flow-rust --bin batch-localnet-test
