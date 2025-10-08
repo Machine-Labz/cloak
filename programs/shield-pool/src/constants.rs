@@ -1,6 +1,10 @@
+use five8_const::decode_32_const;
+
 /// SP1 Withdraw Circuit VKey Hash
 pub const WITHDRAW_VKEY_HASH: &str =
     "0x00a6032c69adbeace083d1177f54d81250a1c977444904099409288e37f44d3a";
+
+pub const ADMIN_AUTHORITY: [u8; 32] = decode_32_const("mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa");
 
 // Constants for proof and public input offsets
 pub const PROOF_LEN: usize = 260; // Groth16 proof length (with vkey hash, as in working version)

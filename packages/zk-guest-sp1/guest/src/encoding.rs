@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Result};
-use blake3::Hasher;
+use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
 
-/// BLAKE3-256 hash function returning 32 bytes
+/// SHA256 hash function returning 32 bytes (compatible with frontend)
 pub fn hash_blake3(data: &[u8]) -> [u8; 32] {
-    blake3::hash(data).into()
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 /// Serialize u64 to little-endian bytes
@@ -58,7 +60,7 @@ pub fn parse_address(address_str: &str) -> Result<[u8; 32]> {
 
 /// Compute commitment: C = H(amount:u64 || r:32 || pk_spend:32)
 pub fn compute_commitment(amount: u64, r: &[u8; 32], pk_spend: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Hasher::new();
+    let mut hasher = Sha256::new();
     hasher.update(&serialize_u64_le(amount));
     hasher.update(r);
     hasher.update(pk_spend);
@@ -72,7 +74,7 @@ pub fn compute_pk_spend(sk_spend: &[u8; 32]) -> [u8; 32] {
 
 /// Compute nullifier: nf = H(sk_spend:32 || leaf_index:u32)
 pub fn compute_nullifier(sk_spend: &[u8; 32], leaf_index: u32) -> [u8; 32] {
-    let mut hasher = Hasher::new();
+    let mut hasher = Sha256::new();
     hasher.update(sk_spend);
     hasher.update(&serialize_u32_le(leaf_index));
     hasher.finalize().into()
@@ -81,7 +83,7 @@ pub fn compute_nullifier(sk_spend: &[u8; 32], leaf_index: u32) -> [u8; 32] {
 /// Compute outputs hash: H(output[0] || output[1] || ... || output[n-1])
 /// where output = address:32 || amount:u64
 pub fn compute_outputs_hash(outputs: &[Output]) -> [u8; 32] {
-    let mut hasher = Hasher::new();
+    let mut hasher = Sha256::new();
     for output in outputs {
         hasher.update(&output.address);
         hasher.update(&serialize_u64_le(output.amount));
@@ -110,7 +112,7 @@ pub fn verify_merkle_path(
     let mut current = *leaf;
 
     for (element, &index) in path_elements.iter().zip(path_indices.iter()) {
-        let mut hasher = Hasher::new();
+        let mut hasher = Sha256::new();
         if index == 0 {
             // current is left, element is right
             hasher.update(&current);

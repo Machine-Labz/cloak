@@ -1,10 +1,6 @@
-use crate::error::ShieldPoolError;
 use crate::state::RootsRing;
-use five8_const::decode_32_const;
+use crate::{constants::ADMIN_AUTHORITY, error::ShieldPoolError};
 use pinocchio::{account_info::AccountInfo, ProgramResult};
-
-// Admin authority - hardcoded for MVP (can be made configurable later)
-const ADMIN_AUTHORITY: [u8; 32] = decode_32_const("mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa");
 
 pub fn process_admin_push_root_instruction(
     accounts: &[AccountInfo],

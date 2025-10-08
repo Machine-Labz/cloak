@@ -4,7 +4,7 @@ host = "0.0.0.0"
 request_timeout_seconds = 30
 
 [solana]
-rpc_url = "https://api.devnet.solana.com"
+rpc_url = "http://127.0.0.1:8899"
 ws_url = "wss://api.devnet.solana.com"
 commitment = "confirmed"
 program_id = "11111111111111111111111111111111"

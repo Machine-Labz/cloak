@@ -106,7 +106,7 @@ RELAY_DATABASE__URL=postgres://postgres:postgres@localhost:5432/relay
 RELAY_REDIS__URL=redis://localhost:6379
 
 # Solana
-RELAY_SOLANA__RPC_URL=https://api.devnet.solana.com
+RELAY_SOLANA__RPC_URL=http://127.0.0.1:8899
 RELAY_SOLANA__PROGRAM_ID=your-program-id
 ```
 

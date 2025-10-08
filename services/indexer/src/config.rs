@@ -57,16 +57,16 @@ impl Config {
         let config = Config {
             database: DatabaseConfig {
                 host: get_env_var("DB_HOST", "localhost"),
-                port: get_env_var_as_number("DB_PORT", 5432)?,
+                port: get_env_var_as_number("DB_PORT", 5434)?,  // Changed from 5432 to 5434 (Docker default)
                 name: get_env_var("DB_NAME", "cloak_indexer"),
-                user: get_env_var("DB_USER", "postgres"),
-                password: get_env_var("DB_PASSWORD", ""),
+                user: get_env_var("DB_USER", "cloak"),  // Changed from postgres to cloak (Docker default)
+                password: get_env_var("DB_PASSWORD", "development_password_change_in_production"),  // Added default password
                 url: std::env::var("DATABASE_URL").ok(),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20)?,
                 min_connections: get_env_var_as_number("DB_MIN_CONNECTIONS", 2)?,
             },
             solana: SolanaConfig {
-                rpc_url: get_env_var("SOLANA_RPC_URL", "https://api.devnet.solana.com"),
+                rpc_url: get_env_var("SOLANA_RPC_URL", "http://127.0.0.1:8899"),
                 shield_pool_program_id: get_env_var("SHIELD_POOL_PROGRAM_ID", ""),
             },
             server: ServerConfig {
@@ -89,7 +89,32 @@ impl Config {
             },
         };
 
+        // Validate configuration
+        config.validate()?;
+        
         Ok(config)
+    }
+
+    /// Validate configuration and print helpful error messages
+    pub fn validate(&self) -> Result<()> {
+        // Check database password
+        if self.database.password.is_empty() {
+            eprintln!("⚠️  WARNING: Database password is empty!");
+            eprintln!("   Set DB_PASSWORD environment variable or use default: development_password_change_in_production");
+        }
+
+        // Print configuration summary
+        tracing::info!("Configuration loaded:");
+        tracing::info!("  Database: {}@{}:{}/{}", 
+            self.database.user, 
+            self.database.host, 
+            self.database.port, 
+            self.database.name
+        );
+        tracing::info!("  Server: port {}, env: {}", self.server.port, self.server.node_env);
+        tracing::info!("  Merkle tree: height {}", self.merkle.tree_height);
+        
+        Ok(())
     }
 
     pub fn database_url(&self) -> String {

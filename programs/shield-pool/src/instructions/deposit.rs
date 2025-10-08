@@ -25,16 +25,12 @@ pub fn process_deposit_instruction(
     }
 
     // Direct transfer without validation
-    // Transfer {
-    //     from: &user,
-    //     to: &pool,
-    //     lamports: amount,
-    // }
-    // .invoke()?;
-    unsafe {
-        *user.borrow_mut_lamports_unchecked() -= amount;
-        *pool.borrow_mut_lamports_unchecked() += amount;
+    Transfer {
+        from: &user,
+        to: &pool,
+        lamports: amount,
     }
+    .invoke()?;
 
     Ok(())
 }

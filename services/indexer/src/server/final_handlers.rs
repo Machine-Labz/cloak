@@ -1,6 +1,7 @@
 use crate::artifacts::ArtifactManager;
 use crate::database::PostgresTreeStorage;
 use crate::merkle::{MerkleTree, TreeStorage};
+use crate::server::rate_limiter::RateLimiter;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -19,6 +20,7 @@ pub struct AppState {
     pub merkle_tree: Arc<Mutex<MerkleTree>>,
     pub artifact_manager: ArtifactManager,
     pub config: crate::config::Config,
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 // Request types
@@ -266,13 +268,29 @@ pub async fn get_merkle_proof(
     // Generate the merkle proof using the actual merkle tree
     let tree = state.merkle_tree.lock().await;
     match tree.generate_proof(index, &state.storage).await {
-        Ok(proof) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "pathElements": proof.path_elements,
-                "pathIndices": proof.path_indices
-            })),
-        ),
+        Ok(proof) => {
+            // Get the current root to return with the proof
+            match tree.get_tree_state(&state.storage).await {
+                Ok(tree_state) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "pathElements": proof.path_elements,
+                        "pathIndices": proof.path_indices,
+                        "root": tree_state.root
+                    })),
+                ),
+                Err(e) => {
+                    tracing::error!("Failed to get merkle tree state: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": "Failed to get merkle tree state",
+                            "details": e.to_string()
+                        })),
+                    )
+                }
+            }
+        },
         Err(e) => {
             tracing::error!("Failed to generate merkle proof for index {}: {}", index, e);
             (
@@ -287,11 +305,12 @@ pub async fn get_merkle_proof(
 }
 
 pub async fn get_notes_range(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(params): Query<NotesRangeQuery>,
 ) -> impl IntoResponse {
     let start = params.start.unwrap_or(0);
     let end = params.end.unwrap_or(start + 100);
+    let limit = params.limit.unwrap_or(100);
 
     if end < start {
         return (
@@ -302,16 +321,28 @@ pub async fn get_notes_range(
         );
     }
 
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "encrypted_outputs": [],
-            "has_more": false,
-            "total": 0,
-            "start": start,
-            "end": end
-        })),
-    )
+    match state.storage.get_notes_range(start, end, limit).await {
+        Ok(response) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "notes": response.encrypted_outputs,
+                "has_more": response.has_more,
+                "total": response.total,
+                "start": response.start,
+                "end": response.end
+            })),
+        ),
+        Err(e) => {
+            tracing::error!("Failed to get notes range: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to get notes range",
+                    "details": e.to_string()
+                })),
+            )
+        }
+    }
 }
 
 pub async fn get_withdraw_artifacts(

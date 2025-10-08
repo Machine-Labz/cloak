@@ -4716,6 +4716,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sp1-sdk",
  "sqlx 0.7.4",
  "tempfile",
  "testcontainers",
@@ -4731,6 +4732,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "validator",
+ "zk-guest-sp1-host",
 ]
 
 [[package]]
@@ -14671,10 +14673,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base58",
- "blake3",
  "hex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sp1-zkvm",
 ]
 

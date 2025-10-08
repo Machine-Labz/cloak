@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct ApiResponse<T> {
     pub success: bool,
     pub data: Option<T>,
-    pub error: Option<String>,
+    pub error: Option<T>,
 }
 
 impl<T> ApiResponse<T> {
@@ -20,11 +20,11 @@ impl<T> ApiResponse<T> {
         }
     }
 
-    pub fn error(message: String) -> Self {
+    pub fn error(data: T) -> Self {
         Self {
             success: false,
             data: None,
-            error: Some(message),
+            error: Some(data),
         }
     }
 }
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_api_response_error() {
-        let response = ApiResponse::<()>::error("test error");
+        let response = ApiResponse::error("test error".to_string());
         assert!(!response.success);
         assert!(response.data.is_none());
         assert_eq!(response.error, Some("test error".to_string()));

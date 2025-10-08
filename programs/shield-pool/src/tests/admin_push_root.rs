@@ -209,7 +209,10 @@ fn test_admin_push_root_multiple_roots() {
     ];
 
     let result1 = mollusk.process_and_validate_instruction(&instruction1, &accounts, &[]);
-    assert!(!result1.program_result.is_err(), "First root push should succeed");
+    assert!(
+        !result1.program_result.is_err(),
+        "First root push should succeed"
+    );
 
     // Get updated accounts for second push
     let updated_accounts = result1.resulting_accounts;
@@ -232,7 +235,10 @@ fn test_admin_push_root_multiple_roots() {
     );
 
     let result2 = mollusk.process_and_validate_instruction(&instruction2, &updated_accounts, &[]);
-    assert!(!result2.program_result.is_err(), "Second root push should succeed");
+    assert!(
+        !result2.program_result.is_err(),
+        "Second root push should succeed"
+    );
 
     // Verify both roots are stored correctly
     let final_account = result2

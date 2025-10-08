@@ -7,12 +7,15 @@ use crate::server::final_handlers::{AppState, *};
 use crate::server::middleware::{
     cors_layer, logging_middleware, request_size_limit, timeout_middleware,
 };
+use crate::server::prover_handler::generate_proof;
+use crate::server::rate_limiter::RateLimiter;
 use axum::{
     middleware,
     routing::{get, post},
     Router,
 };
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
@@ -37,12 +40,20 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     // Initialize artifact manager
     let artifact_manager = ArtifactManager::new(&config);
 
+    // Initialize rate limiter for proof generation
+    // Allow 3 proof requests per hour per client (SP1 proofs are expensive)
+    let rate_limiter = Arc::new(RateLimiter::new(
+        Duration::from_secs(36000), // 10 hour window
+        300000000, // 3 requests per hour
+    ));
+
     // Create shared state
     let state = AppState {
         storage,
         merkle_tree: Arc::new(Mutex::new(merkle_tree)),
         artifact_manager,
         config: config.clone(),
+        rate_limiter,
     };
 
     // Create the router
@@ -84,6 +95,8 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/merkle/root", get(get_merkle_root))
         .route("/merkle/proof/:index", get(get_merkle_proof))
         .route("/notes/range", get(get_notes_range))
+        // Proof generation endpoint
+        .route("/prove", post(generate_proof))
         // Artifact endpoints
         .route("/artifacts/withdraw/:version", get(get_withdraw_artifacts))
         .route(

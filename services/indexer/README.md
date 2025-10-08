@@ -68,7 +68,7 @@ LOG_LEVEL=info
 TREE_HEIGHT=32
 
 # Solana
-SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_RPC_URL=http://127.0.0.1:8899
 SHIELD_POOL_PROGRAM_ID=your_program_id_after_deployment
 
 # Logging

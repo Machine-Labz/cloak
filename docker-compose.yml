@@ -31,7 +31,7 @@ services:
       - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
       - PORT=3001
       - LOG_LEVEL=info
-      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - SOLANA_RPC_URL=http://127.0.0.1:8899
       - SHIELD_POOL_PROGRAM_ID=${SHIELD_POOL_PROGRAM_ID:-}
       - TREE_HEIGHT=32
       - ARTIFACTS_BASE_PATH=./artifacts

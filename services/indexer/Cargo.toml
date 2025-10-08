@@ -43,6 +43,12 @@ serde_json = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
 
+# SP1 SDK for proof generation
+sp1-sdk = "5.2"
+
+# SP1 Host library for direct proof generation
+zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
+
 # Configuration and environment
 config = "0.14"
 dotenvy = "0.15"
