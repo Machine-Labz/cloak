@@ -17,9 +17,14 @@ test-ledger/
 *.dylib
 *.dll
 
+# Environment files
+.env
+.env.local
+
 # Keypairs (keep examples but ignore actual keys)
 *-keypair.json
 !*-keypair.json.example
+c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json
 
 # Logs
 *.log
