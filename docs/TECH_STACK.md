@@ -151,11 +151,6 @@ cloak/
 │   │   └── out/                  # Build artifacts
 │   │       └── public.json       # Verification key
 │   │
-│   ├── sp1-wasm-prover/          # Browser prover
-│   │   ├── Cargo.toml
-│   │   ├── src/
-│   │   │   └── lib.rs            # WASM bindings
-│   │   └── pkg/                  # WASM output
 │   │
 │   └── vkey-generator/           # VKey utility
 │       └── src/
@@ -296,11 +291,11 @@ cloak/
 │     ├─ Uses: SP1 SDK + guest ELF                               │
 │     └─ Output: packages/zk-guest-sp1/out/public.json           │
 │                                                                 │
-│  4. WASM Compilation (for browser)                              │
-│     ├─ Build: packages/sp1-wasm-prover/build.sh                │
-│     ├─ Tool: wasm-pack                                         │
-│     ├─ Target: wasm32-unknown-unknown                          │
-│     └─ Output: packages/sp1-wasm-prover/pkg/*.wasm             │
+│  4. Backend Proving (indexer service)                           │
+│     ├─ Endpoint: POST /generate-proof                          │
+│     ├─ Prover: SP1 CPU prover (via zk-guest-sp1)              │
+│     ├─ Input: Withdraw circuit parameters                      │
+│     └─ Output: Proof + public inputs (hex-encoded)             │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐

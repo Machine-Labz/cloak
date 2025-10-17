@@ -967,7 +967,53 @@ can now use the 0.9925 SOL freely.
 ```
 Program ID:  c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp
 Networks:    Localnet (8899), Testnet, Devnet
-Status:      ✅ Production Ready
+Status:      ✅ Production Ready (MVP)
 ```
+
+---
+
+## ✅ CURRENT IMPLEMENTATION STATUS (MVP)
+
+### Working Features:
+- ✅ **Deposit Flow**: Fully functional
+  - Commitment generation and storage
+  - On-chain CommitmentQueue
+  - System Program CPI transfers
+  - LocalStorage note persistence
+  
+- ✅ **Indexer Service**: Operational
+  - Polls commitment queue
+  - Builds Merkle tree
+  - Provides proof generation API
+  - PostgreSQL persistence
+
+- ✅ **Proof Generation**: SP1 Integration
+  - ~176s proof generation time
+  - 260-byte Groth16 proofs
+  - Via indexer API endpoint
+
+- ✅ **Web Frontend**: Next.js Application
+  - Wallet integration (Phantom, Solflare)
+  - Deposit interface
+  - Withdraw interface
+  - Note management (localStorage)
+
+### MVP Limitations:
+- ⚠️ **No Encrypted Outputs**: Notes stored locally only
+  - Users must manually save/share notes
+  - Future: On-chain encrypted outputs for scanning
+
+- ⚠️ **No Relay Service**: Direct transaction submission
+  - Less privacy (wallet directly submits)
+  - Future: Relay for IP privacy
+
+- ⚠️ **No Admin Root Updates**: Manual process
+  - Root updates not automated
+  - Future: Automated admin service
+
+### Recent Fixes (Oct 2024):
+1. **Fixed Deposit Account Order**: SystemProgram and commitments were swapped
+2. **Fixed CPI Invocation**: Proper use of pinocchio-system Transfer
+3. **Updated Documentation**: Reflects actual implementation (no events, no encryption in MVP)
 
 
