@@ -8,6 +8,15 @@ Cloak is a **privacy-preserving exit router** on Solana. This repo hosts the who
 - **Indexer API:** append-only Merkle tree & proofs
 - **Relay:** submits withdraw txs (no Jito in MVP)
 
+## 🚀 Getting Started
+
+**New to Cloak?** Start here:
+- 📖 **[SETUP_COMPLETE.md](./SETUP_COMPLETE.md)** - Setup summary & current status
+- ⚡ **[QUICK_START.md](./QUICK_START.md)** - 5-minute quick start guide
+- 📋 **[SETUP.md](./SETUP.md)** - Comprehensive setup instructions
+- 🔧 **[ENV_SETUP.md](./ENV_SETUP.md)** - Environment variables guide
+- 🐳 **[DOCKER_SETUP.md](./DOCKER_SETUP.md)** - Docker deployment guide
+
 ## Quick links
 
 - ZK overview: `docs/zk/README.md`
