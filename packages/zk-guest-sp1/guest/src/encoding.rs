@@ -1,12 +1,12 @@
 use anyhow::{anyhow, Result};
-use sha2::{Sha256, Digest};
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 
-/// SHA256 hash function returning 32 bytes (compatible with frontend)
+/// BLAKE3 hash function returning 32 bytes
 pub fn hash_blake3(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(data);
-    hasher.finalize().into()
+    *hasher.finalize().as_bytes()
 }
 
 /// Serialize u64 to little-endian bytes
@@ -58,13 +58,13 @@ pub fn parse_address(address_str: &str) -> Result<[u8; 32]> {
     Ok(result)
 }
 
-/// Compute commitment: C = H(amount:u64 || r:32 || pk_spend:32)
+/// Compute commitment: C = H(amount:u64 || r:32 || pk_spend:32) using BLAKE3
 pub fn compute_commitment(amount: u64, r: &[u8; 32], pk_spend: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(&serialize_u64_le(amount));
     hasher.update(r);
     hasher.update(pk_spend);
-    hasher.finalize().into()
+    *hasher.finalize().as_bytes()
 }
 
 /// Compute pk_spend: pk_spend = H(sk_spend:32)
@@ -72,23 +72,23 @@ pub fn compute_pk_spend(sk_spend: &[u8; 32]) -> [u8; 32] {
     hash_blake3(sk_spend)
 }
 
-/// Compute nullifier: nf = H(sk_spend:32 || leaf_index:u32)
+/// Compute nullifier: nf = H(sk_spend:32 || leaf_index:u32) using BLAKE3
 pub fn compute_nullifier(sk_spend: &[u8; 32], leaf_index: u32) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(sk_spend);
     hasher.update(&serialize_u32_le(leaf_index));
-    hasher.finalize().into()
+    *hasher.finalize().as_bytes()
 }
 
-/// Compute outputs hash: H(output[0] || output[1] || ... || output[n-1])
+/// Compute outputs hash: H(output[0] || output[1] || ... || output[n-1]) using BLAKE3
 /// where output = address:32 || amount:u64
 pub fn compute_outputs_hash(outputs: &[Output]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     for output in outputs {
         hasher.update(&output.address);
         hasher.update(&serialize_u64_le(output.amount));
     }
-    hasher.finalize().into()
+    *hasher.finalize().as_bytes()
 }
 
 pub fn calculate_fee(amount: u64) -> u64 {
@@ -97,7 +97,7 @@ pub fn calculate_fee(amount: u64) -> u64 {
     fixed_fee + variable_fee
 }
 
-/// Merkle path verification
+/// Merkle path verification using BLAKE3
 /// Rule: if bit==0 => parent=H(curr||sib) else parent=H(sib||curr)
 pub fn verify_merkle_path(
     leaf: &[u8; 32],
@@ -112,7 +112,7 @@ pub fn verify_merkle_path(
     let mut current = *leaf;
 
     for (element, &index) in path_elements.iter().zip(path_indices.iter()) {
-        let mut hasher = Sha256::new();
+        let mut hasher = Hasher::new();
         if index == 0 {
             // current is left, element is right
             hasher.update(&current);
@@ -124,7 +124,7 @@ pub fn verify_merkle_path(
         } else {
             return false; // Invalid index
         }
-        current = hasher.finalize().into();
+        current = *hasher.finalize().as_bytes();
     }
 
     current == *root

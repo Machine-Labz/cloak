@@ -1,4 +1,3 @@
-use mollusk_svm::result::Check;
 use solana_sdk::{
     account::Account,
     instruction::{AccountMeta, Instruction},
@@ -9,7 +8,7 @@ use crate::{instructions::ShieldPoolInstruction, state::RootsRing, tests::setup}
 
 #[test]
 fn test_admin_push_root_instruction() {
-    let (program_id, mut mollusk) = setup();
+    let (program_id, mollusk) = setup();
 
     // Create admin account (must match ADMIN_AUTHORITY in the program)
     let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
@@ -101,7 +100,7 @@ fn test_admin_push_root_instruction() {
 
 #[test]
 fn test_admin_push_root_unauthorized() {
-    let (program_id, mut mollusk) = setup();
+    let (program_id, mollusk) = setup();
 
     // Create unauthorized admin account (not the correct ADMIN_AUTHORITY)
     let unauthorized_admin = Pubkey::new_from_array([0x99u8; 32]);
@@ -160,7 +159,7 @@ fn test_admin_push_root_unauthorized() {
 
 #[test]
 fn test_admin_push_root_multiple_roots() {
-    let (program_id, mut mollusk) = setup();
+    let (program_id, mollusk) = setup();
 
     let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
         "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",

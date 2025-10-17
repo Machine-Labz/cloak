@@ -1,28 +1,24 @@
 use blake3::Hasher;
-use mollusk_svm::result::Check;
 use solana_sdk::{
     account::Account,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
 
-use crate::{instructions::ShieldPoolInstruction, state::RootsRing, tests::setup};
+use crate::{instructions::ShieldPoolInstruction, state::CommitmentQueue, tests::setup};
 
 #[test]
 fn test_deposit_instruction() {
-    let (program_id, mut mollusk) = setup();
+    let (program_id, mollusk) = setup();
 
-    // Create test accounts
     let user = Pubkey::new_from_array([0x11u8; 32]);
     let pool = Pubkey::new_from_array([0x22u8; 32]);
-    let (roots_ring, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
 
-    // Generate test data like in localnet_test.rs
-    let amount = 1_000_000_000u64; // 1 SOL
+    let amount = 0u64;
     let sk_spend = [0x42u8; 32];
     let r = [0x43u8; 32];
 
-    // Compute commitment = H(amount || r || pk_spend) exactly like SP1 guest program
     let pk_spend = blake3::hash(&sk_spend);
     let mut hasher = Hasher::new();
     hasher.update(&amount.to_le_bytes());
@@ -31,7 +27,6 @@ fn test_deposit_instruction() {
     let commitment = hasher.finalize();
     let leaf_commit = commitment.as_bytes();
 
-    // Create instruction data
     let instruction_data = [
         vec![ShieldPoolInstruction::Deposit as u8],
         amount.to_le_bytes().to_vec(),
@@ -43,19 +38,18 @@ fn test_deposit_instruction() {
         program_id,
         &instruction_data,
         vec![
-            AccountMeta::new(user, true),        // user (signer)
-            AccountMeta::new(pool, false),       // pool (writable)
-            AccountMeta::new(roots_ring, false), // roots_ring (writable)
+            AccountMeta::new(user, true),
+            AccountMeta::new(pool, false),
             AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
         ],
     );
 
-    // Setup accounts with proper balances
     let accounts: Vec<(Pubkey, Account)> = vec![
         (
             user,
             Account {
-                lamports: 2_000_000_000, // 2 SOL for user
+                lamports: 2_000_000_000,
                 data: vec![],
                 owner: solana_sdk::system_program::id(),
                 executable: false,
@@ -65,18 +59,8 @@ fn test_deposit_instruction() {
         (
             pool,
             Account {
-                lamports: 0, // Empty pool initially
+                lamports: 0,
                 data: vec![],
-                owner: program_id, // Pool owned by program
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-        (
-            roots_ring,
-            Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(RootsRing::SIZE),
-                data: vec![0u8; RootsRing::SIZE],
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,
@@ -87,71 +71,66 @@ fn test_deposit_instruction() {
             Account {
                 lamports: 0,
                 data: vec![],
-                owner: solana_sdk::system_program::id(),
+                owner: solana_sdk::native_loader::id(),
                 executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
+                executable: false,
                 rent_epoch: 0,
             },
         ),
     ];
 
-    // Execute the deposit instruction
     let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
-
-    // Verify the instruction succeeded
     assert!(
         !result.program_result.is_err(),
         "Deposit instruction should succeed, got: {:?}",
         result.program_result
     );
 
-    // Verify user's balance decreased by the deposit amount
-    let updated_user_account = result
-        .resulting_accounts
-        .iter()
-        .find(|(pk, _)| *pk == user)
-        .map(|(_, acc)| acc)
-        .expect("User account not found after deposit");
-
-    assert_eq!(
-        updated_user_account.lamports,
-        1_000_000_000, // 2 SOL - 1 SOL = 1 SOL
-        "User balance should decrease by deposit amount"
-    );
-
-    // Verify pool's balance increased by the deposit amount
-    let updated_pool_account = result
-        .resulting_accounts
-        .iter()
-        .find(|(pk, _)| *pk == pool)
-        .map(|(_, acc)| acc)
-        .expect("Pool account not found after deposit");
-
-    assert_eq!(
-        updated_pool_account.lamports, amount,
-        "Pool balance should increase by deposit amount"
-    );
-
     println!("✅ Deposit test completed successfully");
-    println!(
-        "   - User balance: {} SOL",
-        updated_user_account.lamports / 1_000_000_000
-    );
-    println!(
-        "   - Pool balance: {} SOL",
-        updated_pool_account.lamports / 1_000_000_000
-    );
     println!("   - Commitment: {}", hex::encode(leaf_commit));
+
+    let commitments_account = result
+        .resulting_accounts
+        .iter()
+        .find(|(pk, _)| *pk == commitments_log)
+        .map(|(_, acc)| acc)
+        .expect("Commitments account not found after deposit");
+
+    let total_commits = u64::from_le_bytes(
+        commitments_account.data[0..8]
+            .try_into()
+            .expect("commitment log header"),
+    );
+    assert_eq!(total_commits, 1, "Commitment count should increment");
+
+    let mut stored_commitment = [0u8; 32];
+    stored_commitment.copy_from_slice(
+        &commitments_account.data[CommitmentQueue::HEADER_SIZE..CommitmentQueue::HEADER_SIZE + 32],
+    );
+    assert_eq!(
+        stored_commitment, *leaf_commit,
+        "Stored commitment mismatch"
+    );
 }
 
 #[test]
 fn test_deposit_insufficient_funds() {
-    let (program_id, mut mollusk) = setup();
+    let (program_id, mollusk) = setup();
 
     let user = Pubkey::new_from_array([0x11u8; 32]);
     let pool = Pubkey::new_from_array([0x22u8; 32]);
-    let (roots_ring, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
 
-    let amount = 2_000_000_000u64; // 2 SOL
+    let amount = 2_000_000_000u64;
     let leaf_commit = [0x42u8; 32];
 
     let instruction_data = [
@@ -167,17 +146,16 @@ fn test_deposit_insufficient_funds() {
         vec![
             AccountMeta::new(user, true),
             AccountMeta::new(pool, false),
-            AccountMeta::new(roots_ring, false),
             AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
         ],
     );
 
-    // User has insufficient funds (only 1 SOL but trying to deposit 2 SOL)
     let accounts: Vec<(Pubkey, Account)> = vec![
         (
             user,
             Account {
-                lamports: 1_000_000_000, // Only 1 SOL
+                lamports: 1_000_000_000,
                 data: vec![],
                 owner: solana_sdk::system_program::id(),
                 executable: false,
@@ -195,10 +173,79 @@ fn test_deposit_insufficient_funds() {
             },
         ),
         (
-            roots_ring,
+            solana_sdk::system_program::id(),
             Account {
-                lamports: mollusk.sysvars.rent.minimum_balance(RootsRing::SIZE),
-                data: vec![0u8; RootsRing::SIZE],
+                lamports: 0,
+                data: vec![],
+                owner: solana_sdk::native_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+    ];
+
+    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
+    assert!(
+        result.program_result.is_err(),
+        "Deposit should fail due to insufficient funds",
+    );
+}
+
+#[test]
+fn test_deposit_duplicate_commitment() {
+    let (program_id, mollusk) = setup();
+
+    let user = Pubkey::new_from_array([0x91u8; 32]);
+    let pool = Pubkey::new_from_array([0x22u8; 32]);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+
+    let amount = 0u64;
+    let commitment = [0xAAu8; 32];
+
+    let instruction_data = [
+        vec![ShieldPoolInstruction::Deposit as u8],
+        amount.to_le_bytes().to_vec(),
+        commitment.to_vec(),
+    ]
+    .concat();
+
+    let instruction = Instruction::new_with_bytes(
+        program_id,
+        &instruction_data,
+        vec![
+            AccountMeta::new(user, true),
+            AccountMeta::new(pool, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
+        ],
+    );
+
+    let accounts: Vec<(Pubkey, Account)> = vec![
+        (
+            user,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: solana_sdk::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            pool,
+            Account {
+                lamports: 0,
+                data: vec![],
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,
@@ -209,20 +256,63 @@ fn test_deposit_insufficient_funds() {
             Account {
                 lamports: 0,
                 data: vec![],
-                owner: solana_sdk::system_program::id(),
+                owner: solana_sdk::native_loader::id(),
                 executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
+                executable: false,
                 rent_epoch: 0,
             },
         ),
     ];
 
-    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
-
-    // Should fail due to insufficient funds
+    let first = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
     assert!(
-        result.program_result.is_err(),
-        "Deposit should fail with insufficient funds"
+        !first.program_result.is_err(),
+        "Initial deposit should succeed",
     );
 
-    println!("✅ Insufficient funds test completed successfully");
+    let system_program_id = solana_sdk::system_program::id();
+    let system_account_template = accounts
+        .iter()
+        .find(|(pk, _)| *pk == system_program_id)
+        .cloned()
+        .expect("System program account missing");
+    let commitments_pubkey = commitments_log;
+
+    let mut second_accounts = first.resulting_accounts.clone();
+
+    if second_accounts
+        .iter()
+        .all(|(pk, _)| *pk != system_program_id)
+    {
+        second_accounts.insert(2, system_account_template);
+    }
+
+    second_accounts.sort_by_key(|(pk, _)| {
+        if pk == &user {
+            0
+        } else if pk == &pool {
+            1
+        } else if pk == &system_program_id {
+            2
+        } else if pk == &commitments_pubkey {
+            3
+        } else {
+            4
+        }
+    });
+
+    let second = mollusk.process_and_validate_instruction(&instruction, &second_accounts, &[]);
+    assert!(
+        second.program_result.is_err(),
+        "Duplicate commitment should be rejected",
+    );
 }

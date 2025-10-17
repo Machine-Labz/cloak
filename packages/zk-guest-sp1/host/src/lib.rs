@@ -1,6 +1,7 @@
 pub mod encoding;
 
 use anyhow::Result;
+use sp1_sdk::Prover;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 
 const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
@@ -11,10 +12,13 @@ pub struct ProofResult {
     pub proof_bytes: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub generation_time_ms: u64,
+    pub total_cycles: u64,
+    pub total_syscalls: u64,
+    pub execution_report: String, // Full execution report as formatted string
 }
 
 /// Generate an SP1 proof directly from input data
-/// 
+///
 /// This function replaces the need to call the cloak-zk binary externally.
 /// It performs the same operations as the binary but as a library function.
 pub fn generate_proof(
@@ -29,36 +33,41 @@ pub fn generate_proof(
     let public_inputs = public_inputs.to_string();
     let outputs = outputs.to_string();
 
-    // Run SP1 proof generation in a separate thread to isolate panics
-    let result = std::thread::spawn(move || {
-        // Setup SP1 prover client
-        let client = ProverClient::from_env();
-        let (pk, _vk) = client.setup(ELF);
+    let job =
+        move || -> Result<(sp1_sdk::SP1ProofWithPublicValues, u64, u64, String), anyhow::Error> {
+            let client = ProverClient::builder().cpu().build();
+            let (pk, _vk) = client.setup(ELF);
 
-        // Create combined input (same format as the binary)
-        let combined_input = format!(
-            r#"{{
+            let combined_input = format!(
+                r#"{{
                 "private": {},
                 "public": {},
                 "outputs": {}
             }}"#,
-            private_inputs, public_inputs, outputs
-        );
+                private_inputs, public_inputs, outputs
+            );
 
-        // Generate proof
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&combined_input);
+            let mut stdin = SP1Stdin::new();
+            stdin.write(&combined_input);
 
-        client.prove(&pk, &stdin).groth16().run()
-    }).join();
+            // First, execute to get full execution report
+            let (_, report) = client.execute(ELF, &stdin).run()?;
+            let total_cycles = report.total_instruction_count();
+            let total_syscalls = report.total_syscall_count();
+            let execution_report = format!("{}", report); // Full formatted report
 
-    let proof_result = match result {
-        Ok(Ok(proof)) => proof,
-        Ok(Err(e)) => return Err(e),
-        Err(_panic_info) => {
-            return Err(anyhow::anyhow!("SP1 proof generation panicked - this usually means invalid input data or circuit constraint failure"));
-        }
-    };
+            println!("📊 SP1 Execution Report:");
+            println!("   Total cycles: {}", total_cycles);
+            println!("   Total syscalls: {}", total_syscalls);
+            println!("\n{}", execution_report);
+
+            // Then generate the proof
+            let proof = client.prove(&pk, &stdin).groth16().run()?;
+
+            Ok((proof, total_cycles, total_syscalls, execution_report))
+        };
+
+    let (proof_result, total_cycles, total_syscalls, execution_report) = run_prover_job(job)?;
 
     // Extract proof bytes and public inputs
     let proof_bytes = proof_result.bytes();
@@ -70,7 +79,38 @@ pub fn generate_proof(
         proof_bytes: proof_bytes.to_vec(),
         public_inputs: public_inputs_bytes,
         generation_time_ms: generation_time.as_millis() as u64,
+        total_cycles,
+        total_syscalls,
+        execution_report,
     })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_prover_job<F>(
+    job: F,
+) -> Result<(sp1_sdk::SP1ProofWithPublicValues, u64, u64, String), anyhow::Error>
+where
+    F: FnOnce() -> Result<(sp1_sdk::SP1ProofWithPublicValues, u64, u64, String), anyhow::Error>
+        + Send
+        + 'static,
+{
+    match std::thread::spawn(job).join() {
+        Ok(Ok(artifacts)) => Ok(artifacts),
+        Ok(Err(err)) => Err(err.into()),
+        Err(_panic_info) => Err(anyhow::anyhow!(
+            "SP1 proof generation panicked - this usually means invalid input data or circuit constraint failure"
+        )),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn run_prover_job<F>(
+    job: F,
+) -> Result<(sp1_sdk::SP1ProofWithPublicValues, u64, u64, String), anyhow::Error>
+where
+    F: FnOnce() -> Result<(sp1_sdk::SP1ProofWithPublicValues, u64, u64, String), anyhow::Error>,
+{
+    job().map_err(Into::into)
 }
 
 /// Generate proof from structured input data

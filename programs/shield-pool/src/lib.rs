@@ -11,8 +11,11 @@ use pinocchio::{
 
 mod constants;
 mod error;
+// pub mod groth16;
 pub mod instructions;
 mod state;
+
+pub use state::CommitmentQueue;
 
 #[cfg(test)]
 mod tests;
@@ -29,9 +32,9 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    // if program_id != &ID {
-    //     return Err(ProgramError::IncorrectProgramId);
-    // }
+    if program_id != &ID {
+        return Err(ProgramError::IncorrectProgramId);
+    }
 
     let (instruction_discriminant, instruction_data) = data
         .split_first()
