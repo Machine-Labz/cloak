@@ -1,0 +1,101 @@
+services:
+  # PostgreSQL Database - Shared by indexer and relay
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloak-postgres
+    environment:
+      POSTGRES_USER: cloak
+      POSTGRES_PASSWORD: development_password_change_in_production
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5434:5432"
+    volumes:
+      - cloak_postgres_data:/var/lib/postgresql/data
+      - ./services/indexer/init.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    networks:
+      - cloak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis - For relay job queuing
+  redis:
+    image: redis:7-alpine
+    container_name: cloak-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cloak-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # # Indexer Service
+  # indexer:
+  #   build:
+  #     context: .
+  #     dockerfile: ./services/indexer/Dockerfile
+  #   container_name: cloak-indexer
+  #   env_file:
+  #     - ./services/indexer/env.docker
+  #   ports:
+  #     - "3001:3001"
+  #   volumes:
+  #     - indexer_logs:/app/logs
+  #     - indexer_artifacts:/app/artifacts
+  #   networks:
+  #     - cloak-network
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+  # Relay Service
+  relay:
+    build:
+      context: .
+      dockerfile: ./services/relay/Dockerfile
+    container_name: cloak-relay
+    env_file:
+      - ./services/relay/env.docker
+    ports:
+      - "3002:3002"
+      - "9090:9090"
+    volumes:
+      - relay_logs:/app/logs
+    networks:
+      - cloak-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  cloak_postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  indexer_logs:
+    driver: local
+  indexer_artifacts:
+    driver: local
+  relay_logs:
+    driver: local
+
+networks:
+  cloak-network:
+    driver: bridge

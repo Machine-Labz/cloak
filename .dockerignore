@@ -1,0 +1,45 @@
+# Docker ignore file for Cloak
+
+# Build artifacts that don't need to be in Docker context
+# (We build inside Docker, so we don't need these)
+.anchor/
+test-ledger/
+
+# Environment files (use env_file in docker-compose instead)
+.env*
+!.env.example
+!env.example
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (will be created inside container)
+*.log
+logs/
+
+# Documentation (not needed in container)
+*.md
+!README.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
