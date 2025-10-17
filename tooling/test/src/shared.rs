@@ -195,11 +195,27 @@ pub fn validate_config(config: &TestConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Get PDA addresses for Shield Pool program
+pub fn get_pda_addresses(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
+    let (commitments_pda, _) = Pubkey::find_program_address(&[b"commitments"], program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
+    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
+    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
+    (
+        pool_pda,
+        commitments_pda,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        treasury_pda,
+    )
+}
+
 /// Create deposit instruction
 pub fn create_deposit_instruction(
     user_pubkey: &Pubkey,
     pool_pubkey: &Pubkey,
-    roots_ring_pubkey: &Pubkey,
+    commitments_pubkey: &Pubkey,
     program_id: &Pubkey,
     amount: u64,
     commitment: &[u8; 32],
@@ -214,8 +230,8 @@ pub fn create_deposit_instruction(
         accounts: vec![
             AccountMeta::new(*user_pubkey, true),
             AccountMeta::new(*pool_pubkey, false),
-            AccountMeta::new(*roots_ring_pubkey, false),
             AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
+            AccountMeta::new(*commitments_pubkey, false),
         ],
         data,
     }

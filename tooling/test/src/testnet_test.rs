@@ -3,6 +3,7 @@ use base64;
 use hex;
 use rand;
 use serde::{Deserialize, Serialize};
+use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
 use std::str::FromStr;
@@ -282,6 +283,7 @@ fn create_program_accounts(
 
     // Generate unique keypairs for each account
     let pool_keypair = Keypair::new();
+    let commitments_keypair = Keypair::new();
     let roots_ring_keypair = Keypair::new();
     let nullifier_shard_keypair = Keypair::new();
     let treasury_keypair = Keypair::new();
@@ -296,6 +298,17 @@ fn create_program_accounts(
         pool_rent_exempt, // rent-exempt minimum for 0-byte account
         0,                // 0 bytes data
         &program_id,      // Owned by the shield pool program
+    );
+
+    println!("   Creating commitments account...");
+
+    const COMMITMENTS_SIZE: usize = CommitmentQueue::SIZE;
+    let create_commitments_ix = system_instruction::create_account(
+        &admin_keypair.pubkey(),
+        &commitments_keypair.pubkey(),
+        client.get_minimum_balance_for_rent_exemption(COMMITMENTS_SIZE)?,
+        COMMITMENTS_SIZE as u64,
+        program_id,
     );
 
     println!("   Creating roots ring account...");
@@ -337,6 +350,7 @@ fn create_program_accounts(
     let mut create_accounts_tx = Transaction::new_with_payer(
         &[
             create_pool_ix,
+            create_commitments_ix,
             create_roots_ring_ix,
             create_nullifier_shard_ix,
             create_treasury_ix,
@@ -349,6 +363,7 @@ fn create_program_accounts(
         &[
             &admin_keypair,
             &pool_keypair,
+            &commitments_keypair,
             &roots_ring_keypair,
             &nullifier_shard_keypair,
             &treasury_keypair,
@@ -360,6 +375,7 @@ fn create_program_accounts(
 
     println!("   ✅ All program accounts created successfully");
     println!("   - Pool account: {}", pool_keypair.pubkey());
+    println!("   - Commitments account: {}", commitments_keypair.pubkey());
     println!("   - Roots ring account: {}", roots_ring_keypair.pubkey());
     println!(
         "   - Nullifier shard account: {}",
@@ -378,6 +394,7 @@ fn create_program_accounts(
 
     Ok(ProgramAccounts {
         pool: pool_keypair.pubkey(),
+        commitments: commitments_keypair.pubkey(),
         roots_ring: roots_ring_keypair.pubkey(),
         nullifier_shard: nullifier_shard_keypair.pubkey(),
         treasury: treasury_keypair.pubkey(),
@@ -567,7 +584,7 @@ fn create_deposit_transaction(
     let deposit_ix = test_complete_flow_rust::shared::create_deposit_instruction(
         &user_keypair.pubkey(),
         &accounts.pool,
-        &accounts.roots_ring,
+        &accounts.commitments,
         program_id,
         test_data.amount,
         &commitment_array,
@@ -1091,6 +1108,7 @@ fn execute_withdraw_transaction(
 #[derive(Debug)]
 struct ProgramAccounts {
     pool: Pubkey,
+    commitments: Pubkey,
     roots_ring: Pubkey,
     nullifier_shard: Pubkey,
     treasury: Pubkey,
