@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use redis::{AsyncCommands, Client};
+use redis::{aio::ConnectionManager, AsyncCommands, Client};
 use serde_json;
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -13,7 +13,7 @@ const PROCESSING_KEY: &str = "cloak:jobs:processing";
 const DEAD_LETTER_KEY: &str = "cloak:jobs:dead";
 
 pub struct RedisJobQueue {
-    client: Client,
+    connection_manager: ConnectionManager,
     config: QueueConfig,
 }
 
@@ -22,35 +22,35 @@ impl RedisJobQueue {
         let client = Client::open(redis_url)
             .map_err(|e| Error::RedisError(format!("Failed to create Redis client: {}", e)))?;
 
-        // Test connection
-        let mut conn = client
-            .get_async_connection()
-            .await
-            .map_err(|e| Error::RedisError(format!("Failed to connect to Redis: {}", e)))?;
+        // Create a connection manager for connection pooling
+        let connection_manager = ConnectionManager::new(client).await.map_err(|e| {
+            Error::RedisError(format!("Failed to create connection manager: {}", e))
+        })?;
 
         // Test the connection with a simple command
+        let mut conn = connection_manager.clone();
         let _: String = redis::cmd("PING")
             .query_async(&mut conn)
             .await
             .map_err(|e| Error::RedisError(format!("Redis ping failed: {}", e)))?;
 
-        debug!("Redis connection established");
+        debug!("Redis connection pool established");
 
-        Ok(Self { client, config })
+        Ok(Self {
+            connection_manager,
+            config,
+        })
     }
 
-    async fn get_connection(&self) -> Result<redis::aio::Connection, Error> {
-        self.client
-            .get_async_connection()
-            .await
-            .map_err(|e| Error::RedisError(format!("Failed to get Redis connection: {}", e)))
+    fn get_connection(&self) -> ConnectionManager {
+        self.connection_manager.clone()
     }
 }
 
 #[async_trait]
 impl JobQueue for RedisJobQueue {
     async fn enqueue(&self, message: JobMessage) -> Result<(), Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let job_json = serde_json::to_string(&message)
             .map_err(|e| Error::RedisError(format!("Failed to serialize job message: {}", e)))?;
 
@@ -69,16 +69,16 @@ impl JobQueue for RedisJobQueue {
         Ok(())
     }
 
-    async fn dequeue(&self, timeout: Duration) -> Result<Option<JobMessage>, Error> {
-        let mut conn = self.get_connection().await?;
+    async fn dequeue(&self, _timeout: Duration) -> Result<Option<JobMessage>, Error> {
+        let mut conn = self.get_connection();
 
-        // Use ZPOPMIN instead of BZPOPMIN for simplicity
-        let result: Option<(String, f64)> = conn
+        // ZPOPMIN returns an array of (member, score) tuples
+        let result: Vec<(String, f64)> = conn
             .zpopmin(MAIN_QUEUE_KEY, 1)
             .await
             .map_err(|e| Error::RedisError(format!("Failed to dequeue job: {}", e)))?;
 
-        if let Some((job_json, _score)) = result {
+        if let Some((job_json, _score)) = result.into_iter().next() {
             let message: JobMessage = serde_json::from_str(&job_json).map_err(|e| {
                 Error::RedisError(format!("Failed to deserialize job message: {}", e))
             })?;
@@ -111,7 +111,7 @@ impl JobQueue for RedisJobQueue {
     }
 
     async fn requeue_with_delay(&self, message: JobMessage, delay: Duration) -> Result<(), Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let retry_count = message.retry_count + 1;
         let retry_message = message.with_retry_count(retry_count);
         let job_json = serde_json::to_string(&retry_message)
@@ -135,7 +135,7 @@ impl JobQueue for RedisJobQueue {
     }
 
     async fn dead_letter(&self, message: JobMessage, reason: String) -> Result<(), Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let dead_letter_data = serde_json::json!({
             "job": message,
             "reason": reason,
@@ -159,7 +159,7 @@ impl JobQueue for RedisJobQueue {
     }
 
     async fn queue_size(&self) -> Result<u64, Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let main_size: u64 = conn
             .zcard(MAIN_QUEUE_KEY)
             .await
@@ -176,7 +176,7 @@ impl JobQueue for RedisJobQueue {
     }
 
     async fn health_check(&self) -> Result<(), Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let _: String = redis::cmd("PING")
             .query_async(&mut conn)
             .await
@@ -188,7 +188,7 @@ impl JobQueue for RedisJobQueue {
 impl RedisJobQueue {
     /// Process retry queue - move ready jobs back to main queue
     pub async fn process_retry_queue(&self) -> Result<u32, Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let now = chrono::Utc::now().timestamp();
 
         // Get jobs ready for retry
@@ -219,7 +219,7 @@ impl RedisJobQueue {
 
     /// Clean up processing queue - move stale jobs back to main queue
     pub async fn cleanup_processing_queue(&self) -> Result<u32, Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
         let stale_threshold =
             chrono::Utc::now().timestamp() - self.config.processing_timeout.as_secs() as i64;
 
@@ -256,7 +256,7 @@ impl RedisJobQueue {
 
     /// Mark job as completed - remove from processing queue
     pub async fn mark_completed(&self, job_id: uuid::Uuid) -> Result<(), Error> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection();
 
         // Find and remove the job from processing queue
         let processing_jobs: Vec<String> = conn

@@ -2,6 +2,7 @@ mod api;
 mod db;
 mod error;
 mod queue;
+mod worker;
 
 use axum::{
     response::Json,
@@ -10,7 +11,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::trace::TraceLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
 use crate::db::repository::{PostgresJobRepository, PostgresNullifierRepository};
@@ -62,6 +63,9 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file (ignore error if file doesn't exist)
+    let _ = dotenvy::dotenv();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -72,18 +76,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create application state with real connections
     let app_state = AppState::new().await?;
 
+    // Configure CORS to allow requests from the frontend
+    let cors = CorsLayer::permissive();
+
     // Build our application with routes
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(app_state.clone());
+
+    // Spawn the worker task to process jobs
+    let worker_state = app_state.clone();
+    tokio::spawn(async move {
+        let worker = worker::Worker::new(worker_state)
+            .with_poll_interval(std::time::Duration::from_secs(1))
+            .with_max_concurrent_jobs(10);
+
+        worker.run().await;
+    });
 
     // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     info!("Relay service listening on {}", addr);
+    info!("Worker task spawned and running");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

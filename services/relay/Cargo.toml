@@ -23,6 +23,7 @@ base64 = "0.21"
 
 # Configuration  
 config = "0.13"
+dotenvy = "0.15"
 
 # Logging and error handling
 tracing = "0.1"
@@ -41,7 +42,7 @@ sqlx = { version = "0.6", features = [
 ] }
 
 # Redis for job queue
-redis = { version = "0.23", features = ["tokio-comp"] }
+redis = { version = "0.23", features = ["tokio-comp", "connection-manager"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }

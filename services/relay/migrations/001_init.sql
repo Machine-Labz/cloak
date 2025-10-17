@@ -48,5 +48,4 @@ CREATE TABLE IF NOT EXISTS nullifiers (
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_nullifier ON jobs(nullifier);
 CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON nullifiers(created_at); 

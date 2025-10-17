@@ -36,18 +36,23 @@ impl axum::response::IntoResponse for Error {
         use axum::http::StatusCode;
         use axum::Json;
         use serde_json::json;
+        use tracing::error;
 
-        let (status, message) = match self {
-            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+        let (status, message) = match &self {
+            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Error::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             Error::ValidationError(msg) => (
                 StatusCode::BAD_REQUEST,
                 format!("Validation error: {}", msg),
             ),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
+            _ => {
+                // Log the actual error for debugging
+                error!("Internal server error: {}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Internal server error: {}", self),
+                )
+            }
         };
 
         let body = Json(json!({
