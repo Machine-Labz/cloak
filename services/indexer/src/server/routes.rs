@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -43,8 +44,8 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     // Initialize rate limiter for proof generation
     // Allow 3 proof requests per hour per client (SP1 proofs are expensive)
     let rate_limiter = Arc::new(RateLimiter::new(
-        Duration::from_secs(36000), // 10 hour window
-        300000000, // 3 requests per hour
+        Duration::from_secs(3600), // 1 hour window
+        3,                         // 3 requests per hour
     ));
 
     // Create shared state
@@ -116,6 +117,7 @@ pub async fn start_server(config: Config) -> Result<(), IndexerError> {
     crate::logging::log_startup_info(&config);
 
     let (app, _state) = create_app(config).await?;
+    let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
@@ -130,7 +132,7 @@ pub async fn start_server(config: Config) -> Result<(), IndexerError> {
         "Cloak Indexer API started"
     );
 
-    axum::serve(listener, app)
+    axum::serve(listener, make_service)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| {

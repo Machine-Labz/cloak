@@ -1,15 +1,21 @@
 -- Database initialization script for Docker
--- Creates the database and user if they don't exist
+-- Creates the databases for indexer and relay services
 
 -- This file is automatically executed by the postgres container
 -- when the container starts for the first time
 
--- The database and user are already created by the POSTGRES_DB and POSTGRES_USER
--- environment variables, so this file can contain additional setup if needed
+-- Create databases
+CREATE DATABASE cloak_indexer;
+CREATE DATABASE cloak_relay;
 
--- Example: Create additional users or grant specific permissions
--- CREATE USER cloak_readonly WITH PASSWORD 'readonly_password';
--- GRANT SELECT ON ALL TABLES IN SCHEMA public TO cloak_readonly;
-
--- Set up any additional database configuration
+-- Set up database configuration
+\c cloak_indexer;
 ALTER DATABASE cloak_indexer SET timezone TO 'UTC';
+
+\c cloak_relay;
+ALTER DATABASE cloak_relay SET timezone TO 'UTC';
+
+-- Grant permissions to cloak user (created by POSTGRES_USER env var)
+\c postgres;
+GRANT ALL PRIVILEGES ON DATABASE cloak_indexer TO cloak;
+GRANT ALL PRIVILEGES ON DATABASE cloak_relay TO cloak;

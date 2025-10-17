@@ -3,11 +3,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 pub fn init_logging(config: &Config) -> anyhow::Result<()> {
     let log_level = &config.server.log_level;
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("cloak_indexer={}", log_level)));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(format!("indexer={},cloak_indexer={}", log_level, log_level))
+    });
 
     if config.is_production() {
-        // JSON logging for production
+        // JSON logging for production with unbuffered output
         tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()
@@ -16,23 +17,31 @@ pub fn init_logging(config: &Config) -> anyhow::Result<()> {
                     .with_level(true)
                     .with_thread_ids(true)
                     .with_thread_names(true)
+                    .with_writer(std::io::stdout)
+                    .with_ansi(false)
                     .with_filter(env_filter),
             )
             .init();
     } else {
-        // Pretty logging for development
+        // Compact logging for development with unbuffered output
         tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()
-                    .pretty()
+                    .compact()
                     .with_target(true)
                     .with_level(true)
                     .with_thread_ids(false)
                     .with_thread_names(false)
+                    .with_writer(std::io::stdout)
+                    .with_ansi(false)
                     .with_filter(env_filter),
             )
             .init();
     }
+
+    eprintln!("🔮 Cloak Indexer Service - Logging initialized");
+    eprintln!("   Environment: {}", config.server.node_env);
+    eprintln!("   Log Level: {}", log_level);
 
     tracing::info!(
         environment = config.server.node_env,

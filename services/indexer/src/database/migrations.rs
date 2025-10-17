@@ -48,7 +48,7 @@ fn get_migrations() -> Vec<Migration> {
     vec![Migration {
         id: "001_initial_schema",
         name: "Initial schema for Cloak Indexer",
-        sql: include_str!("../migrations/001_initial_schema_fixed.sql"),
+        sql: include_str!("../migrations/001_initial_schema.sql"),
     }]
 }
 

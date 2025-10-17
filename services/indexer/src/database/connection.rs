@@ -39,7 +39,7 @@ impl Database {
 
         // Add connection timeout to prevent hanging
         let connection_timeout = Duration::from_secs(10);
-        
+
         let pool = tokio::time::timeout(
             connection_timeout,
             PgPoolOptions::new()
@@ -48,12 +48,16 @@ impl Database {
                 .acquire_timeout(Duration::from_secs(5))
                 .idle_timeout(Duration::from_secs(600))
                 .max_lifetime(Duration::from_secs(1800))
-                .connect(&database_url)
+                .connect(&database_url),
         )
         .await
         .map_err(|_| {
             tracing::error!("Database connection timeout after {:?}", connection_timeout);
-            tracing::error!("Make sure PostgreSQL is running on {}:{}", config.database.host, config.database.port);
+            tracing::error!(
+                "Make sure PostgreSQL is running on {}:{}",
+                config.database.host,
+                config.database.port
+            );
             tracing::error!("Connection string: {}", mask_password(&database_url));
             IndexerError::internal("Database connection timeout")
         })?

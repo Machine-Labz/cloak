@@ -290,7 +290,7 @@ pub async fn get_merkle_proof(
                     )
                 }
             }
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to generate merkle proof for index {}: {}", index, e);
             (
