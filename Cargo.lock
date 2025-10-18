@@ -2052,6 +2052,12 @@ dependencies = [
 
 [[package]]
 name = "bs58"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "771fe0050b883fcc3ea2359b1a96bcfbc090b7116eae7c3c512c7a083fdf23d3"
+
+[[package]]
+name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
@@ -2371,6 +2377,17 @@ name = "clap_lex"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
+
+[[package]]
+name = "cloak-proof-extract"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "hex",
+ "serde",
+ "sp1-sdk",
+]
 
 [[package]]
 name = "cmake"
@@ -4972,6 +4989,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "jito-sdk-rust"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48291db50cb0a04b6e17f845f5e04c266514a2b46ef8fd09d98d10fb3ccde14"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "bincode",
+ "bs58 0.4.0",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7345,15 +7381,22 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.21.7",
+ "bincode",
  "blake3",
+ "bs58 0.4.0",
  "chrono",
+ "cloak-proof-extract",
  "config 0.13.4",
  "dotenvy",
  "fastrand",
  "hex",
+ "jito-sdk-rust",
  "redis",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "solana-client",
+ "solana-sdk",
  "sqlx 0.6.3",
  "tempfile",
  "thiserror 1.0.69",
@@ -7364,6 +7407,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "zk-guest-sp1-host",
 ]
 
 [[package]]
@@ -7381,6 +7425,7 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.32",
+ "hyper-rustls 0.24.2",
  "hyper-tls",
  "ipnet",
  "js-sys",
@@ -7390,6 +7435,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.21.12",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -7398,11 +7444,13 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls 0.24.1",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -8528,7 +8576,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4eec60c5d15cac5256ef566193b3a5a56cae9fa35572dc27708946e0a504e843"
 dependencies = [
  "base64 0.22.1",
- "bs58",
+ "bs58 0.5.1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -9761,7 +9809,7 @@ checksum = "c5ee227f72ca6443a4c5e12097577771fb187e4fce91b03abcf05fd42a5c2ca0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
- "bs58",
+ "bs58 0.5.1",
  "bytemuck",
 ]
 
@@ -10237,7 +10285,7 @@ dependencies = [
  "blake3",
  "borsh 0.10.4",
  "borsh 1.5.7",
- "bs58",
+ "bs58 0.5.1",
  "bytemuck",
  "console_error_panic_hook",
  "console_log",
@@ -10744,7 +10792,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bincode",
- "bs58",
+ "bs58 0.5.1",
  "futures 0.3.31",
  "indicatif",
  "log",
@@ -10821,7 +10869,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "046675cd97165f93460535f7ff241c44f90a73d8dabe7edc009505b393ff9248"
 dependencies = [
  "base64 0.22.1",
- "bs58",
+ "bs58 0.5.1",
  "semver 1.0.27",
  "serde",
  "serde_derive",
@@ -11051,7 +11099,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cc0e4a7635b902791c44b6581bfb82f3ada32c5bc0929a64f39fe4bb384c86a"
 dependencies = [
  "bincode",
- "bs58",
+ "bs58 0.5.1",
  "getrandom 0.1.16",
  "js-sys",
  "serde",
@@ -11139,7 +11187,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86280da8b99d03560f6ab5aca9de2e38805681df34e0bb8f238e69b29433b9df"
 dependencies = [
- "bs58",
+ "bs58 0.5.1",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -11151,7 +11199,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6430000e97083460b71d9fbadc52a2ab2f88f53b3a4c5e58c5ae3640a0e8c00"
 dependencies = [
- "bs58",
+ "bs58 0.5.1",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -12171,7 +12219,7 @@ checksum = "9ae65ed465048492d7e3a413300430e340518da4c924394691d1339d99715282"
 dependencies = [
  "base64 0.22.1",
  "bincode",
- "bs58",
+ "bs58 0.5.1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -13983,7 +14031,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "blake3",
- "bs58",
+ "bs58 0.5.1",
  "ctrlc",
  "hex",
  "rand 0.8.5",

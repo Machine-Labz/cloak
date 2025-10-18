@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: check-json
+      - id: check-yaml
+      
+  - repo: local
+    hooks:
+      - id: check-env-files
+        name: Check for .env files
+        entry: bash -c 'files=$(git diff --cached --name-only | grep -E "^\.env$|/\.env$" || true); if [ -n "$files" ]; then echo "ERROR - .env file(s) detected in commit - $files"; exit 1; fi'
+        language: system
+        pass_filenames: false
+      - id: check-keypairs
+        name: Check for keypair files
+        entry: bash -c 'files=$(git diff --cached --name-only | grep -E "keypair\.json$" | grep -v "example" || true); if [ -n "$files" ]; then echo "WARNING - Keypair file(s) detected - $files"; fi'
+        language: system
+        pass_filenames: false

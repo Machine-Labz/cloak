@@ -53,7 +53,7 @@ impl SolanaClient for RpcSolanaClient {
         self.client
             .get_latest_blockhash()
             .await
-            .map_err(|e| Error::SolanaClientError(e))
+            .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
     async fn send_and_confirm_transaction(&self, transaction: &Transaction) -> Result<Signature, Error> {
@@ -63,7 +63,7 @@ impl SolanaClient for RpcSolanaClient {
         let signature = self.client
             .send_transaction(transaction)
             .await
-            .map_err(|e| Error::SolanaClientError(e))?;
+            .map_err(|e| Error::InternalServerError(e.to_string()))?;
 
         debug!("Transaction sent: {}, waiting for confirmation", signature);
 
@@ -74,7 +74,7 @@ impl SolanaClient for RpcSolanaClient {
 
         while retries < MAX_CONFIRMATION_RETRIES {
             match self.client
-                .confirm_transaction_with_spinner(&signature, &self.client.get_latest_blockhash().await.unwrap())
+                .confirm_transaction_with_spinner(&signature, &self.client.get_latest_blockhash().await.unwrap(), self.commitment)
                 .await
             {
                 Ok(_) => {
@@ -84,7 +84,7 @@ impl SolanaClient for RpcSolanaClient {
                 Err(e) => {
                     retries += 1;
                     if retries >= MAX_CONFIRMATION_RETRIES {
-                        return Err(Error::SolanaClientError(e));
+                        return Err(Error::InternalServerError(e.to_string()));
                     }
                     
                     warn!("Transaction confirmation attempt {} failed, retrying in {:?}: {}", 
@@ -103,14 +103,14 @@ impl SolanaClient for RpcSolanaClient {
         self.client
             .get_block_height()
             .await
-            .map_err(|e| Error::SolanaClientError(e))
+            .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error> {
         self.client
             .get_balance(pubkey)
             .await
-            .map_err(|e| Error::SolanaClientError(e))
+            .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 }
 

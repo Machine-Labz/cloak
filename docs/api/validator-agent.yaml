@@ -1,0 +1,294 @@
+openapi: 3.1.0
+info:
+  title: Cloak Validator Agent API
+  version: "1.0.0"
+  description: |
+    API for creating and tracking Cloak withdraw jobs and submitting finalized transactions.
+    Canonical constraints:
+    - Withdraw instruction data length: 437 bytes after the 1-byte discriminator.
+    - SP1 public inputs: 104 bytes (root, nf, outputs_hash, amount LE) in that order.
+    - Proof fragment: 260 bytes Groth16 extracted from the SP1 bundle.
+servers:
+  - url: https://validator.example.com
+    description: Primary
+  - url: http://localhost:3003
+    description: Local development
+paths:
+  /jobs/withdraw:
+    post:
+      operationId: createWithdrawJob
+      tags: [jobs]
+      summary: Queue a withdraw job
+      description: |
+        Accepts public inputs (104B hex), outputs list, and optional hints; queues a proving+building task.
+        Rate-limited; payloads >64 KiB may be rejected with 413.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawJobRequest'
+      responses:
+        "202":
+          description: Job accepted and queued
+          headers:
+            X-RateLimit-Limit:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              schema: { type: integer, description: Unix epoch seconds }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        "400":
+          description: Bad request (validation failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "413":
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /jobs/{job_id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get job status and artifacts
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job found
+          headers:
+            X-RateLimit-Limit:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /submit:
+    post:
+      operationId: submitTransaction
+      tags: [submit]
+      summary: Broadcast a signed transaction
+      description: |
+        Submit a fully signed transaction (base64). Service may relay via Jito or RPC with priority fees.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRequest'
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitResponse'
+        "400":
+          description: Bad request (invalid base64/tx)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "413":
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Hex32:
+      type: string
+      description: 32-byte hex string (64 hex chars)
+      pattern: '^[0-9a-fA-F]{64}$'
+    Uint64String:
+      type: string
+      description: Unsigned 64-bit integer encoded as a base-10 string
+      pattern: '^[0-9]{1,20}$'
+    Base64:
+      type: string
+      description: Base64-encoded bytes
+      pattern: '^[A-Za-z0-9+/]+={0,2}$'
+    PublicInputs104:
+      type: string
+      description: 104-byte public inputs hex (root||nf||outputs_hash||amount_le)
+      pattern: '^[0-9a-fA-F]{208}$'
+    Output:
+      type: object
+      required: [address_hex32, amount_u64]
+      properties:
+        address_hex32:
+          $ref: '#/components/schemas/Hex32'
+        amount_u64:
+          $ref: '#/components/schemas/Uint64String'
+    FeeCaps:
+      type: object
+      properties:
+        max_priority_fee_lamports:
+          $ref: '#/components/schemas/Uint64String'
+        max_total_fee_lamports:
+          $ref: '#/components/schemas/Uint64String'
+    PayerHints:
+      type: object
+      properties:
+        use_jito:
+          type: boolean
+          default: false
+        bundle_tip_lamports:
+          $ref: '#/components/schemas/Uint64String'
+        cu_limit:
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+    WithdrawJobRequest:
+      type: object
+      required: [public_bin_hex, outputs, deadline_iso]
+      properties:
+        public_bin_hex:
+          $ref: '#/components/schemas/PublicInputs104'
+        outputs:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Output'
+        deadline_iso:
+          type: string
+          format: date-time
+        payer_hints:
+          $ref: '#/components/schemas/PayerHints'
+        fee_caps:
+          $ref: '#/components/schemas/FeeCaps'
+    JobStatus:
+      type: string
+      enum: [queued, running, done, failed]
+    JobResponse:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+    JobArtifacts:
+      type: object
+      description: Proving/build artifacts. proof_hex_260 is 260 bytes (520 hex chars). public_bin_hex_104 is 208 hex chars.
+      properties:
+        proof_hex_260:
+          type: string
+          pattern: '^[0-9a-fA-F]{520}$'
+        public_bin_hex_104:
+          $ref: '#/components/schemas/PublicInputs104'
+        tx_bytes_base64:
+          $ref: '#/components/schemas/Base64'
+    JobStatusResponse:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        artifacts:
+          $ref: '#/components/schemas/JobArtifacts'
+        error:
+          type: string
+    SubmitRequest:
+      type: object
+      required: [tx_bytes_base64]
+      properties:
+        tx_bytes_base64:
+          $ref: '#/components/schemas/Base64'
+    SubmitResponse:
+      type: object
+      required: [signature]
+      properties:
+        signature:
+          type: string
+          description: Solana transaction signature (base58)
+        slot:
+          type: integer
+          minimum: 0
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+x-oas-dialect: https://spec.openapis.org/oas/3.1/dialect/base
+

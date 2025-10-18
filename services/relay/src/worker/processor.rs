@@ -1,11 +1,13 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
+use blake3::Hasher;
+use bs58;
 
 use crate::db::models::JobStatus;
 use crate::db::repository::{JobRepository, NullifierRepository};
-use crate::error::Error;
 use crate::queue::JobMessage;
 use crate::AppState;
+use crate::error::Error;
 
 /// Process a single job from the queue
 pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(), Error> {
@@ -59,6 +61,62 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
     info!("📝 Job {} status updated to processing", job_id);
 
     // Process the withdraw transaction
+    // If proof is missing, requeue with backoff without counting as a failure.
+    if job.proof_bytes.is_empty() {
+        warn!("Job {} missing proof bytes; requeueing for later processing", job_id);
+        let retry_delay = Duration::from_secs(60);
+        if let Err(e) = state
+            .queue
+            .requeue_with_delay(job_message.clone(), retry_delay)
+            .await
+        {
+            error!("Failed to requeue job {}: {}", job_id, e);
+        }
+        let _ = state
+            .job_repo
+            .update_job_status(job_id, JobStatus::Queued)
+            .await;
+        return Ok(());
+    }
+
+    // Optional preflights when public_inputs are canonical 104B
+    if job.public_inputs.len() == 104 {
+        if let Some(arr) = job.outputs_json.as_array() {
+            if arr.len() == 1 {
+                if let (Some(recipient), Some(amount)) = (
+                    arr[0].get("recipient").and_then(|v| v.as_str()),
+                    arr[0].get("amount").and_then(|v| v.as_u64()),
+                ) {
+                    // outputs_hash preflight
+                    if let Ok(addr_bytes) = bs58::decode(recipient).into_vec() {
+                        if addr_bytes.len() == 32 {
+                            let mut hasher = Hasher::new();
+                            hasher.update(&addr_bytes);
+                            hasher.update(&amount.to_le_bytes());
+                            let calc = hasher.finalize();
+                            if calc.as_bytes() != job.outputs_hash.as_slice() {
+                                warn!("Job {} outputs_hash != recomputed; continuing but this will fail on-chain", job_id);
+                            }
+                        }
+                    }
+
+                    // conservation preflight
+                    let amt = u64::from_le_bytes(job.public_inputs[96..104].try_into().unwrap());
+                    let fee = crate::planner::calculate_fee(amt);
+                    if amount + fee != amt {
+                        warn!("Job {} conservation failed preflight; continuing but likely to fail on-chain", job_id);
+                    }
+                }
+            }
+        }
+    }
+
+    // Jitter submission slightly to reduce linkability
+    let delay = crate::planner::jitter_delay(Instant::now());
+    if delay > Duration::from_millis(0) {
+        tokio::time::sleep(delay).await;
+    }
+
     match process_withdraw(&job, &state).await {
         Ok(signature) => {
             info!("✅ Job {} completed successfully", job_id);
@@ -154,36 +212,11 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
 }
 
 /// Process a withdraw transaction (placeholder - needs actual Solana integration)
-async fn process_withdraw(
-    job: &crate::db::models::Job,
-    _state: &AppState,
-) -> Result<String, Error> {
-    info!("🔐 Building withdraw transaction for job {}", job.id);
-
-    // TODO: Implement actual Solana transaction building and submission
-    // For now, this is a placeholder that simulates success
-
-    info!("📦 Processing withdraw transaction");
-    info!("   Nullifier: {}", hex::encode(&job.nullifier));
-    info!("   Root hash: {}", hex::encode(&job.root_hash));
-    info!("   Amount: {}", job.amount);
-    info!("   Outputs: {}", job.outputs_json);
-
-    // Simulate transaction submission
-    // TODO: Replace with actual Solana client calls:
-    // 1. Build transaction with withdraw instruction
-    // 2. Sign with relay keypair
-    // 3. Submit to Solana
-    // 4. Wait for confirmation
-    // 5. Return signature
-
-    // For now, return a mock signature
-    let mock_signature = format!("{}_{}", job.id, chrono::Utc::now().timestamp());
-
-    info!("✅ Transaction submitted successfully");
-    info!("   Signature: {}", mock_signature);
-
-    Ok(mock_signature)
+async fn process_withdraw(job: &crate::db::models::Job, state: &AppState) -> Result<String, Error> {
+    info!("🔐 Building & submitting withdraw transaction for job {}", job.id);
+    let sig = state.solana.submit_withdraw(job).await?;
+    info!("✅ Transaction submitted: {}", sig);
+    Ok(sig.to_string())
 }
 
 #[cfg(test)]

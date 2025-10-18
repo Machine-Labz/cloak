@@ -20,6 +20,7 @@ pub trait JobRepository: Send + Sync {
         signature: String,
     ) -> Result<(), Error>;
     async fn update_job_failed(&self, id: Uuid, error: String) -> Result<(), Error>;
+    async fn update_job_proof(&self, id: Uuid, proof_bytes: Vec<u8>, public_inputs: Vec<u8>) -> Result<(), Error>;
     async fn increment_retry_count(&self, id: Uuid) -> Result<(), Error>;
     async fn get_queued_jobs(&self, limit: i64) -> Result<Vec<Job>, Error>;
     async fn get_jobs_by_status(&self, status: JobStatus) -> Result<Vec<JobSummary>, Error>;
@@ -157,6 +158,19 @@ impl JobRepository for PostgresJobRepository {
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to update job failed: {}", e)))?;
 
+        Ok(())
+    }
+
+    async fn update_job_proof(&self, id: Uuid, proof_bytes: Vec<u8>, public_inputs: Vec<u8>) -> Result<(), Error> {
+        sqlx::query(
+            "UPDATE jobs SET proof_bytes = $1, public_inputs = $2, updated_at = NOW() WHERE id = $3",
+        )
+        .bind(proof_bytes)
+        .bind(public_inputs)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::DatabaseError(format!("Failed to update job proof: {}", e)))?;
         Ok(())
     }
 

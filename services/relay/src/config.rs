@@ -23,6 +23,9 @@ pub struct SolanaConfig {
     pub commitment: String,
     pub program_id: String,
     pub withdraw_authority: Option<String>,
+    pub withdraw_keypair_path: Option<String>,
+    pub priority_micro_lamports: u64,
+    pub jito_tip_lamports: u64,
     pub max_retries: u8,
     pub retry_delay_ms: u64,
 }
@@ -61,6 +64,8 @@ impl Config {
             .set_default("solana.ws_url", "ws://localhost:8900")?
             .set_default("solana.commitment", "confirmed")?
             .set_default("solana.program_id", "11111111111111111111111111111111")?  // Default to system program ID
+            .set_default("solana.priority_micro_lamports", 1000u64)?
+            .set_default("solana.jito_tip_lamports", 1000u64)?  // 0.000001 SOL minimum tip
             .set_default("solana.max_retries", 3)?
             .set_default("solana.retry_delay_ms", 1000)?
             

@@ -3,6 +3,7 @@ members = [
     "packages/zk-guest-sp1",
     "packages/zk-guest-sp1/guest",
     "packages/zk-guest-sp1/host",
+    "packages/cloak-proof-extract",
     "programs/shield-pool",
     "programs/shield-pool-upstream",
     "services/indexer",

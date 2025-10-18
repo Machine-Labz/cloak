@@ -1,14 +1,16 @@
 pub mod client;
 pub mod transaction_builder;
+pub mod submit;
 
 use async_trait::async_trait;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::{CommitmentConfig, CommitmentLevel},
+    commitment_config::CommitmentConfig,
     pubkey::Pubkey,
-    signature::{Keypair, Signature},
+    signature::{read_keypair_file, Keypair, Signature, Signer},
     transaction::Transaction,
 };
+#[cfg(feature = "jito")]
+use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -16,7 +18,7 @@ use tracing::{debug, error, info, warn};
 use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
-use crate::queue::processor::TransactionResult;
+// Removed external TransactionResult dependency; we return Signature to callers.
 
 #[async_trait]
 pub trait SolanaClient: Send + Sync {
@@ -30,24 +32,39 @@ pub struct SolanaService {
     client: Box<dyn SolanaClient>,
     program_id: Pubkey,
     config: SolanaConfig,
+    fee_payer: Option<Keypair>,
 }
 
 impl SolanaService {
     pub async fn new(config: SolanaConfig) -> Result<Self, Error> {
         let program_id = Pubkey::from_str(&config.program_id)
-            .map_err(|e| Error::ConfigError(format!("Invalid program ID: {}", e)))?;
+            .map_err(|e| Error::ValidationError(format!("Invalid program ID: {}", e)))?;
 
         let client = Box::new(client::RpcSolanaClient::new(&config).await?);
+
+        // Optionally load fee payer keypair
+        let fee_payer = if let Some(ref path) = config.withdraw_keypair_path {
+            match read_keypair_file(path) {
+                Ok(kp) => Some(kp),
+                Err(e) => {
+                    warn!("Failed to read withdraw keypair from {}: {}", path, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         Ok(Self {
             client,
             program_id,
             config,
+            fee_payer,
         })
     }
 
     /// Submit a withdraw transaction to Solana
-    pub async fn submit_withdraw(&self, job: &Job) -> Result<TransactionResult, Error> {
+    pub async fn submit_withdraw(&self, job: &Job) -> Result<Signature, Error> {
         info!("Submitting withdraw transaction for job: {}", job.request_id);
 
         // 1. Parse outputs from JSON
@@ -57,19 +74,10 @@ impl SolanaService {
         let transaction = self.build_withdraw_transaction(job, &outputs).await?;
 
         // 3. Submit and confirm transaction
-        let signature = self.submit_and_confirm(&transaction).await?;
-
-        // 4. Get block height for the transaction
-        let block_height = self.client.get_block_height().await.ok();
-
-        let result = TransactionResult {
-            transaction_id: signature.to_string(),
-            signature: signature.to_string(),
-            block_height,
-        };
+        let signature = self.submit_and_confirm(&transaction, job, &outputs).await?;
 
         info!("Withdraw transaction confirmed: {}", signature);
-        Ok(result)
+        Ok(signature)
     }
 
     /// Health check for Solana connection
@@ -112,33 +120,173 @@ impl SolanaService {
         Ok(outputs)
     }
 
-    /// Build withdraw transaction
+    /// Build withdraw transaction using canonical 437-byte layout and PDAs
     async fn build_withdraw_transaction(&self, job: &Job, outputs: &[Output]) -> Result<Transaction, Error> {
-        // This will be implemented based on the actual shield-pool program interface
-        // For now, we'll create a placeholder that shows the structure
-
         let recent_blockhash = self.client.get_latest_blockhash().await?;
-        
-        // TODO: Replace with actual shield-pool program instruction building
-        let transaction = transaction_builder::build_withdraw_instruction(
-            &self.program_id,
-            &job.proof_bytes,
-            &job.public_inputs,
-            outputs,
+
+        // Enforce MVP single output
+        if outputs.len() != 1 {
+            return Err(Error::ValidationError("exactly 1 output required in MVP".into()));
+        }
+        let recipient_pubkey = outputs[0].to_pubkey()?;
+        let recipient_amount = outputs[0].amount;
+        let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
+
+        // Extract proof fragment (260) and validate public inputs (104)
+        let groth16_260 = cloak_proof_extract::extract_groth16_260(&job.proof_bytes)
+            .map_err(|_| Error::ValidationError("failed to extract 260-byte proof".into()))?;
+        if job.public_inputs.len() != 104 {
+            return Err(Error::ValidationError("public inputs must be 104 bytes".into()));
+        }
+        let mut public_104 = [0u8; 104];
+        public_104.copy_from_slice(&job.public_inputs);
+
+        // Derive Shield Pool PDAs
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+
+        // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
+        let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
+            kp.pubkey()
+        } else if let Some(ref auth) = self.config.withdraw_authority {
+            Pubkey::from_str(auth).map_err(|e| Error::ValidationError(format!(
+                "Invalid withdraw authority pubkey: {}", e
+            )))?
+        } else {
+            recipient_pubkey
+        };
+
+        // Priority fee (micro-lamports per CU) from config
+        let priority_micro_lamports: u64 = self.config.priority_micro_lamports;
+
+        let tx = transaction_builder::build_withdraw_transaction(
+            groth16_260,
+            public_104,
+            recipient_addr_32,
+            recipient_amount,
+            self.program_id,
+            pool_pda,
+            roots_ring_pda,
+            nullifier_shard_pda,
+            treasury_pda,
+            recipient_pubkey,
+            fee_payer_pubkey,
             recent_blockhash,
+            priority_micro_lamports,
         )?;
 
         debug!("Built withdraw transaction for job: {}", job.request_id);
-        Ok(transaction)
+        Ok(tx)
     }
 
-    /// Submit transaction with retry logic
-    async fn submit_and_confirm(&self, transaction: &Transaction) -> Result<Signature, Error> {
+    /// Submit transaction with retry logic.
+    /// When Jito is enabled, rebuilds the transaction with a tip instruction.
+    async fn submit_and_confirm(&self, transaction: &Transaction, job: &Job, outputs: &[Output]) -> Result<Signature, Error> {
+        // Suppress warnings when jito feature is not enabled
+        #[cfg(not(feature = "jito"))]
+        let _ = (job, outputs);
         let mut retries = 0;
         let max_retries = self.config.max_retries;
 
+        // Choose submit path: Jito (feature + env) or RPC
+        let use_jito = std::env::var("RELAY_JITO_ENABLED").unwrap_or_else(|_| "false".into()) == "true";
+
+        if use_jito {
+            #[cfg(feature = "jito")]
+            {
+                // Use RELAY_JITO_URL (or fallback to RELAY_SOLANA__RPC_URL)
+                let jito_url = std::env::var("RELAY_JITO_URL")
+                    .or_else(|_| std::env::var("RELAY_SOLANA__RPC_URL"))
+                    .unwrap_or_else(|_| "http://localhost:8899".into());
+
+                let mut jito = crate::solana::submit::JitoSubmit::new(&jito_url)
+                    .map_err(|e| Error::InternalServerError(e.to_string()))?;
+
+                // Fetch a random Jito tip account
+                let tip_account = jito.fetch_tip_account()
+                    .map_err(|e| Error::InternalServerError(format!("fetch tip account failed: {}", e)))?;
+
+                // Rebuild transaction with tip instruction
+                let recent_blockhash = self.client.get_latest_blockhash().await?;
+                let recipient_pubkey = outputs[0].to_pubkey()?;
+                let recipient_amount = outputs[0].amount;
+                let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
+
+                let groth16_260 = cloak_proof_extract::extract_groth16_260(&job.proof_bytes)
+                    .map_err(|_| Error::ValidationError("failed to extract 260-byte proof".into()))?;
+                let mut public_104 = [0u8; 104];
+                public_104.copy_from_slice(&job.public_inputs);
+
+                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id);
+
+                let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
+                    kp.pubkey()
+                } else if let Some(ref auth) = self.config.withdraw_authority {
+                    Pubkey::from_str(auth).map_err(|e| Error::ValidationError(format!("Invalid withdraw authority pubkey: {}", e)))?
+                } else {
+                    recipient_pubkey
+                };
+
+                let mut vtx = transaction_builder::build_withdraw_versioned_with_tip(
+                    groth16_260,
+                    public_104,
+                    recipient_addr_32,
+                    recipient_amount,
+                    self.program_id,
+                    pool_pda,
+                    roots_ring_pda,
+                    nullifier_shard_pda,
+                    treasury_pda,
+                    recipient_pubkey,
+                    fee_payer_pubkey,
+                    recent_blockhash,
+                    self.config.priority_micro_lamports,
+                    tip_account,
+                    self.config.jito_tip_lamports,
+                )?;
+
+                // Sign with fee payer
+                if let Some(ref kp) = self.fee_payer {
+                    vtx.sign(&[kp], recent_blockhash);
+                }
+
+                // Submit via Jito with retries
+                while retries < max_retries {
+                    match jito.send(vtx.clone()) {
+                        Ok(signature) => {
+                            debug!("Jito bundle submitted: {} (attempt {})", signature, retries + 1);
+                            return Ok(signature);
+                        }
+                        Err(e) => {
+                            retries += 1;
+                            if retries >= max_retries {
+                                error!("Jito submit failed after {} attempts: {}", max_retries, e);
+                                return Err(Error::InternalServerError(e.to_string()));
+                            }
+                            let delay = Duration::from_millis(self.config.retry_delay_ms * retries as u64);
+                            warn!("Jito attempt {} failed, retrying in {:?}: {}", retries, delay, e);
+                            tokio::time::sleep(delay).await;
+                        }
+                    }
+                }
+                return Err(Error::InternalServerError("Jito max retries exceeded".into()));
+            }
+            #[cfg(not(feature = "jito"))]
+            {
+                warn!("RELAY_JITO_ENABLED=true but crate not compiled with 'jito' feature; using RPC path");
+            }
+        }
+
+        // RPC path: sign and submit the provided transaction
+        let mut tx = transaction.clone();
+        if let Some(ref kp) = self.fee_payer {
+            let recent = tx.message.recent_blockhash;
+            tx.sign(&[kp], recent);
+        }
+
         while retries < max_retries {
-            match self.client.send_and_confirm_transaction(transaction).await {
+            match self.client.send_and_confirm_transaction(&tx).await {
                 Ok(signature) => {
                     debug!("Transaction confirmed: {} (attempt {})", signature, retries + 1);
                     return Ok(signature);
@@ -149,7 +297,6 @@ impl SolanaService {
                         error!("Transaction failed after {} attempts: {}", max_retries, e);
                         return Err(e);
                     }
-                    
                     let delay = Duration::from_millis(self.config.retry_delay_ms * retries as u64);
                     warn!("Transaction attempt {} failed, retrying in {:?}: {}", retries, delay, e);
                     tokio::time::sleep(delay).await;
