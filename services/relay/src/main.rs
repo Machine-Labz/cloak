@@ -2,10 +2,12 @@ mod api;
 mod config;
 mod db;
 mod error;
-mod queue;
-mod worker;
-mod solana;
+mod miner;
 mod planner;
+mod queue;
+mod solana;
+mod worker;
+
 use planner::orchestrator;
 
 use axum::{

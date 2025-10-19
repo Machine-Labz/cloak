@@ -8,8 +8,9 @@ use pinocchio::{account_info::AccountInfo, ProgramResult};
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipient, system]
-    let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program] =
+    // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipient, system,
+    //                              scramble_program, claim_pda, miner_pda, registry_pda, clock]
+    let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, ..] =
         accounts
     else {
         return Err(ShieldPoolError::MissingAccounts.into());
@@ -36,8 +37,9 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
     // 396: number of outputs (1 byte)
     // 397 to 428: recipient address (32 bytes)
     // 429 to 436: recipient amount (8 bytes)
-    // Total length: 437
-    if data.len() < 437 {
+    // 437 to 468: batch_hash (32 bytes) - NEW for PoW
+    // Total length: 469
+    if data.len() < 469 {
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
 
@@ -112,6 +114,41 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
 
         (public_amount, recipient_amount, total_fee)
     };
+
+    // PoW: Call consume_claim CPI before transfers
+    // TODO: Uncomment and test when scramble-registry is deployed
+    /*
+    unsafe {
+        // Extract batch_hash from instruction data (bytes 437-468)
+        let batch_hash: &[u8; 32] = &*(data.as_ptr().add(437) as *const [u8; 32]);
+
+        // Extract miner authority from miner PDA account data
+        // Miner PDA layout: discriminator(8) + authority(32) + ...
+        let miner_data = miner_pda_info.try_borrow_data()?;
+        if miner_data.len() < 40 {
+            return Err(ShieldPoolError::InvalidMinerAccount.into());
+        }
+        let miner_authority: &[u8; 32] = &*(miner_data.as_ptr().add(8) as *const [u8; 32]);
+
+        // Build consume_claim instruction data
+        // Layout: discriminator(1) + miner_authority(32) + batch_hash(32) = 65 bytes
+        let mut consume_ix_data = [0u8; 65];
+        consume_ix_data[0] = 4; // consume_claim discriminator
+        consume_ix_data[1..33].copy_from_slice(miner_authority);
+        consume_ix_data[33..65].copy_from_slice(batch_hash);
+
+        // CPI to scramble-registry::consume_claim
+        // Accounts: [claim_pda(W), miner_pda(W), registry_pda(W), pool_pda(S), clock]
+        // This will:
+        // 1. Verify claim is revealed and not expired
+        // 2. Verify miner_authority and batch_hash match (anti-replay)
+        // 3. Increment consumed_count
+        // 4. Mark as Consumed if fully used
+
+        // TODO: Use correct Pinocchio CPI syntax
+        // pinocchio::program::invoke(...)?;
+    }
+    */
 
     // Perform lamport transfers
     unsafe {

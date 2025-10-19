@@ -48,6 +48,11 @@ pub enum ShieldPoolError {
     MissingAccounts = 0x1062,
     InvalidTag = 0x1063,
 
+    // PoW/Scrambler errors
+    InvalidMinerAccount = 0x1064,
+    InvalidClaimAccount = 0x1065,
+    ConsumClaimFailed = 0x1066,
+
     // Groth16 verifier errors
     InvalidG1Length = 0x1070,
     InvalidG2Length = 0x1071,

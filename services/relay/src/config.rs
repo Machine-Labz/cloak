@@ -7,6 +7,7 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub redis: RedisConfig,
     pub metrics: MetricsConfig,
+    pub miner: MinerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -50,6 +51,18 @@ pub struct MetricsConfig {
     pub route: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct MinerConfig {
+    /// Scramble registry program ID
+    pub scramble_registry_program_id: String,
+    /// Miner keypair path for PoW mining
+    pub miner_keypair_path: String,
+    /// Mining timeout in seconds (default: 30)
+    pub mining_timeout_seconds: u64,
+    /// Enable PoW mining (default: true)
+    pub enabled: bool,
+}
+
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         // Initialize configuration reader
@@ -82,7 +95,13 @@ impl Config {
             .set_default("metrics.enabled", true)?
             .set_default("metrics.port", 9090)?
             .set_default("metrics.route", "/metrics")?
-            
+
+            // Miner defaults
+            .set_default("miner.scramble_registry_program_id", "11111111111111111111111111111111")?  // Placeholder
+            .set_default("miner.miner_keypair_path", "~/.config/solana/miner.json")?
+            .set_default("miner.mining_timeout_seconds", 30)?
+            .set_default("miner.enabled", true)?
+
             // Add in settings from environment variables (with a prefix of RELAY and '__' as separator)
             // E.g. `RELAY_SERVER__PORT=5000` would set `server.port`
             .add_source(

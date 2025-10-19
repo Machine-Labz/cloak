@@ -73,13 +73,13 @@ pub async fn handle_withdraw(
         ));
     }
 
-    // Encode public inputs for storage
+    // Encode public inputs for storage (canonical 104-byte format)
+    // Format: root(32) || nf(32) || outputs_hash(32) || amount(8) = 104 bytes
     let mut public_inputs_bytes = Vec::new();
     public_inputs_bytes.extend_from_slice(&root_hash);
     public_inputs_bytes.extend_from_slice(&nullifier);
-    public_inputs_bytes.extend_from_slice(&payload.public_inputs.amount.to_le_bytes());
-    public_inputs_bytes.extend_from_slice(&payload.public_inputs.fee_bps.to_le_bytes());
     public_inputs_bytes.extend_from_slice(&outputs_hash);
+    public_inputs_bytes.extend_from_slice(&payload.public_inputs.amount.to_le_bytes());
 
     // Create job in database
     let create_job = CreateJob {

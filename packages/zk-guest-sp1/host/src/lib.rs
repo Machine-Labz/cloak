@@ -69,14 +69,15 @@ pub fn generate_proof(
 
     let (proof_result, total_cycles, total_syscalls, execution_report) = run_prover_job(job)?;
 
-    // Extract proof bytes and public inputs
-    let proof_bytes = proof_result.bytes();
+    // Serialize the full SP1ProofWithPublicValues bundle (needed by relay to extract proof)
+    // The relay will use cloak_proof_extract::extract_groth16_260 to get the 260-byte proof
+    let proof_bundle = bincode::serialize(&proof_result)?;
     let public_inputs_bytes = proof_result.public_values.to_vec();
 
     let generation_time = start_time.elapsed();
 
     Ok(ProofResult {
-        proof_bytes: proof_bytes.to_vec(),
+        proof_bytes: proof_bundle,
         public_inputs: public_inputs_bytes,
         generation_time_ms: generation_time.as_millis() as u64,
         total_cycles,
