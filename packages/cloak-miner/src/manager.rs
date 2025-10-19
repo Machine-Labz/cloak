@@ -10,9 +10,9 @@ use anyhow::{anyhow, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::Transaction,
-    pubkey::Pubkey,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -21,10 +21,7 @@ use std::time::Duration;
 use super::{
     batch::compute_single_job_hash,
     engine::MiningEngine,
-    instructions::{
-        build_mine_and_reveal_instructions, derive_claim_pda, derive_miner_pda,
-        derive_registry_pda,
-    },
+    instructions::{build_mine_and_reveal_instructions, derive_claim_pda, derive_registry_pda},
     rpc::{fetch_recent_slot_hash, fetch_registry, get_current_slot},
 };
 
@@ -61,8 +58,8 @@ impl ClaimManager {
         program_id_str: &str,
         mining_timeout_seconds: u64,
     ) -> Result<Self> {
-        let program_id = Pubkey::from_str(program_id_str)
-            .map_err(|e| anyhow!("Invalid program ID: {}", e))?;
+        let program_id =
+            Pubkey::from_str(program_id_str).map_err(|e| anyhow!("Invalid program ID: {}", e))?;
 
         Ok(Self {
             rpc_client: RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed()),
@@ -104,7 +101,10 @@ impl ClaimManager {
         }
 
         // Mine and reveal new claim
-        tracing::info!("Mining new claim for batch_hash {:x?}...", &batch_hash[0..8]);
+        tracing::info!(
+            "Mining new claim for batch_hash {:x?}...",
+            &batch_hash[0..8]
+        );
         self.mine_and_reveal(batch_hash).await
     }
 
@@ -126,7 +126,10 @@ impl ClaimManager {
         tracing::info!("Using slot {} with hash {:x?}...", slot, &slot_hash[0..8]);
 
         // 3. Run mining engine
-        tracing::info!("Starting PoW mining (timeout: {:?})...", self.mining_timeout);
+        tracing::info!(
+            "Starting PoW mining (timeout: {:?})...",
+            self.mining_timeout
+        );
         let engine = MiningEngine::new(
             registry.current_difficulty,
             slot,
@@ -205,8 +208,7 @@ impl ClaimManager {
             max_consumes,
         };
 
-        self.active_claims
-            .insert(batch_hash.to_vec(), claim_state);
+        self.active_claims.insert(batch_hash.to_vec(), claim_state);
 
         tracing::info!(
             "Claim ready: {} (expires at slot {})",

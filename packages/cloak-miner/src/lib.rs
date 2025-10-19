@@ -1,6 +1,4 @@
 //! Cloak Miner - Standalone PoW mining CLI for Cloak protocol
-//!
-//! This is an Ore-style standalone miner that:
 //! 1. Mines PoW claims continuously
 //! 2. Submits mine_claim and reveal_claim transactions
 //! 3. Manages claim lifecycle (expiry, consumption tracking)

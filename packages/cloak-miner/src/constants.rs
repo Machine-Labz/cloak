@@ -10,6 +10,7 @@ use std::str::FromStr;
 pub enum Network {
     Mainnet,
     Devnet,
+    Testnet,
     Localnet,
 }
 
@@ -19,6 +20,7 @@ impl Network {
         match s.to_lowercase().as_str() {
             "mainnet" | "mainnet-beta" => Ok(Network::Mainnet),
             "devnet" => Ok(Network::Devnet),
+            "testnet" => Ok(Network::Testnet),
             "localnet" | "localhost" => Ok(Network::Localnet),
             _ => Err(format!("Unknown network: {}", s)),
         }
@@ -29,6 +31,7 @@ impl Network {
         match self {
             Network::Mainnet => "https://api.mainnet-beta.solana.com",
             Network::Devnet => "https://api.devnet.solana.com",
+            Network::Testnet => "https://api.testnet.solana.com",
             Network::Localnet => "http://localhost:8899",
         }
     }
@@ -46,6 +49,8 @@ impl Network {
                 Pubkey::from_str(DEVNET_SCRAMBLE_PROGRAM_ID)
                     .map_err(|e| format!("Invalid devnet program ID: {}", e))
             }
+            Network::Testnet => Pubkey::from_str(TESTNET_SCRAMBLE_PROGRAM_ID)
+                .map_err(|e| format!("Invalid testnet program ID: {}", e)),
             Network::Localnet => {
                 // Use hardcoded localnet program ID (can override with env var)
                 let program_id_str = std::env::var("SCRAMBLE_PROGRAM_ID")
@@ -68,8 +73,11 @@ const MAINNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 /// TODO: Replace with actual program ID after devnet deployment
 const DEVNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 
+/// Testnet scramble registry program ID
+const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "9yoeUduVanEN5RGp144Czfa5GXNiLdGmDMAboM4vfqsm";
+
 /// Localnet scramble registry program ID (from build-sbf)
-const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "AWNvgBjSBpEPQRTWk63CwHAfiAqMkW5DSQ3Py8sz7C3g";
+const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6";
 
 #[cfg(test)]
 mod tests {
@@ -80,6 +88,7 @@ mod tests {
         assert_eq!(Network::from_str("mainnet").unwrap(), Network::Mainnet);
         assert_eq!(Network::from_str("mainnet-beta").unwrap(), Network::Mainnet);
         assert_eq!(Network::from_str("devnet").unwrap(), Network::Devnet);
+        assert_eq!(Network::from_str("testnet").unwrap(), Network::Testnet);
         assert_eq!(Network::from_str("localnet").unwrap(), Network::Localnet);
         assert_eq!(Network::from_str("localhost").unwrap(), Network::Localnet);
 
@@ -97,9 +106,10 @@ mod tests {
             "https://api.devnet.solana.com"
         );
         assert_eq!(
-            Network::Localnet.default_rpc_url(),
-            "http://localhost:8899"
+            Network::Testnet.default_rpc_url(),
+            "https://api.testnet.solana.com"
         );
+        assert_eq!(Network::Localnet.default_rpc_url(), "http://localhost:8899");
     }
 
     #[test]
@@ -107,12 +117,7 @@ mod tests {
         // Should parse without error
         assert!(Network::Mainnet.scramble_program_id().is_ok());
         assert!(Network::Devnet.scramble_program_id().is_ok());
-
-        // Localnet requires env var
-        if std::env::var("SCRAMBLE_PROGRAM_ID").is_ok() {
-            assert!(Network::Localnet.scramble_program_id().is_ok());
-        } else {
-            assert!(Network::Localnet.scramble_program_id().is_err());
-        }
+        assert!(Network::Testnet.scramble_program_id().is_ok());
+        assert!(Network::Localnet.scramble_program_id().is_ok());
     }
 }

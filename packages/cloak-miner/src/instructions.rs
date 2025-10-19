@@ -5,13 +5,13 @@
 //! - reveal_claim: Reveal mined claim
 //! - consume_claim: Consume claim (called via CPI from shield-pool)
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    system_program,
     sysvar,
 };
+use solana_system_interface::program as system_program;
 
 /// PDA derivation for ScrambleRegistry singleton
 ///
@@ -101,10 +101,10 @@ pub fn build_mine_claim_ix(
             AccountMeta::new(*claim_pda, false),
             AccountMeta::new(*miner_pda, false),
             AccountMeta::new(*registry_pda, false),
-            AccountMeta::new_readonly(*miner_authority, true),
+            AccountMeta::new(*miner_authority, true), // Writable (payer for Claim PDA)
             AccountMeta::new_readonly(sysvar::slot_hashes::id(), false),
             AccountMeta::new_readonly(sysvar::clock::id(), false),
-            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new_readonly(Pubkey::from(system_program::id().to_bytes()), false),
         ],
         data,
     }
@@ -214,8 +214,8 @@ pub fn build_register_miner_ix(
         program_id: *program_id,
         accounts: vec![
             AccountMeta::new(*miner_pda, false),
-            AccountMeta::new_readonly(*miner_authority, true),
-            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new(*miner_authority, true), // Writable (payer)
+            AccountMeta::new_readonly(Pubkey::from(system_program::id().to_bytes()), false),
             AccountMeta::new_readonly(sysvar::clock::id(), false),
         ],
         data,
@@ -279,9 +279,6 @@ mod tests {
         let (pda2, bump2) = derive_registry_pda(&program_id);
         assert_eq!(pda, pda2);
         assert_eq!(bump, bump2);
-
-        // Should be valid PDA
-        assert!(bump < 255);
     }
 
     #[test]

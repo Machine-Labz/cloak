@@ -1,7 +1,11 @@
-//! Initialize scramble registry on localnet
+//! Initialize scramble registry
 //!
 //! Run with:
-//!   cargo run --package cloak-miner --example init_registry
+//!   cargo run --package cloak-miner --example init_registry -- [network]
+//!
+//! Examples:
+//!   cargo run --package cloak-miner --example init_registry -- testnet
+//!   cargo run --package cloak-miner --example init_registry -- localnet
 
 use anyhow::Result;
 use cloak_miner::{constants::Network, derive_registry_pda};
@@ -9,21 +13,23 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signer},
-    system_instruction,
+    signature::{read_keypair_file, Signer},
     transaction::Transaction,
 };
-
-const REGISTRY_SIZE: usize = 196; // Size from state/registry.rs
 
 fn main() -> Result<()> {
     println!("=== Initialize Scramble Registry ===\n");
 
+    // Parse network from command line args (default to localnet)
+    let network_str = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "localnet".to_string());
+    let network = Network::from_str(&network_str).map_err(|e| anyhow::anyhow!("{}", e))?;
+
     // Get network config
-    let network = Network::Localnet;
     let rpc_url = network.default_rpc_url();
-    let program_id = network.scramble_program_id()
+    let program_id = network
+        .scramble_program_id()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     println!("Network: {:?}", network);
@@ -31,10 +37,9 @@ fn main() -> Result<()> {
     println!("Program ID: {}", program_id);
 
     // Load admin keypair (your default Solana keypair)
-    let admin_keypair = read_keypair_file(
-        shellexpand::tilde("~/.config/solana/id.json").to_string(),
-    )
-    .map_err(|e| anyhow::anyhow!("Failed to load admin keypair: {}", e))?;
+    let admin_keypair =
+        read_keypair_file(shellexpand::tilde("~/.config/solana/id.json").to_string())
+            .map_err(|e| anyhow::anyhow!("Failed to load admin keypair: {}", e))?;
 
     println!("Admin: {}", admin_keypair.pubkey());
 
@@ -49,9 +54,7 @@ fn main() -> Result<()> {
     // Check if registry already exists
     if let Ok(account) = client.get_account(&registry_pda) {
         if account.data.len() > 0 {
-            println!("\n✓ Registry already initialized!");
-            println!("   Registry PDA: {}", registry_pda);
-            return Ok(());
+            println!("\nRegistry account exists, will reinitialize...");
         }
     }
 
@@ -61,21 +64,24 @@ fn main() -> Result<()> {
     let mut init_data = Vec::new();
     init_data.push(0u8); // Discriminator for initialize_registry
 
-    // Initial difficulty (easy for testing: require first byte < 0x80)
+    // Initial difficulty (VERY easy for testing)
+    // In little-endian, we want a large number, so set high bytes
+    // Setting first byte to 0x80 means hash must be < 0x80 (very hard!)
+    // Instead, set most significant byte to allow most hashes
     let initial_difficulty = {
-        let mut diff = [0x00u8; 32];
-        diff[0] = 0x80; // ~50% success rate
+        let mut diff = [0xFFu8; 32];
+        diff[31] = 0x0F; // Top nibble must be < 0x10 (93.75% success rate)
         diff
     };
     init_data.extend_from_slice(&initial_difficulty);
 
-    // Min difficulty (very easy)
+    // Min difficulty (easiest - accept all hashes)
     let min_difficulty = [0xFFu8; 32];
     init_data.extend_from_slice(&min_difficulty);
 
-    // Max difficulty (very hard)
+    // Max difficulty (hardest - very few hashes)
     let mut max_difficulty = [0x00u8; 32];
-    max_difficulty[0] = 0x01;
+    max_difficulty[31] = 0x01; // Only top bit can be 0
     init_data.extend_from_slice(&max_difficulty);
 
     // Target interval slots

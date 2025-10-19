@@ -92,14 +92,16 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Parse network
-    let network = Network::from_str(&cli.network)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let network = Network::from_str(&cli.network).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Get RPC URL (use explicit or network default)
-    let rpc_url = cli.rpc_url.unwrap_or_else(|| network.default_rpc_url().to_string());
+    let rpc_url = cli
+        .rpc_url
+        .unwrap_or_else(|| network.default_rpc_url().to_string());
 
     // Get program ID for network
-    let program_id = network.scramble_program_id()
+    let program_id = network
+        .scramble_program_id()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Load keypair
@@ -133,7 +135,11 @@ async fn main() -> Result<()> {
 }
 
 /// Register miner (one-time setup)
-async fn register_miner(rpc_url: &str, program_id: &solana_sdk::pubkey::Pubkey, keypair: Keypair) -> Result<()> {
+async fn register_miner(
+    rpc_url: &str,
+    program_id: &solana_sdk::pubkey::Pubkey,
+    keypair: Keypair,
+) -> Result<()> {
     info!("Registering miner...");
 
     let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
@@ -170,7 +176,7 @@ async fn register_miner(rpc_url: &str, program_id: &solana_sdk::pubkey::Pubkey, 
     Ok(())
 }
 
-/// Mine claims continuously (Ore-style)
+/// Mine claims continuously
 async fn mine_continuously(
     rpc_url: &str,
     program_id: &solana_sdk::pubkey::Pubkey,
@@ -210,7 +216,10 @@ async fn mine_continuously(
 
     match fetch_registry(&client, &registry_pda) {
         Ok(registry) => {
-            info!("Current difficulty: {:x?}...", &registry.current_difficulty[0..4]);
+            info!(
+                "Current difficulty: {:x?}...",
+                &registry.current_difficulty[0..4]
+            );
             info!("Reveal window: {} slots", registry.reveal_window);
             info!("Claim window: {} slots", registry.claim_window);
         }
@@ -253,7 +262,11 @@ async fn mine_continuously(
 }
 
 /// Check miner status
-async fn check_status(rpc_url: &str, program_id: &solana_sdk::pubkey::Pubkey, keypair: Keypair) -> Result<()> {
+async fn check_status(
+    rpc_url: &str,
+    program_id: &solana_sdk::pubkey::Pubkey,
+    keypair: Keypair,
+) -> Result<()> {
     info!("Checking miner status...");
 
     let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());

@@ -20,7 +20,7 @@ use blake3::Hasher;
 ///
 /// # Example
 /// ```
-/// use relay::miner::compute_batch_hash;
+/// use cloak_miner::batch::compute_batch_hash;
 ///
 /// let job_ids = vec!["job-001".to_string(), "job-002".to_string()];
 /// let batch_hash = compute_batch_hash(&job_ids);
@@ -149,9 +149,7 @@ mod tests {
     #[test]
     fn test_large_batch() {
         // Test with max_k sized batch (e.g., 100 jobs)
-        let job_ids: Vec<String> = (0..100)
-            .map(|i| format!("job-{:04}", i))
-            .collect();
+        let job_ids: Vec<String> = (0..100).map(|i| format!("job-{:04}", i)).collect();
 
         let hash = compute_batch_hash(&job_ids);
         assert_eq!(hash.len(), 32);

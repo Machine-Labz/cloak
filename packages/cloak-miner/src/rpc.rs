@@ -7,10 +7,7 @@
 
 use anyhow::{anyhow, Result};
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::{
-    pubkey::Pubkey,
-    sysvar,
-};
+use solana_sdk::{pubkey::Pubkey, sysvar};
 
 /// ScrambleRegistry state (matches on-chain struct)
 #[derive(Debug, Clone)]
@@ -33,10 +30,7 @@ pub struct RegistryState {
 /// Fetch ScrambleRegistry account and deserialize
 ///
 /// Returns the registry state including current difficulty and windows.
-pub fn fetch_registry(
-    client: &RpcClient,
-    registry_pubkey: &Pubkey,
-) -> Result<RegistryState> {
+pub fn fetch_registry(client: &RpcClient, registry_pubkey: &Pubkey) -> Result<RegistryState> {
     let account = client
         .get_account(registry_pubkey)
         .map_err(|e| anyhow!("Failed to fetch registry account: {}", e))?;
