@@ -12,7 +12,9 @@ pub enum Error {
 
 impl Error {
     #[inline]
-    fn invalid() -> Self { Error::InvalidFormat }
+    fn invalid() -> Self {
+        Error::InvalidFormat
+    }
 }
 
 #[cfg(feature = "std")]
@@ -99,7 +101,12 @@ pub fn parse_public_inputs_104(bytes: &[u8]) -> Result<PublicInputs, Error> {
     let outputs_hash: [u8; 32] = bytes[64..96].try_into().map_err(|_| Error::invalid())?;
     let amount = u64::from_le_bytes(bytes[96..104].try_into().map_err(|_| Error::invalid())?);
 
-    Ok(PublicInputs { root, nf, outputs_hash, amount })
+    Ok(PublicInputs {
+        root,
+        nf,
+        outputs_hash,
+        amount,
+    })
 }
 
 /// Optional SP1-backed helpers (requires feature = "sp1")
@@ -143,7 +150,9 @@ mod sp1_helpers {
 }
 
 #[cfg(feature = "sp1")]
-pub use sp1_helpers::{extract_groth16_260_sp1, extract_public_inputs_104_sp1, parse_public_inputs_104_sp1};
+pub use sp1_helpers::{
+    extract_groth16_260_sp1, extract_public_inputs_104_sp1, parse_public_inputs_104_sp1,
+};
 
 // serde helpers for hex feature
 #[cfg(feature = "hex")]
@@ -182,7 +191,9 @@ mod tests {
     fn locate(path_candidates: &[&str]) -> Option<PathBuf> {
         for p in path_candidates {
             let pb = PathBuf::from(p);
-            if pb.exists() { return Some(pb); }
+            if pb.exists() {
+                return Some(pb);
+            }
         }
         None
     }
@@ -194,7 +205,8 @@ mod tests {
             "../../zk-guest-sp1/out/public.bin",
             "../../packages/zk-guest-sp1/out/public.bin",
             "../../../packages/zk-guest-sp1/out/public.bin",
-        ]).expect("public.bin not found in expected locations");
+        ])
+        .expect("public.bin not found in expected locations");
 
         let buf = fs::read(public_path).expect("read public.bin");
         assert_eq!(buf.len(), 104, "public.bin must be 104 bytes");
@@ -214,7 +226,8 @@ mod tests {
             "../../zk-guest-sp1/out/proof.bin",
             "../../packages/zk-guest-sp1/out/proof.bin",
             "../../../packages/zk-guest-sp1/out/proof.bin",
-        ]).expect("proof.bin not found in expected locations");
+        ])
+        .expect("proof.bin not found in expected locations");
 
         let bundle = fs::read(proof_path).expect("read proof.bin");
         let frag = extract_groth16_260(&bundle).expect("extract 260-byte groth16 fragment");

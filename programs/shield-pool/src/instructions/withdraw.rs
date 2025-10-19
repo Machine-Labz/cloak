@@ -4,7 +4,9 @@ use crate::constants::{
 };
 use crate::error::ShieldPoolError;
 use crate::ID;
-use pinocchio::{account_info::AccountInfo, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo, instruction::AccountMeta, program::invoke, ProgramResult,
+};
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
@@ -116,8 +118,6 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
     };
 
     // PoW: Call consume_claim CPI before transfers
-    // TODO: Uncomment and test when scramble-registry is deployed
-    /*
     unsafe {
         // Extract batch_hash from instruction data (bytes 437-468)
         let batch_hash: &[u8; 32] = &*(data.as_ptr().add(437) as *const [u8; 32]);
@@ -137,18 +137,39 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         consume_ix_data[1..33].copy_from_slice(miner_authority);
         consume_ix_data[33..65].copy_from_slice(batch_hash);
 
+        // Build consume_claim instruction
+        // Accounts: [claim_pda(W), miner_pda(W), registry_pda(W), shield_pool(S), clock]
+        let account_metas = [
+            AccountMeta::writable(claim_pda_info.key()),
+            AccountMeta::writable(miner_pda_info.key()),
+            AccountMeta::writable(registry_pda_info.key()),
+            AccountMeta::readonly_signer(pool_info.key()),
+            AccountMeta::readonly(clock_sysvar_info.key()),
+        ];
+
+        let consume_ix = pinocchio::instruction::Instruction {
+            program_id: scramble_program_info.key(),
+            accounts: &account_metas,
+            data: &consume_ix_data,
+        };
+
         // CPI to scramble-registry::consume_claim
-        // Accounts: [claim_pda(W), miner_pda(W), registry_pda(W), pool_pda(S), clock]
         // This will:
         // 1. Verify claim is revealed and not expired
         // 2. Verify miner_authority and batch_hash match (anti-replay)
         // 3. Increment consumed_count
         // 4. Mark as Consumed if fully used
-
-        // TODO: Use correct Pinocchio CPI syntax
-        // pinocchio::program::invoke(...)?;
+        invoke(
+            &consume_ix,
+            &[
+                claim_pda_info,
+                miner_pda_info,
+                registry_pda_info,
+                pool_info,
+                clock_sysvar_info,
+            ],
+        )?;
     }
-    */
 
     // Perform lamport transfers
     unsafe {
