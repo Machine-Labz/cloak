@@ -224,7 +224,7 @@ mod tests {
         let valid_request = WithdrawRequest {
             outputs: vec![Output {
                 recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000,
+                amount: 990000,
             }],
             policy: Policy { fee_bps: 100 },
             public_inputs: PublicInputs {

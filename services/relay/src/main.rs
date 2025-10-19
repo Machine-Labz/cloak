@@ -2,7 +2,6 @@ mod api;
 mod config;
 mod db;
 mod error;
-mod miner;
 mod planner;
 mod queue;
 mod solana;
@@ -20,10 +19,10 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
+use crate::config::Config as RelayConfig;
 use crate::db::repository::{PostgresJobRepository, PostgresNullifierRepository};
 use crate::queue::{redis_queue::RedisJobQueue, JobQueue, QueueConfig};
 use crate::solana::SolanaService;
-use crate::config::Config as RelayConfig;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -100,13 +99,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
         // Validator Agent API
-        .route("/jobs/withdraw", post(api::validator_agent::create_withdraw_job))
+        .route(
+            "/jobs/withdraw",
+            post(api::validator_agent::create_withdraw_job),
+        )
         .route("/jobs/:job_id", get(api::validator_agent::get_job))
         .route("/submit", post(api::validator_agent::submit_tx))
         // Orchestration endpoint (planner-driven)
-        .route("/orchestrate/withdraw", post(orchestrator::orchestrate_withdraw))
+        .route(
+            "/orchestrate/withdraw",
+            post(orchestrator::orchestrate_withdraw),
+        )
         // Local proving endpoint (temporary until full worker proving pipeline)
-        .route("/jobs/:job_id/prove-local", post(api::prove_local::prove_local))
+        .route(
+            "/jobs/:job_id/prove-local",
+            post(api::prove_local::prove_local),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(app_state.clone());

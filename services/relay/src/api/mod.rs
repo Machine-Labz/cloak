@@ -1,7 +1,7 @@
-pub mod status;
-pub mod withdraw;
-pub mod validator_agent;
 pub mod prove_local;
+pub mod status;
+pub mod validator_agent;
+pub mod withdraw;
 
 use serde::Serialize;
 use uuid::Uuid;

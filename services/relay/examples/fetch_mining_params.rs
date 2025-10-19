@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run --package relay --example fetch_mining_params
 
-use relay::miner::rpc::{fetch_registry, fetch_recent_slot_hash, get_current_slot};
+use cloak_miner::rpc::{fetch_recent_slot_hash, fetch_registry, get_current_slot};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
@@ -41,24 +41,27 @@ fn main() {
     if let Ok(registry_str) = std::env::var("SCRAMBLE_REGISTRY_PUBKEY") {
         println!("\n3. Fetching ScrambleRegistry...");
         match Pubkey::from_str(&registry_str) {
-            Ok(registry_pubkey) => {
-                match fetch_registry(&client, &registry_pubkey) {
-                    Ok(registry) => {
-                        println!("   ✓ Registry found!");
-                        println!("   Admin: {}", registry.admin);
-                        println!("   Current difficulty: {:x?}...", &registry.current_difficulty[0..4]);
-                        println!("   Reveal window: {} slots", registry.reveal_window);
-                        println!("   Claim window: {} slots", registry.claim_window);
-                        println!("   Max batch size (k): {}", registry.max_k);
-                        println!("   Fee share: {} bps ({}%)",
-                            registry.fee_share_bps,
-                            registry.fee_share_bps as f64 / 100.0);
-                        println!("   Total claims: {}", registry.total_claims);
-                        println!("   Active claims: {}", registry.active_claims);
-                    }
-                    Err(e) => println!("   Error: {}", e),
+            Ok(registry_pubkey) => match fetch_registry(&client, &registry_pubkey) {
+                Ok(registry) => {
+                    println!("   ✓ Registry found!");
+                    println!("   Admin: {}", registry.admin);
+                    println!(
+                        "   Current difficulty: {:x?}...",
+                        &registry.current_difficulty[0..4]
+                    );
+                    println!("   Reveal window: {} slots", registry.reveal_window);
+                    println!("   Claim window: {} slots", registry.claim_window);
+                    println!("   Max batch size (k): {}", registry.max_k);
+                    println!(
+                        "   Fee share: {} bps ({}%)",
+                        registry.fee_share_bps,
+                        registry.fee_share_bps as f64 / 100.0
+                    );
+                    println!("   Total claims: {}", registry.total_claims);
+                    println!("   Active claims: {}", registry.active_claims);
                 }
-            }
+                Err(e) => println!("   Error: {}", e),
+            },
             Err(e) => println!("   Invalid pubkey: {}", e),
         }
     } else {

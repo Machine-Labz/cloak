@@ -146,13 +146,16 @@ impl JitoSubmit {
         use std::str::FromStr;
 
         let tip_account_str = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                self.sdk.get_random_tip_account().await
-            })
-        }).map_err(|e| Error::InternalServerError(format!("failed to fetch Jito tip account: {}", e)))?;
+            tokio::runtime::Handle::current()
+                .block_on(async { self.sdk.get_random_tip_account().await })
+        })
+        .map_err(|e| {
+            Error::InternalServerError(format!("failed to fetch Jito tip account: {}", e))
+        })?;
 
-        let pubkey = solana_sdk::pubkey::Pubkey::from_str(&tip_account_str)
-            .map_err(|e| Error::InternalServerError(format!("invalid tip account pubkey: {}", e)))?;
+        let pubkey = solana_sdk::pubkey::Pubkey::from_str(&tip_account_str).map_err(|e| {
+            Error::InternalServerError(format!("invalid tip account pubkey: {}", e))
+        })?;
 
         self.tip_account = Some(pubkey);
         tracing::info!("Selected Jito tip account: {}", tip_account_str);
@@ -187,21 +190,19 @@ impl Submit for JitoSubmit {
         // Send bundle with retries
         for attempt in 0..=self.backoff.max_retries {
             match tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    self.sdk.send_bundle(Some(params.clone()), None).await
-                })
+                tokio::runtime::Handle::current()
+                    .block_on(async { self.sdk.send_bundle(Some(params.clone()), None).await })
             }) {
                 Ok(resp) => {
-                    let bundle_id = resp["result"]
-                        .as_str()
-                        .ok_or_else(|| Error::InternalServerError("no bundle_id in Jito response".into()))?;
+                    let bundle_id = resp["result"].as_str().ok_or_else(|| {
+                        Error::InternalServerError("no bundle_id in Jito response".into())
+                    })?;
 
                     // Return the transaction's signature (first sig in the tx)
-                    let sig = tx
-                        .signatures
-                        .get(0)
-                        .cloned()
-                        .ok_or_else(|| Error::InternalServerError("missing tx signature".into()))?;
+                    let sig =
+                        tx.signatures.get(0).cloned().ok_or_else(|| {
+                            Error::InternalServerError("missing tx signature".into())
+                        })?;
 
                     tracing::info!("Jito bundle submitted: {}", bundle_id);
                     return Ok(sig);

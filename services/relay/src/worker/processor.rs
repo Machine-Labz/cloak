@@ -1,13 +1,13 @@
-use std::time::{Duration, Instant};
-use tracing::{error, info, warn};
 use blake3::Hasher;
 use bs58;
+use std::time::{Duration, Instant};
+use tracing::{error, info, warn};
 
 use crate::db::models::JobStatus;
 use crate::db::repository::{JobRepository, NullifierRepository};
+use crate::error::Error;
 use crate::queue::JobMessage;
 use crate::AppState;
-use crate::error::Error;
 
 /// Process a single job from the queue
 pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(), Error> {
@@ -63,7 +63,10 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
     // Process the withdraw transaction
     // If proof is missing, requeue with backoff without counting as a failure.
     if job.proof_bytes.is_empty() {
-        warn!("Job {} missing proof bytes; requeueing for later processing", job_id);
+        warn!(
+            "Job {} missing proof bytes; requeueing for later processing",
+            job_id
+        );
         let retry_delay = Duration::from_secs(60);
         if let Err(e) = state
             .queue
@@ -213,7 +216,10 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
 
 /// Process a withdraw transaction (placeholder - needs actual Solana integration)
 async fn process_withdraw(job: &crate::db::models::Job, state: &AppState) -> Result<String, Error> {
-    info!("🔐 Building & submitting withdraw transaction for job {}", job.id);
+    info!(
+        "🔐 Building & submitting withdraw transaction for job {}",
+        job.id
+    );
     let sig = state.solana.submit_withdraw(job).await?;
     info!("✅ Transaction submitted: {}", sig);
     Ok(sig.to_string())

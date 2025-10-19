@@ -5,13 +5,17 @@ use uuid::Uuid;
 use blake3::Hasher;
 
 use crate::error::Error;
+use crate::{
+    db::repository::{JobRepository, NullifierRepository},
+    queue::JobMessage,
+    AppState,
+};
+use base64::Engine;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::signature::Signature;
-use solana_sdk::transaction::VersionedTransaction;
 use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::commitment_config::CommitmentLevel;
-use base64::Engine;
-use crate::{db::repository::{JobRepository, NullifierRepository}, queue::JobMessage, AppState};
+use solana_sdk::signature::Signature;
+use solana_sdk::transaction::VersionedTransaction;
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawJobRequest {
@@ -75,7 +79,11 @@ pub struct SubmitResponse {
 
 #[inline]
 fn parse_hex32(s: &str) -> Result<[u8; 32], Error> {
-    if s.len() != 64 { return Err(Error::BadRequest("address_hex32 must be 64 hex chars".into())); }
+    if s.len() != 64 {
+        return Err(Error::BadRequest(
+            "address_hex32 must be 64 hex chars".into(),
+        ));
+    }
     let bytes = hex::decode(s).map_err(|e| Error::BadRequest(format!("invalid hex: {}", e)))?;
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);
@@ -95,12 +103,16 @@ pub async fn create_withdraw_job(
 ) -> Result<impl IntoResponse, Error> {
     // Validate public inputs length and decode
     if req.public_bin_hex.len() != 208 {
-        return Err(Error::ValidationError("public_bin_hex must be 208 hex chars".into()));
+        return Err(Error::ValidationError(
+            "public_bin_hex must be 208 hex chars".into(),
+        ));
     }
     let public = hex::decode(&req.public_bin_hex)
         .map_err(|e| Error::ValidationError(format!("invalid public_bin_hex: {}", e)))?;
     if public.len() != 104 {
-        return Err(Error::ValidationError("decoded public inputs must be 104 bytes".into()));
+        return Err(Error::ValidationError(
+            "decoded public inputs must be 104 bytes".into(),
+        ));
     }
 
     // Parse public inputs
@@ -159,10 +171,10 @@ pub async fn create_withdraw_job(
         .job_repo
         .create_job(crate::db::models::CreateJob {
             request_id,
-            proof_bytes: Vec::new(),          // proof to be generated
-            public_inputs: public.clone(),    // 104 bytes
+            proof_bytes: Vec::new(),       // proof to be generated
+            public_inputs: public.clone(), // 104 bytes
             outputs_json,
-            fee_bps: 0,                       // fixed fee mode
+            fee_bps: 0, // fixed fee mode
             root_hash: root.to_vec(),
             nullifier: nf.to_vec(),
             amount: amount as i64,
@@ -175,9 +187,15 @@ pub async fn create_withdraw_job(
         .nullifier_repo
         .create_nullifier(nf.to_vec(), job.id)
         .await?;
-    state.queue.enqueue(JobMessage::new(job.id, request_id)).await?;
+    state
+        .queue
+        .enqueue(JobMessage::new(job.id, request_id))
+        .await?;
 
-    let resp = JobResponse { job_id: job.id, status: "queued".to_string() };
+    let resp = JobResponse {
+        job_id: job.id,
+        status: "queued".to_string(),
+    };
     Ok((StatusCode::ACCEPTED, Json(resp)))
 }
 
@@ -186,14 +204,21 @@ pub async fn get_job(
     axum::extract::Path(job_id): axum::extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, Error> {
     let Some(job) = state.job_repo.get_job_by_id(job_id).await? else {
-        return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "code": "not_found",
-            "message": "Job not found"
-        }))))
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "code": "not_found",
+                "message": "Job not found"
+            })),
+        ));
     };
 
     // Build artifacts if available
-    let mut artifacts = JobArtifacts { proof_hex_260: None, public_bin_hex_104: None, tx_bytes_base64: None };
+    let mut artifacts = JobArtifacts {
+        proof_hex_260: None,
+        public_bin_hex_104: None,
+        tx_bytes_base64: None,
+    };
     if job.public_inputs.len() == 104 {
         artifacts.public_bin_hex_104 = Some(hex::encode(&job.public_inputs));
     }
@@ -209,13 +234,12 @@ pub async fn get_job(
         artifacts: Some(artifacts),
         error: job.error_message,
     };
-    let value = serde_json::to_value(resp).map_err(|e| Error::InternalServerError(e.to_string()))?;
+    let value =
+        serde_json::to_value(resp).map_err(|e| Error::InternalServerError(e.to_string()))?;
     Ok((StatusCode::OK, Json(value)))
 }
 
-pub async fn submit_tx(
-    Json(req): Json<SubmitRequest>,
-) -> Result<impl IntoResponse, Error> {
+pub async fn submit_tx(Json(req): Json<SubmitRequest>) -> Result<impl IntoResponse, Error> {
     // 1) Decode base64 → bytes
     let raw = base64::engine::general_purpose::STANDARD
         .decode(&req.tx_bytes_base64)
@@ -242,10 +266,16 @@ pub async fn submit_tx(
         let mut out_sig: Option<Signature> = None;
         for attempt in 0..=5 {
             match rpc.send_transaction_with_config(&vtx, cfg) {
-                Ok(s) => { out_sig = Some(s); break; }
+                Ok(s) => {
+                    out_sig = Some(s);
+                    break;
+                }
                 Err(e) => {
                     if attempt == 5 {
-                        return Err(Error::InternalServerError(format!("rpc send failed: {}", e)));
+                        return Err(Error::InternalServerError(format!(
+                            "rpc send failed: {}",
+                            e
+                        )));
                     }
                     let backoff_ms = (200u64).saturating_mul(1u64 << attempt.min(4));
                     let jitter = fastrand::u64(0..=backoff_ms.min(2000));
@@ -263,7 +293,9 @@ pub async fn submit_tx(
     while start.elapsed() < std::time::Duration::from_secs(10) {
         if let Ok(sts) = rpc.get_signature_statuses(&[sig]) {
             if let Some(Some(st)) = sts.value.get(0) {
-                if st.err.is_none() { break; }
+                if st.err.is_none() {
+                    break;
+                }
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -277,6 +309,9 @@ pub async fn submit_tx(
         }
     }
 
-    let resp = SubmitResponse { signature: sig.to_string(), slot };
+    let resp = SubmitResponse {
+        signature: sig.to_string(),
+        slot,
+    };
     Ok((StatusCode::OK, Json(serde_json::to_value(resp).unwrap())))
 }

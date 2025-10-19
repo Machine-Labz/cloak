@@ -12,7 +12,7 @@
 //! To run without a localnet (unit tests only):
 //! cargo test --package relay --test miner_integration
 
-use relay::miner::{
+use cloak_miner::{
     compute_batch_hash, compute_single_job_hash, derive_claim_pda, derive_miner_pda,
     derive_registry_pda, MiningEngine,
 };
@@ -24,7 +24,11 @@ use solana_sdk::pubkey::Pubkey;
 
 #[test]
 fn test_batch_hash_determinism() {
-    let jobs = vec!["job-1".to_string(), "job-2".to_string(), "job-3".to_string()];
+    let jobs = vec![
+        "job-1".to_string(),
+        "job-2".to_string(),
+        "job-3".to_string(),
+    ];
 
     let hash1 = compute_batch_hash(&jobs);
     let hash2 = compute_batch_hash(&jobs);
@@ -50,7 +54,10 @@ fn test_single_job_hash_matches_batch() {
     let single_hash = compute_single_job_hash(job_id);
     let batch_hash = compute_batch_hash(&[job_id.to_string()]);
 
-    assert_eq!(single_hash, batch_hash, "Single job hash should match batch of one");
+    assert_eq!(
+        single_hash, batch_hash,
+        "Single job hash should match batch of one"
+    );
 }
 
 #[test]
@@ -78,16 +85,20 @@ fn test_pda_derivation_uniqueness() {
     let (pda1, _) = derive_claim_pda(&program_id, &miner, &batch_hash_1, slot);
     let (pda2, _) = derive_claim_pda(&program_id, &miner, &batch_hash_2, slot);
 
-    assert_ne!(pda1, pda2, "Different batch hashes should produce different PDAs");
+    assert_ne!(
+        pda1, pda2,
+        "Different batch hashes should produce different PDAs"
+    );
 }
 
 #[test]
 fn test_difficulty_check_logic() {
     // Test the u256_lt logic directly via check_difficulty
-    let difficulty = [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let difficulty = [
+        0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ];
 
     let engine = MiningEngine::new(
         difficulty,
@@ -100,34 +111,50 @@ fn test_difficulty_check_logic() {
     // Test cases (all zeros except first byte in LE)
     // Target is [0x10, 0, 0, ..., 0] = 0x00..0010 as u256
 
-    let hash_valid = [0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let hash_valid = [
+        0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ];
     // 0x00..000F < 0x00..0010 ✓
 
-    let hash_invalid = [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let hash_invalid = [
+        0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ];
     // 0x00..0010 >= 0x00..0010 ✗
 
-    let hash_invalid2 = [0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let hash_invalid2 = [
+        0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ];
     // 0x00..0011 > 0x00..0010 ✗
 
-    let hash_valid_high_bytes = [0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+    let hash_valid_high_bytes = [
+        0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01,
+    ];
     // 0x01..0005 < 0x00..0010 ? NO! 0x01000...0005 > 0x00000...0010 ✗
 
-    assert!(engine.check_difficulty(&hash_valid), "0x00..000F < 0x00..0010 should be valid");
-    assert!(!engine.check_difficulty(&hash_invalid), "0x00..0010 >= 0x00..0010 should be invalid");
-    assert!(!engine.check_difficulty(&hash_invalid2), "0x00..0011 > 0x00..0010 should be invalid");
-    assert!(!engine.check_difficulty(&hash_valid_high_bytes), "0x01..0005 > 0x00..0010 should be invalid");
+    assert!(
+        engine.check_difficulty(&hash_valid),
+        "0x00..000F < 0x00..0010 should be valid"
+    );
+    assert!(
+        !engine.check_difficulty(&hash_invalid),
+        "0x00..0010 >= 0x00..0010 should be invalid"
+    );
+    assert!(
+        !engine.check_difficulty(&hash_invalid2),
+        "0x00..0011 > 0x00..0010 should be invalid"
+    );
+    assert!(
+        !engine.check_difficulty(&hash_valid_high_bytes),
+        "0x01..0005 > 0x00..0010 should be invalid"
+    );
 }
 
 #[test]
@@ -140,7 +167,9 @@ fn test_mining_engine_easy_difficulty() {
         [0x88; 32],
     );
 
-    let solution = engine.mine().expect("Should find solution with easy difficulty");
+    let solution = engine
+        .mine()
+        .expect("Should find solution with easy difficulty");
 
     // Verify solution meets difficulty
     assert!(
@@ -175,7 +204,10 @@ fn test_mining_engine_moderate_difficulty() {
         .expect("Should find solution within 30 seconds");
 
     println!("Solution hash:     {:x?}...", &solution.proof_hash[0..8]);
-    println!("Meets difficulty: {}", engine.check_difficulty(&solution.proof_hash));
+    println!(
+        "Meets difficulty: {}",
+        engine.check_difficulty(&solution.proof_hash)
+    );
 
     // Verify solution meets difficulty
     assert!(
@@ -234,7 +266,11 @@ fn test_preimage_construction() {
     assert_eq!(preimage.len(), 137, "Preimage should be 137 bytes");
 
     // Verify domain is at the beginning
-    assert_eq!(&preimage[0..17], b"CLOAK:SCRAMBLE:v1", "Domain should be at start of preimage");
+    assert_eq!(
+        &preimage[0..17],
+        b"CLOAK:SCRAMBLE:v1",
+        "Domain should be at start of preimage"
+    );
 
     // Verify slot is after domain (little-endian)
     let slot_bytes = 12345u64.to_le_bytes();
@@ -266,7 +302,10 @@ fn test_miner_pda_derivation() {
     // Different authority should give different PDA
     let other_authority = Pubkey::new_unique();
     let (pda3, _) = derive_miner_pda(&program_id, &other_authority);
-    assert_ne!(pda1, pda3, "Different authority should produce different PDA");
+    assert_ne!(
+        pda1, pda3,
+        "Different authority should produce different PDA"
+    );
 }
 
 // ============================================================================
@@ -276,7 +315,7 @@ fn test_miner_pda_derivation() {
 #[cfg(feature = "integration-tests")]
 mod integration {
     use super::*;
-    use relay::miner::{
+    use cloak_miner::{
         build_mine_and_reveal_instructions, build_register_miner_ix, fetch_recent_slot_hash,
         fetch_registry, ClaimManager,
     };
@@ -295,8 +334,7 @@ mod integration {
         let program_id_str = env::var("SCRAMBLE_PROGRAM_ID")
             .expect("SCRAMBLE_PROGRAM_ID must be set for integration tests");
 
-        let program_id = Pubkey::from_str(&program_id_str)
-            .expect("Invalid SCRAMBLE_PROGRAM_ID");
+        let program_id = Pubkey::from_str(&program_id_str).expect("Invalid SCRAMBLE_PROGRAM_ID");
 
         let miner_keypair = Keypair::new(); // Generate fresh keypair for tests
         let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
@@ -327,7 +365,10 @@ mod integration {
             .expect("Failed to fetch registry - is it initialized?");
 
         // Verify registry fields are reasonable
-        assert!(registry.reveal_window > 0, "Reveal window should be positive");
+        assert!(
+            registry.reveal_window > 0,
+            "Reveal window should be positive"
+        );
         assert!(registry.claim_window > 0, "Claim window should be positive");
         assert!(registry.max_k > 0, "Max k should be positive");
 
@@ -343,8 +384,7 @@ mod integration {
     fn test_fetch_slot_hash() {
         let (client, _, _) = setup_test_env();
 
-        let (slot, slot_hash) = fetch_recent_slot_hash(&client)
-            .expect("Failed to fetch SlotHash");
+        let (slot, slot_hash) = fetch_recent_slot_hash(&client).expect("Failed to fetch SlotHash");
 
         assert!(slot > 0, "Slot should be positive");
         assert_ne!(slot_hash, [0u8; 32], "SlotHash should not be all zeros");
@@ -377,7 +417,9 @@ mod integration {
 
         // Verify miner PDA was created
         let (miner_pda, _) = derive_miner_pda(&program_id, &miner_keypair.pubkey());
-        let account = client.get_account(&miner_pda).expect("Miner PDA should exist");
+        let account = client
+            .get_account(&miner_pda)
+            .expect("Miner PDA should exist");
 
         assert!(account.data.len() > 0, "Miner account should have data");
     }
@@ -389,11 +431,9 @@ mod integration {
 
         // 1. Fetch registry and SlotHash
         let (registry_pda, _) = derive_registry_pda(&program_id);
-        let registry = fetch_registry(&client, &registry_pda)
-            .expect("Failed to fetch registry");
+        let registry = fetch_registry(&client, &registry_pda).expect("Failed to fetch registry");
 
-        let (slot, slot_hash) = fetch_recent_slot_hash(&client)
-            .expect("Failed to fetch SlotHash");
+        let (slot, slot_hash) = fetch_recent_slot_hash(&client).expect("Failed to fetch SlotHash");
 
         // 2. Mine for a solution
         let batch_hash = compute_single_job_hash("integration-test-job");
@@ -519,13 +559,8 @@ mod integration {
         let rpc_url =
             env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
 
-        let mut manager = ClaimManager::new(
-            rpc_url,
-            miner_keypair,
-            &program_id.to_string(),
-            30,
-        )
-        .expect("Failed to create ClaimManager");
+        let mut manager = ClaimManager::new(rpc_url, miner_keypair, &program_id.to_string(), 30)
+            .expect("Failed to create ClaimManager");
 
         let job_id = "expiry-test-job";
 
@@ -560,13 +595,8 @@ mod integration {
         let rpc_url =
             env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
 
-        let mut manager = ClaimManager::new(
-            rpc_url,
-            miner_keypair,
-            &program_id.to_string(),
-            30,
-        )
-        .expect("Failed to create ClaimManager");
+        let mut manager = ClaimManager::new(rpc_url, miner_keypair, &program_id.to_string(), 30)
+            .expect("Failed to create ClaimManager");
 
         // Mine claims for multiple jobs in sequence
         let jobs = vec!["batch-job-1", "batch-job-2", "batch-job-3"];
@@ -619,7 +649,10 @@ mod benchmarks {
         let hashes_per_sec = (iterations as f64) / elapsed.as_secs_f64();
 
         println!("Hash rate: {:.2} H/s", hashes_per_sec);
-        println!("Time per hash: {:.2} µs", (elapsed.as_micros() as f64) / (iterations as f64));
+        println!(
+            "Time per hash: {:.2} µs",
+            (elapsed.as_micros() as f64) / (iterations as f64)
+        );
     }
 
     #[test]
@@ -638,6 +671,9 @@ mod benchmarks {
         let ops_per_sec = (iterations as f64) / elapsed.as_secs_f64();
 
         println!("Batch hash rate (100 jobs): {:.2} ops/s", ops_per_sec);
-        println!("Time per batch: {:.2} µs", (elapsed.as_micros() as f64) / (iterations as f64));
+        println!(
+            "Time per batch: {:.2} µs",
+            (elapsed.as_micros() as f64) / (iterations as f64)
+        );
     }
 }

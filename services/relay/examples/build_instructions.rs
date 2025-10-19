@@ -4,7 +4,7 @@
 //!
 //! Run with: cargo run --package relay --example build_instructions
 
-use relay::miner::{
+use cloak_miner::{
     build_mine_and_reveal_instructions, derive_claim_pda, derive_miner_pda, derive_registry_pda,
 };
 use solana_sdk::pubkey::Pubkey;
@@ -25,14 +25,18 @@ fn main() {
     // 1. Derive PDAs
     println!("1. PDA Derivation:");
     let (registry_pda, registry_bump) = derive_registry_pda(&program_id);
-    println!("   Registry PDA: {} (bump: {})", registry_pda, registry_bump);
+    println!(
+        "   Registry PDA: {} (bump: {})",
+        registry_pda, registry_bump
+    );
 
     let (miner_pda, miner_bump) = derive_miner_pda(&program_id, &miner_authority);
     println!("   Miner PDA:    {} (bump: {})", miner_pda, miner_bump);
 
     let batch_hash = [0x88; 32];
     let slot = 12345u64;
-    let (claim_pda, claim_bump) = derive_claim_pda(&program_id, &miner_authority, &batch_hash, slot);
+    let (claim_pda, claim_bump) =
+        derive_claim_pda(&program_id, &miner_authority, &batch_hash, slot);
     println!("   Claim PDA:    {} (bump: {})\n", claim_pda, claim_bump);
 
     // 2. Build instructions

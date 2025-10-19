@@ -42,19 +42,29 @@ pub fn calculate_fee(amount: u64) -> u64 {
 /// Select a single note to satisfy target_amount.
 /// Heuristics: prefer largest anonymity bucket (same-amount group), then most recent root.
 /// Notes must be under a root present in roots_window. Returns None if none can cover target.
-pub fn select_note(target_amount: u64, roots_window: &[RootMeta], notes: &[NoteMeta]) -> Option<Selected> {
-    if target_amount == 0 { return None; }
+pub fn select_note(
+    target_amount: u64,
+    roots_window: &[RootMeta],
+    notes: &[NoteMeta],
+) -> Option<Selected> {
+    if target_amount == 0 {
+        return None;
+    }
 
     // Build root set for quick membership
-    fn eq32(a: &[u8;32], b: &[u8;32]) -> bool { a == b }
-    let root_set: Vec<[u8;32]> = roots_window.iter().map(|r| r.root).collect();
+    fn eq32(a: &[u8; 32], b: &[u8; 32]) -> bool {
+        a == b
+    }
+    let root_set: Vec<[u8; 32]> = roots_window.iter().map(|r| r.root).collect();
 
     // Eligible notes: amount >= target_amount + fee (since fee deducted from amount to recipient)
     // Here we require note amount >= target_amount (recipient) + fee(note amount), conservative approximation via loop.
     let mut eligible: Vec<&NoteMeta> = Vec::new();
     'outer: for n in notes {
         // require root membership
-        if !root_set.iter().any(|r| eq32(r, &n.root)) { continue; }
+        if !root_set.iter().any(|r| eq32(r, &n.root)) {
+            continue;
+        }
         // check conservation feasibility: recipient_amount = target_amount, total amount = n.amount
         let fee = calculate_fee(n.amount);
         if n.amount < target_amount.saturating_add(fee) {
@@ -62,12 +72,16 @@ pub fn select_note(target_amount: u64, roots_window: &[RootMeta], notes: &[NoteM
         }
         eligible.push(n);
     }
-    if eligible.is_empty() { return None; }
+    if eligible.is_empty() {
+        return None;
+    }
 
     // Group by amount to compute anonymity buckets
     use std::collections::HashMap;
     let mut bucket_counts: HashMap<u64, usize> = HashMap::new();
-    for n in &eligible { *bucket_counts.entry(n.amount).or_default() += 1; }
+    for n in &eligible {
+        *bucket_counts.entry(n.amount).or_default() += 1;
+    }
 
     // Pick note from bucket with largest count; tie-break by most recent root slot
     let mut best: Option<&NoteMeta> = None;
@@ -75,8 +89,10 @@ pub fn select_note(target_amount: u64, roots_window: &[RootMeta], notes: &[NoteM
     let mut best_slot: u64 = 0;
 
     // Build slot map for roots
-    let mut root_slot = HashMap::<[u8;32], u64>::new();
-    for r in roots_window { root_slot.insert(r.root, r.slot); }
+    let mut root_slot = HashMap::<[u8; 32], u64>::new();
+    for r in roots_window {
+        root_slot.insert(r.root, r.slot);
+    }
 
     for n in eligible {
         let b = *bucket_counts.get(&n.amount).unwrap_or(&0);
@@ -93,8 +109,14 @@ pub fn select_note(target_amount: u64, roots_window: &[RootMeta], notes: &[NoteM
 
 /// Compute single-output list and outputs_hash.
 /// Hash = BLAKE3(address:32 || amount:u64_le)
-pub fn compute_outputs_single(recipient_addr: [u8; 32], recipient_amount: u64) -> (Vec<Output>, [u8; 32]) {
-    let outputs = vec![Output { address: recipient_addr, amount: recipient_amount }];
+pub fn compute_outputs_single(
+    recipient_addr: [u8; 32],
+    recipient_amount: u64,
+) -> (Vec<Output>, [u8; 32]) {
+    let outputs = vec![Output {
+        address: recipient_addr,
+        amount: recipient_amount,
+    }];
     let mut hasher = Hasher::new();
     hasher.update(&recipient_addr);
     hasher.update(&recipient_amount.to_le_bytes());
@@ -162,7 +184,10 @@ mod tests {
         let h2 = hasher.finalize();
         let mut chk = [0u8; 32];
         chk.copy_from_slice(h2.as_bytes());
-        assert_eq!(hash, chk, "outputs_hash must match guest/on-chain recompute");
+        assert_eq!(
+            hash, chk,
+            "outputs_hash must match guest/on-chain recompute"
+        );
         // Conservation
         let sum_outputs: u64 = outs.iter().map(|o| o.amount).sum();
         assert_eq!(sum_outputs + fee, amount);
@@ -189,19 +214,40 @@ mod tests {
     #[test]
     fn test_select_note_prefers_bucket_and_recent_root() {
         let roots = vec![
-            RootMeta { root: [1u8;32], slot: 100 },
-            RootMeta { root: [2u8;32], slot: 200 },
+            RootMeta {
+                root: [1u8; 32],
+                slot: 100,
+            },
+            RootMeta {
+                root: [2u8; 32],
+                slot: 200,
+            },
         ];
         let notes = vec![
-            NoteMeta { commitment: [9u8;32], amount: 10_000_000, root: [1u8;32], leaf_index: 1 },
-            NoteMeta { commitment: [8u8;32], amount: 10_000_000, root: [2u8;32], leaf_index: 2 },
-            NoteMeta { commitment: [7u8;32], amount: 20_000_000, root: [1u8;32], leaf_index: 3 },
+            NoteMeta {
+                commitment: [9u8; 32],
+                amount: 10_000_000,
+                root: [1u8; 32],
+                leaf_index: 1,
+            },
+            NoteMeta {
+                commitment: [8u8; 32],
+                amount: 10_000_000,
+                root: [2u8; 32],
+                leaf_index: 2,
+            },
+            NoteMeta {
+                commitment: [7u8; 32],
+                amount: 20_000_000,
+                root: [1u8; 32],
+                leaf_index: 3,
+            },
         ];
         // target recipient amount: choose a note where amount covers recipient+fee; both 10M and 20M could, but 10M bucket has size 2
         let sel = select_note(5_000_000, &roots, &notes).expect("selected");
         assert_eq!(sel.note.amount, 10_000_000);
         // tie within bucket: prefer most recent root slot=200
-        assert_eq!(sel.note.root, [2u8;32]);
+        assert_eq!(sel.note.root, [2u8; 32]);
     }
 
     #[test]

@@ -71,37 +71,37 @@ impl Config {
             .set_default("server.port", 3001)?
             .set_default("server.host", "0.0.0.0")?
             .set_default("server.request_timeout_seconds", 30)?
-            
             // Solana defaults
             .set_default("solana.rpc_url", "http://localhost:8899")?
             .set_default("solana.ws_url", "ws://localhost:8900")?
             .set_default("solana.commitment", "confirmed")?
-            .set_default("solana.program_id", "11111111111111111111111111111111")?  // Default to system program ID
+            .set_default("solana.program_id", "11111111111111111111111111111111")? // Default to system program ID
             .set_default("solana.priority_micro_lamports", 1000u64)?
-            .set_default("solana.jito_tip_lamports", 1000u64)?  // 0.000001 SOL minimum tip
+            .set_default("solana.jito_tip_lamports", 1000u64)? // 0.000001 SOL minimum tip
             .set_default("solana.max_retries", 3)?
             .set_default("solana.retry_delay_ms", 1000)?
-            
             // Database defaults
-            .set_default("database.url", "postgres://postgres:postgres@localhost:5432/relay")?
+            .set_default(
+                "database.url",
+                "postgres://postgres:postgres@localhost:5432/relay",
+            )?
             .set_default("database.max_connections", 5)?
-            
             // Redis defaults
             .set_default("redis.url", "redis://localhost:6379")?
             .set_default("redis.max_connections", 10)?
             .set_default("redis.connection_timeout_seconds", 5)?
-            
             // Metrics defaults
             .set_default("metrics.enabled", true)?
             .set_default("metrics.port", 9090)?
             .set_default("metrics.route", "/metrics")?
-
             // Miner defaults
-            .set_default("miner.scramble_registry_program_id", "11111111111111111111111111111111")?  // Placeholder
+            .set_default(
+                "miner.scramble_registry_program_id",
+                "11111111111111111111111111111111",
+            )? // Placeholder
             .set_default("miner.miner_keypair_path", "~/.config/solana/miner.json")?
             .set_default("miner.mining_timeout_seconds", 30)?
             .set_default("miner.enabled", true)?
-
             // Add in settings from environment variables (with a prefix of RELAY and '__' as separator)
             // E.g. `RELAY_SERVER__PORT=5000` would set `server.port`
             .add_source(
@@ -122,10 +122,10 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        std::env::set_var("RELAY_SERVER__PORT", "4000");
+        std::env::set_var("RELAY__SERVER__PORT", "4000");
         let config = Config::load().unwrap();
         assert_eq!(config.server.port, 4000);
-        std::env::remove_var("RELAY_SERVER__PORT");
+        std::env::remove_var("RELAY__SERVER__PORT");
     }
 
     #[test]

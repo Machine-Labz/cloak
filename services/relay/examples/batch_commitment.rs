@@ -4,7 +4,7 @@
 //!
 //! Run with: cargo run --package relay --example batch_commitment
 
-use relay::miner::{compute_batch_hash, compute_single_job_hash};
+use cloak_miner::{compute_batch_hash, compute_single_job_hash};
 
 fn main() {
     println!("=== Batch Commitment Example ===\n");
