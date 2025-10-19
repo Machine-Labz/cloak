@@ -71,11 +71,14 @@ solana-client = "=2.3.1"
 
 # Local crates
 cloak-proof-extract = { path = "../../packages/cloak-proof-extract" }
+cloak-miner = { path = "../../packages/cloak-miner" }
 
 [features]
 default = []
 # If enabled, also expose VersionedTransaction builders
 jito = []
+integration-tests = []
+bench = []
 
 [dev-dependencies]
 tempfile = "3.0"
