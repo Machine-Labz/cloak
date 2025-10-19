@@ -1,41 +1,52 @@
-use pinocchio::account_info::AccountInfo;
-use pinocchio::program_error::ProgramError;
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, ProgramResult};
-
-use crate::constants::SLOT_HASHES_SYSVAR;
 use crate::error::ScrambleError;
 use crate::state::{Claim, Miner, ScrambleRegistry};
 use crate::utils::{u256_lt, verify_pow};
+use pinocchio::account_info::AccountInfo;
+use pinocchio::instruction::Signer;
+use pinocchio::program_error::ProgramError;
+use pinocchio::pubkey::find_program_address;
+use pinocchio::sysvars::clock::Clock;
+use pinocchio::sysvars::rent::Rent;
+use pinocchio::sysvars::slot_hashes::SLOTHASHES_ID;
+use pinocchio::sysvars::Sysvar;
+use pinocchio::{msg, seeds, ProgramResult};
+use pinocchio_system::instructions::CreateAccount;
 
-/// Instruction: mine_claim
-///
-/// Accounts:
-/// 0. [WRITE] Claim PDA
-/// 1. [WRITE] Miner PDA
-/// 2. [WRITE] ScrambleRegistry PDA
-/// 3. [SIGNER] Miner authority
-/// 4. [] SlotHashes sysvar
-/// 5. [] Clock sysvar
-/// 6. [] System program (if PDA needs initialization)
-///
-/// Arguments:
-/// - slot: u64 (the slot being referenced)
-/// - slot_hash: [u8; 32] (from SlotHashes sysvar)
-/// - batch_hash: [u8; 32] (commitment to k jobs)
-/// - nonce: u128 (found via PoW)
-/// - proof_hash: [u8; 32] (BLAKE3 result, must be < difficulty)
-/// - max_consumes: u16 (batch size k, ≤ max_k)
-pub fn process_mine_claim(
+#[inline(always)]
+pub fn process_mine_claim_instruction(
     accounts: &[AccountInfo],
-    slot: u64,
-    slot_hash: [u8; 32],
-    batch_hash: [u8; 32],
-    nonce: u128,
-    proof_hash: [u8; 32],
-    max_consumes: u16,
+    instruction_data: &[u8],
 ) -> ProgramResult {
+    // Parse instruction data
+    // Layout: slot(8) + slot_hash(32) + batch_hash(32) + nonce(16) + proof_hash(32) + max_consumes(2) = 122 bytes
+    if instruction_data.len() < 122 {
+        return Err(ScrambleError::InvalidTag.into());
+    }
+
+    let slot = u64::from_le_bytes(
+        instruction_data[0..8]
+            .try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+    let slot_hash: [u8; 32] = instruction_data[8..40]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let batch_hash: [u8; 32] = instruction_data[40..72]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let nonce = u128::from_le_bytes(
+        instruction_data[72..88]
+            .try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+    let proof_hash: [u8; 32] = instruction_data[88..120]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let max_consumes = u16::from_le_bytes(
+        instruction_data[120..122]
+            .try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
     // Parse accounts
     let [claim_account, miner_account, registry_account, miner_authority, slot_hashes_sysvar, _clock_sysvar, _system_program, ..] =
         accounts
@@ -44,29 +55,28 @@ pub fn process_mine_claim(
     };
 
     // Verify SlotHashes sysvar
-    if slot_hashes_sysvar.key().as_ref() != SLOT_HASHES_SYSVAR {
+    if slot_hashes_sysvar.key() != &SLOTHASHES_ID {
         msg!("Invalid SlotHashes sysvar");
         return Err(ScrambleError::InvalidSlotHashesSysvar.into());
     }
 
-    // Load registry
-    let registry = ScrambleRegistry::from_account(registry_account)?;
-
-    // Load or initialize miner
-    let miner = if miner_account.data_is_empty() {
-        // Initialize miner PDA (requires system program CPI, simplified here)
-        msg!("Miner PDA not initialized - would create here");
-        return Err(ProgramError::UninitializedAccount);
-    } else {
-        Miner::from_account(miner_account)?
-    };
-
-    // Verify miner authority matches
+    // Verify miner authority is signer
     if !miner_authority.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    if miner.authority != *miner_authority.key() {
+    // Load registry
+    let mut registry = ScrambleRegistry::from_account_info(registry_account)?;
+
+    // Load miner
+    if miner_account.data_is_empty() {
+        msg!("Miner PDA not initialized");
+        return Err(ProgramError::UninitializedAccount);
+    }
+    let mut miner = Miner::from_account_info(miner_account)?;
+
+    // Verify miner authority matches
+    if miner.authority() != miner_authority.key() {
         msg!("Miner authority mismatch");
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
@@ -103,13 +113,13 @@ pub fn process_mine_claim(
     }
 
     // 4. Check difficulty: proof_hash < current_difficulty
-    if !u256_lt(&proof_hash, &registry.current_difficulty) {
+    if !u256_lt(&proof_hash, registry.current_difficulty()) {
         msg!("Difficulty not met");
         return Err(ScrambleError::DifficultyNotMet.into());
     }
 
     // 5. Verify max_consumes <= max_k
-    if max_consumes > registry.max_k {
+    if max_consumes > registry.max_k() {
         msg!("Batch size exceeds max_k");
         return Err(ScrambleError::BatchSizeExceedsMaxK.into());
     }
@@ -121,27 +131,68 @@ pub fn process_mine_claim(
     }
 
     // 7. Initialize claim PDA
-    if claim_account.data_is_empty() {
-        msg!("Claim PDA not initialized - would create here");
-        return Err(ProgramError::UninitializedAccount);
+    // Derive claim PDA
+    let slot_le_bytes = slot.to_le_bytes();
+    let (claim_pda, bump) = find_program_address(
+        &[
+            b"claim",
+            miner_authority.key().as_ref(),
+            &batch_hash,
+            &slot_le_bytes,
+        ],
+        &crate::ID,
+    );
+
+    // Verify provided account matches PDA
+    if claim_account.key() != &claim_pda {
+        msg!("Claim account mismatch");
+        return Err(ProgramError::InvalidSeeds);
     }
 
-    let claim = Claim::from_account(claim_account)?;
+    // Create PDA account if it doesn't exist
+    if claim_account.data_is_empty() {
+        msg!("Creating claim PDA");
 
-    // Overwrite claim data (in production, check if already mined)
-    let new_claim = Claim::new(
-        *miner_authority.key(),
-        batch_hash,
+        // Calculate space and rent
+        let space = Claim::SIZE;
+        let rent = Rent::get()?;
+        let lamports = rent.minimum_balance(space);
+
+        // Create PDA account via system program CPI
+        let bump_ref = &[bump];
+        let claim_seeds = seeds!(
+            b"claim",
+            miner_authority.key().as_ref(),
+            &batch_hash,
+            &slot_le_bytes,
+            bump_ref
+        );
+        let signer = Signer::from(&claim_seeds);
+
+        CreateAccount {
+            from: miner_authority,
+            to: claim_account,
+            lamports,
+            space: space as u64,
+            owner: &crate::ID,
+        }
+        .invoke_signed(&[signer])?;
+
+        msg!("Claim PDA created");
+    }
+
+    // Initialize claim data
+    let mut claim = Claim::from_account_info_unchecked(&claim_account);
+    claim.initialize(
+        miner_authority.key(),
+        &batch_hash,
         slot,
-        slot_hash,
+        &slot_hash,
         nonce,
-        proof_hash,
+        &proof_hash,
         max_consumes,
         current_slot,
     );
-
-    // Write new claim
-    *claim = new_claim;
 
     // Update registry stats
     registry.record_solution();
@@ -203,8 +254,6 @@ fn verify_slot_hash(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_verify_slot_hash_parsing() {
         // Build mock SlotHashes data

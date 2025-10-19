@@ -53,6 +53,8 @@ pub enum ScrambleError {
     ClaimExpired = 23,
     /// Batch hash mismatch (anti-replay)
     BatchHashMismatch = 24,
+    /// Invalid instruction discriminator
+    InvalidTag = 25,
 }
 
 impl From<ScrambleError> for ProgramError {

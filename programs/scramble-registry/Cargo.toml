@@ -19,6 +19,9 @@ pinocchio = { workspace = true }
 pinocchio-token = { workspace = true }
 pinocchio-system = { workspace = true }
 blake3 = { workspace = true }
+five8_const = { workspace = true }
 
 [dev-dependencies]
 solana-sdk = { workspace = true }
+mollusk-svm = "0.5.1"
+spl-token = "6.0.0"

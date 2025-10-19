@@ -1,31 +1,28 @@
+use crate::error::ScrambleError;
+use crate::state::{Claim, Miner, ScrambleRegistry};
 use pinocchio::account_info::AccountInfo;
 use pinocchio::program_error::ProgramError;
 use pinocchio::sysvars::clock::Clock;
 use pinocchio::sysvars::Sysvar;
 use pinocchio::{msg, ProgramResult};
 
-use crate::error::ScrambleError;
-use crate::state::{Claim, ClaimStatus, Miner, ScrambleRegistry};
-
-/// Instruction: consume_claim
-///
-/// Consumes one unit from a revealed claim (called during CPI from shield-pool withdraw).
-///
-/// Accounts:
-/// 0. [WRITE] Claim PDA
-/// 1. [WRITE] Miner PDA (to record consume)
-/// 2. [WRITE] ScrambleRegistry PDA (to decrement active claims when fully consumed)
-/// 3. [SIGNER] Shield-pool program (CPI authority)
-/// 4. [] Clock sysvar
-///
-/// Arguments:
-/// - expected_miner_authority: Pubkey (anti-replay: must match claim.miner_authority)
-/// - expected_batch_hash: [u8; 32] (anti-replay: must match claim.batch_hash)
-pub fn process_consume_claim(
+#[inline(always)]
+pub fn process_consume_claim_instruction(
     accounts: &[AccountInfo],
-    expected_miner_authority: [u8; 32],
-    expected_batch_hash: [u8; 32],
+    instruction_data: &[u8],
 ) -> ProgramResult {
+    // Parse instruction data
+    // Layout: expected_miner_authority(32) + expected_batch_hash(32) = 64 bytes
+    if instruction_data.len() < 64 {
+        return Err(ScrambleError::InvalidTag.into());
+    }
+
+    let expected_miner_authority: [u8; 32] = instruction_data[0..32]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let expected_batch_hash: [u8; 32] = instruction_data[32..64]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
     // Parse accounts
     let [claim_account, miner_account, registry_account, shield_pool_program, _clock_sysvar, ..] =
         accounts
@@ -41,22 +38,22 @@ pub fn process_consume_claim(
     }
 
     // Load accounts
-    let claim = Claim::from_account(claim_account)?;
-    let miner = Miner::from_account(miner_account)?;
-    let registry = ScrambleRegistry::from_account(registry_account)?;
+    let mut claim = Claim::from_account_info(claim_account)?;
+    let mut miner = Miner::from_account_info(miner_account)?;
+    let mut registry = ScrambleRegistry::from_account_info(registry_account)?;
 
     // Get current slot
     let clock = Clock::get()?;
     let current_slot = clock.slot;
 
     // Anti-replay: verify miner_authority matches
-    if claim.miner_authority.as_ref() != expected_miner_authority {
+    if claim.miner_authority().as_ref() != expected_miner_authority {
         msg!("Miner authority mismatch");
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
 
     // Anti-replay: verify batch_hash matches
-    if claim.batch_hash != expected_batch_hash {
+    if claim.batch_hash() != &expected_batch_hash {
         msg!("Batch hash mismatch");
         return Err(ScrambleError::BatchHashMismatch.into());
     }
@@ -65,9 +62,8 @@ pub fn process_consume_claim(
     if !claim.is_consumable(current_slot) {
         msg!("Claim not consumable");
 
-        // Check if expired and mark accordingly
+        // Check if expired
         if claim.is_expired(current_slot) {
-            claim.set_status(ClaimStatus::Expired);
             return Err(ScrambleError::ClaimExpired.into());
         }
 
@@ -75,11 +71,11 @@ pub fn process_consume_claim(
     }
 
     // Consume one unit
-    let was_fully_consumed = claim.consumed_count == claim.max_consumes;
+    let was_fully_consumed = claim.consumed_count() == claim.max_consumes();
 
     claim.consume()?;
 
-    let is_now_fully_consumed = claim.consumed_count == claim.max_consumes;
+    let is_now_fully_consumed = claim.consumed_count() == claim.max_consumes();
 
     // Update miner stats
     miner.record_consume();
