@@ -13,8 +13,8 @@
 //!   MINER_KEYPAIR_PATH=<path> \
 //!   cargo run --package relay --example end_to_end_mining
 
-use relay::miner::ClaimManager;
-use solana_sdk::signature::read_keypair_file;
+use cloak_miner::ClaimManager;
+use solana_sdk::signature::{read_keypair_file, Signer};
 
 #[tokio::main]
 async fn main() {
@@ -24,20 +24,18 @@ async fn main() {
     println!("=== End-to-End PoW Mining Example ===\n");
 
     // Read configuration from environment
-    let rpc_url = std::env::var("SOLANA_RPC_URL")
-        .unwrap_or_else(|_| "http://localhost:8899".to_string());
+    let rpc_url =
+        std::env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
 
-    let program_id = std::env::var("SCRAMBLE_PROGRAM_ID")
-        .unwrap_or_else(|_| {
-            eprintln!("SCRAMBLE_PROGRAM_ID not set, using placeholder");
-            "11111111111111111111111111111111".to_string()
-        });
+    let program_id = std::env::var("SCRAMBLE_PROGRAM_ID").unwrap_or_else(|_| {
+        eprintln!("SCRAMBLE_PROGRAM_ID not set, using placeholder");
+        "11111111111111111111111111111111".to_string()
+    });
 
-    let keypair_path = std::env::var("MINER_KEYPAIR_PATH")
-        .unwrap_or_else(|_| {
-            eprintln!("MINER_KEYPAIR_PATH not set, using default");
-            "~/.config/solana/id.json".to_string()
-        });
+    let keypair_path = std::env::var("MINER_KEYPAIR_PATH").unwrap_or_else(|_| {
+        eprintln!("MINER_KEYPAIR_PATH not set, using default");
+        "~/.config/solana/id.json".to_string()
+    });
 
     println!("Configuration:");
     println!("  RPC URL: {}", rpc_url);

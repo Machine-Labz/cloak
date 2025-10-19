@@ -45,22 +45,3 @@ pub async fn get_status(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::extract::Path;
-    use uuid::Uuid;
-
-    #[tokio::test]
-    async fn test_get_status() {
-        let request_id = Uuid::new_v4();
-        let state = AppState::mock(); // Would need to implement this
-
-        // This test would work once we have a proper AppState::mock() implementation
-        // For now it's commented out to avoid compilation issues
-
-        // let result = get_status(State(state), Path(request_id)).await;
-        // assert!(result.is_ok());
-    }
-}

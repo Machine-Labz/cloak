@@ -58,21 +58,23 @@ pub fn build_withdraw_instruction(
     data.extend_from_slice(body_437);
 
     let accounts = vec![
-        AccountMeta::new(pool_pda, false),           // pool (writable)
-        AccountMeta::new(treasury, false),           // treasury (writable)
+        AccountMeta::new(pool_pda, false),                // pool (writable)
+        AccountMeta::new(treasury, false),                // treasury (writable)
         AccountMeta::new_readonly(roots_ring_pda, false), // roots ring (readonly)
-        AccountMeta::new(nullifier_shard_pda, false), // nullifier shard (writable)
-        AccountMeta::new(recipient, false),          // recipient (writable)
+        AccountMeta::new(nullifier_shard_pda, false),     // nullifier shard (writable)
+        AccountMeta::new(recipient, false),               // recipient (writable)
         AccountMeta::new_readonly(system_program::id(), false),
     ];
 
-    Instruction { program_id, accounts, data }
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
 }
 
 /// Derive Shield Pool PDAs according to the on-chain program seeds.
-pub(crate) fn derive_shield_pool_pdas(
-    program_id: &Pubkey,
-) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
+pub(crate) fn derive_shield_pool_pdas(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
     let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
     let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
     let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
@@ -96,7 +98,12 @@ pub fn build_withdraw_transaction(
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
 ) -> Result<Transaction, Error> {
-    let body = build_withdraw_ix_body(&groth16_260, &public_104, &recipient_addr_32, recipient_amount)?;
+    let body = build_withdraw_ix_body(
+        &groth16_260,
+        &public_104,
+        &recipient_addr_32,
+        recipient_amount,
+    )?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
         &body,
@@ -133,7 +140,12 @@ pub fn build_withdraw_versioned(
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
 ) -> Result<VersionedTransaction, Error> {
-    let body = build_withdraw_ix_body(&groth16_260, &public_104, &recipient_addr_32, recipient_amount)?;
+    let body = build_withdraw_ix_body(
+        &groth16_260,
+        &public_104,
+        &recipient_addr_32,
+        recipient_amount,
+    )?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
         &body,
@@ -150,7 +162,10 @@ pub fn build_withdraw_versioned(
     let mut legacy = Message::new(&[cu_ix, pri_ix, withdraw_ix], Some(&fee_payer));
     legacy.recent_blockhash = recent_blockhash;
     let vmsg = VersionedMessage::Legacy(legacy);
-    let vtx = VersionedTransaction { message: vmsg, signatures: vec![] };
+    let vtx = VersionedTransaction {
+        message: vmsg,
+        signatures: vec![],
+    };
     Ok(vtx)
 }
 
@@ -176,7 +191,12 @@ pub fn build_withdraw_versioned_with_tip(
 ) -> Result<VersionedTransaction, Error> {
     use solana_sdk::system_instruction;
 
-    let body = build_withdraw_ix_body(&groth16_260, &public_104, &recipient_addr_32, recipient_amount)?;
+    let body = build_withdraw_ix_body(
+        &groth16_260,
+        &public_104,
+        &recipient_addr_32,
+        recipient_amount,
+    )?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
         &body,
@@ -196,7 +216,10 @@ pub fn build_withdraw_versioned_with_tip(
     let mut legacy = Message::new(&[cu_ix, pri_ix, withdraw_ix, tip_ix], Some(&fee_payer));
     legacy.recent_blockhash = recent_blockhash;
     let vmsg = VersionedMessage::Legacy(legacy);
-    let vtx = VersionedTransaction { message: vmsg, signatures: vec![] };
+    let vtx = VersionedTransaction {
+        message: vmsg,
+        signatures: vec![],
+    };
     Ok(vtx)
 }
 
@@ -223,10 +246,14 @@ pub fn build_withdraw_instruction_legacy(
     recent_blockhash: Hash,
 ) -> Result<Transaction, Error> {
     if public_inputs_104.len() != 104 {
-        return Err(Error::ValidationError("public inputs must be 104 bytes".into()));
+        return Err(Error::ValidationError(
+            "public inputs must be 104 bytes".into(),
+        ));
     }
     if outputs.len() != 1 {
-        return Err(Error::ValidationError("exactly 1 output required in MVP".into()));
+        return Err(Error::ValidationError(
+            "exactly 1 output required in MVP".into(),
+        ));
     }
     let out = &outputs[0];
     let recipient = out.to_pubkey()?;
@@ -308,12 +335,10 @@ mod tests {
         let public_inputs = vec![0u8; 104];
 
         // Single output as required (recipient base58 example)
-        let outputs = vec![
-            super::Output {
-                recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1_000_000,
-            },
-        ];
+        let outputs = vec![super::Output {
+            recipient: "11111111111111111111111111111112".to_string(),
+            amount: 1_000_000,
+        }];
 
         let blockhash = solana_sdk::hash::Hash::new_unique();
         let tx = build_withdraw_instruction_legacy(
@@ -326,7 +351,10 @@ mod tests {
         .expect("tx");
 
         let msg = tx.message();
-        assert!(msg.instructions.len() >= 3, "expect CU, fee, and withdraw ix");
+        assert!(
+            msg.instructions.len() >= 3,
+            "expect CU, fee, and withdraw ix"
+        );
         let ci = &msg.instructions[2];
 
         // Program id check
@@ -334,7 +362,8 @@ mod tests {
         assert_eq!(pid, program_id);
 
         // Resolve accounts by index and verify order
-        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) = derive_shield_pool_pdas(&program_id);
+        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
+            derive_shield_pool_pdas(&program_id);
         let resolve = |ix: u8| msg.account_keys[ix as usize];
         assert_eq!(resolve(ci.accounts[0]), exp_pool);
         assert_eq!(resolve(ci.accounts[1]), exp_treasury);
@@ -348,73 +377,3 @@ mod tests {
         assert_eq!(ci.data.len() - 1, 437);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_public_inputs() {
-        let public_inputs = vec![0u8; 64];
-        let parsed = parse_public_inputs(&public_inputs);
-        assert!(parsed.is_ok());
-    }
-
-    #[test]
-    fn test_invalid_public_inputs_length() {
-        let public_inputs = vec![0u8; 63]; // Wrong length
-        let parsed = parse_public_inputs(&public_inputs);
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_outputs_hash_calculation() {
-        let outputs = vec![
-            Output {
-                recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000,
-            },
-            Output {
-                recipient: "11111111111111111111111111111113".to_string(),
-                amount: 2000000,
-            },
-        ];
-
-        let hash1 = PublicInputs::calculate_outputs_hash(&outputs);
-        let hash2 = PublicInputs::calculate_outputs_hash(&outputs);
-        
-        assert!(hash1.is_ok());
-        assert!(hash2.is_ok());
-        assert_eq!(hash1.unwrap(), hash2.unwrap()); // Should be deterministic
-    }
-
-    #[test]
-    fn test_conservation_validation() {
-        let public_inputs = PublicInputs {
-            root: [0u8; 32],
-            nullifier: [0u8; 32],
-            fee_bps: 100, // 1%
-            outputs_hash: [0u8; 32],
-            amount: 1000000, // 1 SOL
-        };
-
-        let outputs = vec![
-            Output {
-                recipient: "11111111111111111111111111111112".to_string(),
-                amount: 990000, // 0.99 SOL (1% fee = 10,000 lamports)
-            },
-        ];
-
-        assert!(public_inputs.validate_conservation(&outputs).is_ok());
-
-        // Test invalid conservation
-        let invalid_outputs = vec![
-            Output {
-                recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000, // Too much - doesn't account for fee
-            },
-        ];
-
-        assert!(public_inputs.validate_conservation(&invalid_outputs).is_err());
-    }
-} 

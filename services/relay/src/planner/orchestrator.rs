@@ -1,7 +1,7 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::planner::{build_public_inputs_104, calculate_fee};
@@ -29,7 +29,6 @@ pub struct OrchestrateResponse {
     pub recipient_amount: u64,
 }
 
-
 pub async fn orchestrate_withdraw(
     State(state): State<AppState>,
     Json(req): Json<OrchestrateRequest>,
@@ -55,13 +54,17 @@ pub async fn orchestrate_withdraw(
     let fee = calculate_fee(req.amount);
     let recipient_amount = req.amount.saturating_sub(fee);
     if recipient_amount == 0 {
-        return Err(Error::ValidationError("recipient amount would be zero".into()));
+        return Err(Error::ValidationError(
+            "recipient amount would be zero".into(),
+        ));
     }
     let recipient_bytes = bs58::decode(&req.recipient)
         .into_vec()
         .map_err(|e| Error::ValidationError(format!("invalid recipient base58: {}", e)))?;
     if recipient_bytes.len() != 32 {
-        return Err(Error::ValidationError("recipient must decode to 32 bytes".into()));
+        return Err(Error::ValidationError(
+            "recipient must decode to 32 bytes".into(),
+        ));
     }
     let mut outputs_hasher = Hasher::new();
     outputs_hasher.update(&recipient_bytes);
@@ -98,7 +101,10 @@ pub async fn orchestrate_withdraw(
         .nullifier_repo
         .create_nullifier(nf_arr.to_vec(), job.id)
         .await;
-    state.queue.enqueue(JobMessage::new(job.id, request_id)).await?;
+    state
+        .queue
+        .enqueue(JobMessage::new(job.id, request_id))
+        .await?;
 
     info!("Orchestrated withdraw job {} queued", job.id);
     Ok(Json(OrchestrateResponse {

@@ -1,9 +1,13 @@
-use axum::{extract::{Path, State}, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    response::IntoResponse,
+    Json,
+};
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{AppState, error::Error, db::repository::JobRepository, queue::{JobMessage, JobQueue}};
+use crate::{db::repository::JobRepository, error::Error, queue::JobMessage, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct ProveLocalRequest {
@@ -31,7 +35,9 @@ pub async fn prove_local(
         .ok_or_else(|| Error::NotFound)?;
 
     if job.public_inputs.len() != 104 {
-        return Err(Error::ValidationError("job public inputs must be 104 bytes".into()));
+        return Err(Error::ValidationError(
+            "job public inputs must be 104 bytes".into(),
+        ));
     }
     // Build public JSON from columns
     let root_hex = hex::encode(&job.root_hash);
@@ -79,7 +85,10 @@ pub async fn prove_local(
         .await?;
 
     // Enqueue for submission immediately
-    state.queue.enqueue(JobMessage::new(job_id, job.request_id)).await?;
+    state
+        .queue
+        .enqueue(JobMessage::new(job_id, job.request_id))
+        .await?;
 
     info!("Local proof generated for job {}", job_id);
     Ok(Json(ProveLocalResponse {
@@ -89,4 +98,3 @@ pub async fn prove_local(
         status: "proof_ready".into(),
     }))
 }
-
