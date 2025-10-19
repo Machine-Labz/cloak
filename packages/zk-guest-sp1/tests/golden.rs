@@ -61,13 +61,6 @@ struct TestMerklePath {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct TestCircuitInputs {
-    pub private: TestPrivateInputs,
-    pub public: TestPublicInputs,
-    pub outputs: Vec<TestOutput>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct TestOutput {
     pub address: String, // Base58 or hex string
     pub amount: u64,
