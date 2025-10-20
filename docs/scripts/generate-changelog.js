@@ -16,6 +16,39 @@ const path = require('path');
 const OUTPUT_FILE = path.join(__dirname, '../docs/CHANGELOG.md');
 const REPO_URL = 'https://github.com/Machine-Labz/cloak';
 
+// Get file changes for a specific commit
+function getCommitFiles(hash) {
+  try {
+    const stats = execSync(
+      `git show --numstat --format="" ${hash}`,
+      { encoding: 'utf-8', cwd: path.join(__dirname, '../..') }
+    );
+    
+    const files = [];
+    const lines = stats.trim().split('\n');
+    
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      
+      const parts = line.split('\t');
+      if (parts.length >= 3) {
+        const additions = parts[0] === '-' ? 0 : parseInt(parts[0]) || 0;
+        const deletions = parts[1] === '-' ? 0 : parseInt(parts[1]) || 0;
+        const filename = parts[2];
+        
+        // Skip very large file changes (likely generated files)
+        if (additions > 1000 || deletions > 1000) continue;
+        
+        files.push({ filename, additions, deletions });
+      }
+    }
+    
+    return files;
+  } catch (error) {
+    return [];
+  }
+}
+
 // Get git log with formatted output
 function getGitLog(count = 50) {
   try {
@@ -50,7 +83,8 @@ function getGitLog(count = 50) {
     
     return log.split('\n').map(line => {
       const [hash, author, date, message] = line.split('|');
-      return { hash, author, date, message };
+      const files = getCommitFiles(hash);
+      return { hash, author, date, message, files };
     }).filter(commit => commit.hash && commit.message);
   } catch (error) {
     console.error('Error fetching git log:', error.message);
@@ -155,11 +189,39 @@ View the complete history on [GitHub](${REPO_URL}/commits/master).
       });
     });
     
+    // Helper function to format commit with files
+    const formatCommit = (c) => {
+      let output = `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+      
+      if (c.files && c.files.length > 0) {
+        const totalAdditions = c.files.reduce((sum, f) => sum + f.additions, 0);
+        const totalDeletions = c.files.reduce((sum, f) => sum + f.deletions, 0);
+        
+        output += `  <details>\n`;
+        output += `  <summary>📂 <strong>${c.files.length} file${c.files.length > 1 ? 's' : ''} changed</strong>: `;
+        output += `<span className="text-green-500">+${totalAdditions}</span> / `;
+        output += `<span className="text-red-500">-${totalDeletions}</span></summary>\n\n`;
+        output += `  | File | Changes |\n`;
+        output += `  |------|--------|\n`;
+        
+        c.files.forEach(f => {
+          const fileName = f.filename.length > 50 
+            ? '...' + f.filename.slice(-47) 
+            : f.filename;
+          output += `  | \`${fileName}\` | <span className="text-green-500">+${f.additions}</span> / <span className="text-red-500">-${f.deletions}</span> |\n`;
+        });
+        
+        output += `\n  </details>\n`;
+      }
+      
+      return output;
+    };
+    
     // Output by category
     if (categorized.features.length > 0) {
       markdown += `### ✨ Features\n\n`;
       categorized.features.forEach(c => {
-        markdown += `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+        markdown += formatCommit(c);
       });
       markdown += '\n';
     }
@@ -167,7 +229,7 @@ View the complete history on [GitHub](${REPO_URL}/commits/master).
     if (categorized.fixes.length > 0) {
       markdown += `### 🐛 Bug Fixes\n\n`;
       categorized.fixes.forEach(c => {
-        markdown += `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+        markdown += formatCommit(c);
       });
       markdown += '\n';
     }
@@ -175,7 +237,7 @@ View the complete history on [GitHub](${REPO_URL}/commits/master).
     if (categorized.documentation.length > 0) {
       markdown += `### 📚 Documentation\n\n`;
       categorized.documentation.forEach(c => {
-        markdown += `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+        markdown += formatCommit(c);
       });
       markdown += '\n';
     }
@@ -183,7 +245,7 @@ View the complete history on [GitHub](${REPO_URL}/commits/master).
     if (categorized.refactoring.length > 0) {
       markdown += `### ♻️ Refactoring\n\n`;
       categorized.refactoring.forEach(c => {
-        markdown += `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+        markdown += formatCommit(c);
       });
       markdown += '\n';
     }
@@ -191,7 +253,7 @@ View the complete history on [GitHub](${REPO_URL}/commits/master).
     if (categorized.maintenance.length > 0 && categorized.maintenance.length <= 5) {
       markdown += `### 🔧 Maintenance\n\n`;
       categorized.maintenance.forEach(c => {
-        markdown += `- ${c.cleanMessage} ([${c.hash.substring(0, 7)}](${REPO_URL}/commit/${c.hash}))\n`;
+        markdown += formatCommit(c);
       });
       markdown += '\n';
     }
