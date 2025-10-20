@@ -103,6 +103,7 @@ const sidebars: SidebarsConfig = {
         'roadmap',
         'overview/status',
         'COMPLETE_FLOW_STATUS',
+        'CHANGELOG',
       ],
     },
   ],

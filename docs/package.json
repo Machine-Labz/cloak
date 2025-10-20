@@ -5,9 +5,11 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
-    "build": "docusaurus build",
+    "build": "node scripts/generate-changelog.js && docusaurus build",
+    "build:no-changelog": "docusaurus build",
     "serve": "docusaurus serve",
-    "swizzle": "docusaurus swizzle"
+    "swizzle": "docusaurus swizzle",
+    "changelog": "node scripts/generate-changelog.js"
   },
   "dependencies": {
     "@docusaurus/core": "3.9.2",
