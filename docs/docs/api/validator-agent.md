@@ -87,4 +87,4 @@ Submits a signed Solana transaction (base64) for broadcast.
 - **`fee_caps`** – Optional guardrails on priority and total fees (string-encoded u64).
 - **`payer_hints.use_jito`** – Toggle for Jito bundle submission.
 
-Refer to [`validator-agent.yaml`](./validator-agent.yaml) for exhaustive schema definitions, rate-limit headers, and error models.
+All request and response schemas follow standard JSON encoding with hex/base64 representations for binary data. Rate limits and error codes are documented in the endpoint descriptions above.

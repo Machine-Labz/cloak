@@ -57,4 +57,4 @@ if let Some(claim) = claim_finder.find_claim(&batch_hash).await? {
 - Workers log successful claims with miner pubkeys and expiry slots.
 - Use the CLI `cloak-miner status` to inspect active claims (`revealed`, `consumed`, `expires_at`).
 
-Refer to the detailed implementation notes in [`POW_WILDCARD_IMPLEMENTATION.md`](../POW_WILDCARD_IMPLEMENTATION.md) and [`READY_FOR_YOU.md`](https://github.com/cloak-labz/cloak/blob/main/READY_FOR_YOU.md) for context.
+For additional context, refer to the [Wildcard Mining Overview](../pow/overview.md) and [Integration Guide](../POW_INTEGRATION_GUIDE.md).

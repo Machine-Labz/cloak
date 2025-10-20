@@ -16,11 +16,11 @@ Cloak is a privacy-preserving exit router for Solana. It combines zero-knowledge
 
 ## Major Components
 
-- **Zero-Knowledge Layer** – `packages/zk-guest-sp1` (guest and host), `packages/vkey-generator`, `packages/cloak-proof-extract`.
-- **On-Chain Programs** – `programs/shield-pool`, `programs/shield-pool-upstream`, `programs/scramble-registry`.
-- **Off-Chain Services** – `services/indexer`, `services/relay`, `services/web`.
-- **Proof-of-Work Miner** – `packages/cloak-miner` mines wildcard claims that the relay consumes.
-- **Tooling & Tests** – `tooling/test` for integration helpers, root-level runbooks, metrics, and operational guides.
+- **Zero-Knowledge Layer** – SP1 guest and host programs, verification key generation, proof extraction utilities.
+- **On-Chain Programs** – Shield Pool (privacy pool), Scramble Registry (wildcard claims).
+- **Off-Chain Services** – Indexer (Merkle tree management), Relay (transaction submission).
+- **Wildcard Miner** – Proof-of-work claim generation for prioritized withdrawals.
+- **Tooling & Tests** – Integration test suite for localnet and testnet validation.
 
 ## Repository Layout
 
@@ -35,10 +35,10 @@ Cloak is a privacy-preserving exit router for Solana. It combines zero-knowledge
 
 ## Feature Pillars
 
-1. **Shield Pool Withdrawals** – Users prove they own a commitment in the Merkle tree and withdraw to arbitrary recipients with enforced fee policy.
-2. **Wildcard PoW Pipeline** – Miners submit 256-bit BLAKE3 preimages registered in the scramble registry. Relay workers locate wildcard claims to prioritize exits.
-3. **SP1 Groth16 Proofs** – Succinct Labs' SP1 guest program produces Groth16 proofs verified on-chain via `sp1-solana`.
-4. **Auditable Infrastructure** – Structured logging, metrics, and runbooks cover the full validator/relayer operations story.
+1. **Privacy-Preserving Withdrawals** – Zero-knowledge proofs enable unlinkable withdrawals to arbitrary recipients with cryptographically enforced fee policies.
+2. **Wildcard Mining System** – Economic incentives through BLAKE3 proof-of-work claims enable prioritized transaction processing.
+3. **On-Chain ZK Verification** – SP1 Groth16 proofs verified on-chain via `sp1-solana`, ensuring trustless privacy guarantees.
+4. **Production Infrastructure** – Comprehensive testing, metrics, and operational tooling for reliable deployment.
 
 ## Next Steps
 

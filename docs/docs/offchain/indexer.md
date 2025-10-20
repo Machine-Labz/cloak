@@ -91,6 +91,5 @@ Use `curl http://localhost:3001/health` to verify it is running.
 
 ## Related Documentation
 
-- [`docs/nonzk/indexer.md`](../nonzk/indexer.md) – Historical TypeScript implementation notes.
-- [`POW_DOC_UPDATES_SUMMARY.md`](../POW_DOC_UPDATES_SUMMARY.md) – PoW related updates intersecting the indexer.
 - [`RUNBOOK.md`](../operations/runbook.md) – Operational guidance for validators running shared indexers.
+- [`Wildcard Mining Overview`](../pow/overview.md) – Integration with wildcard claims system.

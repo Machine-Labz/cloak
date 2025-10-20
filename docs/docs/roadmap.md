@@ -1,9 +1,9 @@
 ---
-title: Roadmap (ZK-first)
-description: Milestone tracking for Cloak across Merkle, ZK, on-chain, and relay deliverables.
+title: Project Roadmap
+description: Development milestones for the Cloak privacy protocol.
 ---
 
-# Roadmap (ZK-first)
+# Project Roadmap
 
 ## ✅ COMPLETED MILESTONES
 
@@ -40,16 +40,21 @@ description: Milestone tracking for Cloak across Merkle, ZK, on-chain, and relay
 
 ## 🔮 FUTURE ENHANCEMENTS
 
-**M4 – Relay + API (2–4 days)**
-- `POST /withdraw`, `GET /status/:id`, queue (no Jito)
-- Mint receipt (optional)
+**M4 – Enhanced Relay Service**
+- Advanced transaction management APIs
+- Status tracking and job queuing
+- Transaction receipt system
 
-**M5 – Hardening (1 sprint)**
-- Encoding invariants, rate limits, metrics, threat-model doc
+**M5 – Security Hardening**
+- Comprehensive rate limiting
+- Enhanced monitoring and metrics
+- Extended threat modeling documentation
 
-**M6 – Frontend Integration**
-- User interface for deposits/withdrawals
-- Wallet integration
+**M6 – User Interface**
+- Web application for deposits and withdrawals
+- Wallet integration and key management
+- Transaction history and analytics
 
-**M7 – Multi-token Support**
-- Beyond SOL to other SPL tokens
+**M7 – Multi-Asset Support**
+- SPL token integration
+- Cross-token privacy pools

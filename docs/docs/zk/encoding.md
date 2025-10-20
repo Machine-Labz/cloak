@@ -2,7 +2,7 @@
 
 **Hash function:** BLAKE3-256, digest 32 bytes (using standard `blake3` crate).
 
-## Fee Structure (Updated January 2025)
+## Fee Structure
 
 - **Deposits:** 0% fee
 - **Withdrawals:** 0.5% variable + 0.0025 SOL fixed

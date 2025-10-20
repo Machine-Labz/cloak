@@ -64,4 +64,4 @@ Environment variables mirror the flags (`CLOAK_NETWORK`, `SOLANA_RPC_URL`, `SCRA
 - `instructions/` encodes scramble registry instructions.
 - `rpc/` module abstracts Solana RPC queries for slot hashes and account data.
 
-Refer to [`pow/overview.md`](../pow/overview.md) and [`POW_WILDCARD_IMPLEMENTATION.md`](../POW_WILDCARD_IMPLEMENTATION.md) for protocol-level context.
+For protocol-level context, refer to the [Wildcard Mining Overview](../pow/overview.md) and [Integration Guide](../POW_INTEGRATION_GUIDE.md).

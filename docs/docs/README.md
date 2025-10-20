@@ -1,13 +1,14 @@
-# Cloak Docs
+# Cloak Documentation
 
-This folder is the developer guide. Start here:
+Comprehensive developer documentation for the Cloak privacy protocol.
 
-- **🎉 Complete Flow Status:** `COMPLETE_FLOW_STATUS.md` - **PRODUCTION READY**
-- **Glossary:** `glossary.md`
-- **Roadmap:** `roadmap.md` - **ALL CORE MILESTONES COMPLETE**
-- **Changelog:** `CHANGELOG.md` - **Recent changes and improvements**
-- **ZK Layer (start here):** `zk/README.md`
-- **Non-ZK stubs:** `non-zk/` (Index/Relay/Frontend responsibilities & done criteria)
+## 📚 Getting Started
+
+- **[Introduction](overview/introduction.md)** - High-level overview and system goals
+- **[Quickstart](overview/quickstart.md)** - Set up your local development environment
+- **[System Architecture](overview/system-architecture.md)** - Component-level system design
+- **[Complete Flow Status](COMPLETE_FLOW_STATUS.md)** - Current production status
+- **[Zero-Knowledge Layer](zk/README.md)** - Protocol internals and ZK circuit design
 
 ## 🚀 Quick Start
 
@@ -20,10 +21,9 @@ just test-testnet   # Test on testnet
 
 **Program ID:** `c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp`
 
-## 🆕 Recent Updates (January 2025)
+## ⚡ Key Features
 
-- **Fee Structure Optimized:** 0% deposits, 0.5% + 0.0025 SOL withdrawals
-- **Test Architecture Reorganized:** Moved to `tooling/test/` with separate localnet/testnet binaries
-- **Dependency Fixes:** Replaced `solana-blake3-hasher` with standard `blake3` crate
-- **Indexer Bug Fixes:** Fixed `getMaxLeafIndex()` logic for proper leaf assignment
-- **Dual Network Support:** Both localnet and testnet testing fully operational
+- **Privacy-Preserving Withdrawals:** Deposit and withdraw SOL without linking transactions
+- **Zero-Knowledge Proofs:** SP1-powered Groth16 proofs verified on-chain
+- **Wildcard Mining:** Economic incentives through proof-of-work claims
+- **Production Ready:** Fully functional end-to-end privacy protocol

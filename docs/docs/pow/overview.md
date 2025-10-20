@@ -1,11 +1,11 @@
 ---
-title: Proof-of-Work Overview
-description: Orientation for the Wildcard PoW subsystem, including registry accounts, miner flow, and relay wiring.
+title: Wildcard Mining System
+description: Economic incentive layer for prioritized transaction processing through proof-of-work claims.
 ---
 
-# Proof-of-Work Overview
+# Wildcard Mining System
 
-The Wildcard PoW subsystem ensures withdraw throughput by requiring miners to pre-compute expendable claims. This page summarises the moving pieces and points to the detailed documents in this section.
+The Wildcard Mining system provides economic incentives for maintaining transaction throughput in the Cloak privacy protocol. Miners generate BLAKE3 proof-of-work claims that enable prioritized withdraw processing.
 
 ## Components
 
@@ -33,11 +33,12 @@ The Wildcard PoW subsystem ensures withdraw throughput by requiring miners to pr
 - Miners fetch the target via RPC; lowering the value increases difficulty.
 - Operators can adjust via admin instruction (see `instructions/initialize.rs`).
 
-## Key Resources
+## Additional Resources
 
-- [`pow-architecture.md`](../pow-architecture.md) – Baseline architecture design.
-- [`POW_WILDCARD_IMPLEMENTATION.md`](../POW_WILDCARD_IMPLEMENTATION.md) – Wildcard extension and integration steps.
-- [`POW_QUICK_REFERENCE.md`](../POW_QUICK_REFERENCE.md) – Commands and API references for operators.
-- [`READY_FOR_YOU.md`](https://github.com/cloak-labz/cloak/blob/main/READY_FOR_YOU.md) – Implementation hand-off instructions.
+- [Quick Reference Guide](../POW_QUICK_REFERENCE.md) – Commands and API reference
+- [Integration Guide](../POW_INTEGRATION_GUIDE.md) – Integration with relay and shield pool
+- [Operations Guide](../operations/metrics-guide.md) – Metrics and monitoring
 
-For operational guidance and metrics, continue to the [PoW Metrics Guide](../operations/metrics-guide.md).
+## Economic Model
+
+Miners invest computational resources to generate claims, which are then consumed by users during withdrawals. This creates a marketplace for priority transaction processing while maintaining the security properties of the privacy protocol.

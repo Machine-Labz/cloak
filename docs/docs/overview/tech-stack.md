@@ -5,7 +5,7 @@ description: Summary of languages, frameworks, and external dependencies powerin
 
 # Technology Stack
 
-Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-preserving withdrawals. For a deep dive see [`TECH_STACK.md`](../TECH_STACK.md); this page highlights the essentials.
+Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-preserving withdrawals. This page provides a comprehensive overview of the technical stack and implementation details.
 
 ## Languages & Frameworks
 

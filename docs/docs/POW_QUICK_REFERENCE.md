@@ -313,10 +313,9 @@ protocol_share_retained: u64       // Cumulative protocol revenue
 
 ## 📚 Further Reading
 
-- **Full Spec**: `docs/pow-scrambler-gate.md`
-- **Architecture**: `docs/pow-architecture.md`
-- **Implementation Status**: `docs/pow-implementation-status.md`
-- **Update Summary**: `docs/POW_DOC_UPDATES_SUMMARY.md`
+- **Wildcard Mining Overview**: [pow/overview.md](pow/overview.md)
+- **Integration Guide**: [POW_INTEGRATION_GUIDE.md](POW_INTEGRATION_GUIDE.md)
+- **Operations Guide**: [operations/metrics-guide.md](operations/metrics-guide.md)
 
 ---
 

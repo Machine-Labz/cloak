@@ -5,7 +5,7 @@ description: Sequence diagrams and ASCII representations for Cloak deposits, wit
 
 # Visual Flow
 
-The repository ships a detailed ASCII diagram in [`docs/VISUAL_FLOW.md`](../VISUAL_FLOW.md). This page highlights the key sequences and links to the full diagram for reference.
+This page provides visual representations of the deposit and withdraw flows with ASCII diagrams showing the key sequences and interactions between components.
 
 ## Deposit Path
 
@@ -32,4 +32,4 @@ The repository ships a detailed ASCII diagram in [`docs/VISUAL_FLOW.md`](../VISU
 
 ## Full Diagram
 
-For a complete ASCII diagram that combines the above steps, see [`docs/VISUAL_FLOW.md`](../VISUAL_FLOW.md). It also includes an extended withdraw sequence chart and cross-service interactions.
+The above diagrams illustrate the complete transaction flow, including extended withdraw sequences and cross-service interactions.
