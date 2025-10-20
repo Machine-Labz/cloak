@@ -1,5 +1,36 @@
 # PoW-Gated Scrambler System (Ore-Inspired)
 
+## Implementation Status
+
+**Last Updated**: 2025-10-19
+
+### ✅ Completed
+- ✅ **On-chain program** (`programs/scramble-registry/`): All instructions implemented and tested
+- ✅ **Shield-pool CPI integration**: Withdraw instruction calls `consume_claim` (lines 121-172)
+- ✅ **Relay transaction builders**: Both legacy (437B) and PoW-enabled (469B) variants
+- ✅ **Batch commitment**: Single-job hashing implemented (`packages/cloak-miner/`)
+- ✅ **PDA derivation**: Helper functions for all PDAs
+- ✅ **Error handling**: Complete error enum with PoW-specific errors
+
+### 🚧 In Progress
+- 🚧 **Off-chain miner**: `packages/cloak-miner/` has skeleton, needs integration with relay
+- 🚧 **Claim management**: Lifecycle tracking (mine → reveal → consume) needs relay integration
+- 🚧 **Fee distribution**: CPI implemented, but treasury → miner transfer needs wiring
+
+### 📋 Planned
+- 📋 **Multi-job batches** (k>1): Merkle tree and on-chain inclusion proofs
+- 📋 **Difficulty retargeting**: EMA-based adjustment algorithm
+- 📋 **Shield-pool program ID binding**: Store in registry, verify CPI caller
+- 📋 **Monitoring**: Metrics for claim pool health, mining success rate
+
+### 🔗 File References
+- On-chain: `programs/scramble-registry/src/`
+- Shield-pool: `programs/shield-pool/src/instructions/withdraw.rs`
+- Relay builders: `services/relay/src/solana/transaction_builder.rs`
+- Miner lib: `packages/cloak-miner/src/`
+
+---
+
 ## Overview
 
 The PoW-gated scrambler system provides **Sybil-resistant** access to withdraw batching rights using **slot-bound proof-of-work**. Scramblers earn fee shares by mining for the right to batch withdrawals, preventing spam, precomputation attacks, and ensuring fair access.
@@ -187,8 +218,30 @@ let batch_hash = BLAKE3([
 ```
 
 #### 2. **Job Commitment**
+
+**✅ IMPLEMENTED** (single-job batches): `packages/cloak-miner/src/batch.rs`
+
 ```rust
-// Per-job commitment (deterministic)
+/// Compute batch hash from job IDs
+pub fn compute_batch_hash(job_ids: &[String]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    for job_id in job_ids {
+        hasher.update(job_id.as_bytes());
+    }
+    *hasher.finalize().as_bytes()
+}
+
+/// Single-job convenience wrapper (MVP, k=1)
+pub fn compute_single_job_hash(job_id: &str) -> [u8; 32] {
+    compute_batch_hash(&[job_id.to_string()])
+}
+```
+
+**Current Status**: MVP uses **k=1** (one claim per job). The batch_hash is simply `BLAKE3(job_id)`.
+
+**Future Enhancement** (for k>1 batches): Merkle tree over job commits with on-chain inclusion proof verification:
+```rust
+// Per-job commitment (planned for multi-job batches)
 let job_commit = BLAKE3([
     b"CLOAK:JOB:v1",
     public_104,                       // 104-byte public inputs
@@ -199,8 +252,6 @@ let job_commit = BLAKE3([
 // Jobs root (Merkle tree over sorted job commits)
 jobs_root = merkle_root(sorted(job_commits));
 ```
-
-**Note**: In MVP, Merkle inclusion proofs are not enforced on-chain but can be added in future. Off-chain scramblers commit to jobs via `jobs_root`.
 
 #### 3. **Mining Loop** (Off-Chain)
 ```rust
@@ -278,21 +329,38 @@ loop {
 
 **CPI Ordering**: `consume_claim` is called **after** SP1 verification and all invariants, so a failing withdraw cannot increment consumption or leak rewards.
 
-2. **Fee Share Transfer**:
+2. **Fee Calculation** (explicit formula from `withdraw.rs` lines 101-109):
    ```rust
-   let scrambler_share = withdraw_fee
+   // Total fee computation
+   let fixed_fee = 2_500_000; // 0.0025 SOL
+   let variable_fee = (public_amount * 5) / 1_000; // 0.5% of public_amount
+   let total_fee = fixed_fee + variable_fee;
+   
+   // Conservation check
+   let recipient_amount = public_amount - total_fee;
+   ```
+   
+   **Key**: `public_amount` is the amount from public inputs (amount being withdrawn from pool).
+   `recipient_amount` = `public_amount` - `total_fee`.
+
+3. **Fee Share Transfer** (🚧 TODO: needs implementation):
+   ```rust
+   // After consume_claim succeeds, transfer scrambler share
+   let scrambler_share = total_fee
        .checked_mul(registry.fee_share_bps as u64)
        .unwrap()
        .checked_div(10_000)
        .unwrap();
 
-   // Transfer from pool/treasury to miner_authority
-   invoke_signed(
-       &system_instruction::transfer(treasury, miner_authority, scrambler_share),
-       &[treasury_info, miner_authority_info, system_program_info],
-       &[treasury_seeds],
-   )?;
+   // Transfer from treasury to miner_authority
+   // NOTE: Currently treasury receives full fee; scrambler share transfer TODO
+   unsafe {
+       *treasury_info.borrow_mut_lamports_unchecked() += total_fee - scrambler_share;
+       *miner_authority_info.borrow_mut_lamports_unchecked() += scrambler_share;
+   }
    ```
+   
+   **Current Status**: Shield-pool transfers `total_fee` to treasury (line 178). Scrambler fee share **not yet distributed** - this is a remaining TODO.
 
 ### Phase 4: Expiry Handling
 - **Not revealed in time**: Claim status remains `Mined`, expires automatically; no state cleanup needed (rent reclaim optional)
@@ -522,20 +590,213 @@ Break-even difficulty ≈ f(hardware, electricity price, fee level)
 
 **Total accounts**: 6 existing + 6 new = **12 accounts**
 
-### Withdraw Data Layout (Unchanged)
-- **437 bytes** after discriminant (same as before)
-- No changes to proof/public/recipient/amount encoding
-- PoW integration is purely account-level (CPIs, not data)
+### Withdraw Data Layout
+
+**Standard (no PoW)**: 437 bytes after discriminant
+```
+[proof:260][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8]
+```
+
+**With PoW**: 469 bytes after discriminant (adds 32-byte batch_hash)
+```
+[proof:260][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8][batch_hash:32]
+```
+
+**Current Implementation Status**:
+- Shield-pool withdraw **supports both layouts** (checks data.len())
+- Relay transaction builder has **both variants**:
+  - `build_withdraw_ix_body()` - 437 bytes (legacy)
+  - `build_withdraw_ix_body_with_pow()` - 469 bytes (PoW-enabled)
+- PoW path **fully implemented** in shield-pool (lines 121-172 of withdraw.rs)
 
 ### CPI Flow
-1. Shield-pool `withdraw` validates all invariants
-2. After SP1 verify + invariant checks pass, CPI to `scramble_registry::consume_claim`
-3. Scramble program transfers fee share to miner
-4. Withdraw completes normally
 
-**No breaking changes to existing withdraw logic**; PoW is an additive enhancement.
+**✅ FULLY IMPLEMENTED** in `programs/shield-pool/src/instructions/withdraw.rs` (lines 121-172):
 
-## Testing Appendix
+1. Shield-pool `withdraw` validates all invariants (SP1 proof, root, nullifier, outputs_hash, fee conservation)
+2. **After all checks pass**, extract PoW data:
+   ```rust
+   let batch_hash: &[u8; 32] = &*(data.as_ptr().add(437) as *const [u8; 32]);
+   let miner_authority: &[u8; 32] = &*(miner_data.as_ptr().add(8) as *const [u8; 32]);
+   ```
+3. Build `consume_claim` CPI instruction:
+   ```rust
+   // Instruction data: discriminator(1) + miner_authority(32) + batch_hash(32) = 65 bytes
+   let mut consume_ix_data = [0u8; 65];
+   consume_ix_data[0] = 4; // consume_claim discriminator
+   consume_ix_data[1..33].copy_from_slice(miner_authority);
+   consume_ix_data[33..65].copy_from_slice(batch_hash);
+   ```
+4. CPI to `scramble_registry::consume_claim` with accounts:
+   - `claim_pda` (writable)
+   - `miner_pda` (writable)
+   - `registry_pda` (writable)
+   - `pool_pda` (signer for CPI auth)
+   - `clock` (readonly)
+5. Scramble program verifies claim, increments consumed count, marks as Consumed if fully used
+6. Withdraw completes normally with lamport transfers
+
+**Security**: Failed SP1 verification or invariant check prevents CPI call entirely. Scramblers only earn fees for valid, successful withdraws.
+
+## Appendix A: Constants & Offsets Reference
+
+### Instruction Data Layouts
+
+#### Withdraw Instruction (discriminant = 2)
+```
+Legacy (437 bytes):
+  0-259:   SP1 proof (260 bytes)
+260-363:   Public inputs (104 bytes)
+364-395:   Nullifier duplicate (32 bytes)
+    396:   Number of outputs (1 byte, always 1 in MVP)
+397-428:   Recipient address (32 bytes)
+429-436:   Recipient amount (8 bytes, u64 LE)
+
+With PoW (469 bytes):
+  0-259:   SP1 proof (260 bytes)
+260-363:   Public inputs (104 bytes)
+364-395:   Nullifier duplicate (32 bytes)
+    396:   Number of outputs (1 byte, always 1 in MVP)
+397-428:   Recipient address (32 bytes)
+429-436:   Recipient amount (8 bytes, u64 LE)
+437-468:   Batch hash (32 bytes) ← NEW
+```
+
+#### Consume Claim CPI (discriminant = 4)
+```
+65 bytes total:
+   0:      Discriminator (1 byte, value = 4)
+ 1-32:     Miner authority (32 bytes)
+33-64:     Batch hash (32 bytes)
+```
+
+### PDA Seeds
+
+```rust
+// Shield Pool PDAs
+pool_pda:            [b"pool"]
+treasury_pda:        [b"treasury"]
+roots_ring_pda:      [b"roots_ring"]
+nullifier_shard_pda: [b"nullifier_shard"]
+
+// Scramble Registry PDAs
+registry_pda:        [b"scramble_registry"]
+miner_pda:           [b"miner", authority:32]
+claim_pda:           [b"claim", miner_authority:32, batch_hash:32, slot_le:8]
+```
+
+### Fee Constants
+
+```rust
+// From shield-pool/src/instructions/withdraw.rs
+const FIXED_FEE: u64 = 2_500_000;           // 0.0025 SOL
+const VARIABLE_FEE_BPS: u64 = 5;            // 0.5% = 5/1000
+const VARIABLE_FEE_DIVISOR: u64 = 1_000;
+
+// Formula
+total_fee = FIXED_FEE + (public_amount * VARIABLE_FEE_BPS / VARIABLE_FEE_DIVISOR)
+recipient_amount = public_amount - total_fee
+
+// Example (1 SOL withdraw)
+public_amount = 1_000_000_000 lamports
+total_fee = 2_500_000 + (1_000_000_000 * 5 / 1_000) = 7_500_000 lamports (0.0075 SOL)
+recipient_amount = 992_500_000 lamports (0.9925 SOL)
+```
+
+### Compute Unit Limits
+
+```rust
+// From transaction_builder.rs
+const CU_LIMIT: u32 = 1_000_000;            // 1M CU per transaction
+
+// Estimated CU consumption (from spec)
+mine_claim:     ~30,000 CU  (BLAKE3 + SlotHashes + writes)
+reveal_claim:   ~10,000 CU  (minimal validation + state update)
+consume_claim:  ~15,000 CU  (arithmetic + counter updates)
+withdraw:      ~800,000 CU  (SP1 verify + merkle + CPI + transfers)
+```
+
+### Domain Tags (BLAKE3)
+
+```rust
+// PoW preimage
+const DOMAIN_POW: &[u8] = b"CLOAK:SCRAMBLE:v1";  // 17 bytes
+
+// Batch descriptor (future)
+const DOMAIN_BATCH: &[u8] = b"CLOAK:BATCH:v1";
+
+// Job commitment (future, for k>1 batches)
+const DOMAIN_JOB: &[u8] = b"CLOAK:JOB:v1";
+```
+
+### PoW Preimage Layout
+
+```rust
+// Fixed 137 bytes (129 without domain, includes domain in spec)
+// Note: Spec says 129 bytes, but includes 17-byte domain = 137 total
+DOMAIN             17 bytes   b"CLOAK:SCRAMBLE:v1"
+slot                8 bytes   u64 LE
+slot_hash          32 bytes   from SlotHashes sysvar
+miner_pubkey       32 bytes   from Miner.authority
+batch_hash         32 bytes   BLAKE3(job_ids)
+nonce              16 bytes   u128 LE
+-----
+Total             137 bytes
+```
+
+### Account Sizes (Rent-Exempt Minimums)
+
+```rust
+// Scramble Registry State Accounts
+ScrambleRegistry:  196 bytes  (~0.0014 SOL rent-exempt)
+Miner:              72 bytes  (~0.0006 SOL rent-exempt)
+Claim:             256 bytes  (~0.0019 SOL rent-exempt)
+
+// Shield Pool State Accounts (for reference)
+Pool:              ~100 bytes
+RootsRing:         ~2KB (stores 1024 roots)
+NullifierShard:    ~variable (grows with nullifiers)
+```
+
+### Time Windows (Default Values from Spec)
+
+```rust
+// SlotHashes retention
+SLOT_HASHES_WINDOW: ~300 slots  (~2.5 minutes at 400ms/slot)
+
+// Claim lifecycle windows (configurable in registry)
+reveal_window:      150 slots   (~1 minute default)
+claim_window:       300 slots   (~2 minutes default)
+
+// Difficulty retargeting (planned)
+target_interval:    600 slots   (~4 minutes default, 1 solution per interval)
+retarget_frequency: 1000 slots  (~6.7 minutes) or 100 solutions
+```
+
+### Error Codes
+
+#### Shield Pool Errors (0x1000-0x1070 range)
+```rust
+0x1064: InvalidMinerAccount
+0x1065: InvalidClaimAccount  
+0x1066: ConsumClaimFailed
+```
+
+#### Scramble Registry Errors (from error.rs)
+```rust
+0: InvalidProofHash
+1: DifficultyNotMet
+2: SlotHashMismatch
+3: SlotHashNotFound
+4: RevealWindowExpired
+5: ClaimWindowExpired
+17: UnauthorizedMiner
+24: BatchHashMismatch
+```
+
+---
+
+## Appendix B: Testing & Golden Vectors
 
 ### Test Vectors
 
@@ -668,11 +929,220 @@ programs/shield-pool-upstream/src/
     └── withdraw.rs                    # Add consume_claim CPI
 ```
 
-## Next Actions
-1. ✅ Design specification complete
-2. Create `programs/scramble-registry/` skeleton
-3. Implement state structs with exact sizes
-4. Implement `mine_claim` with SlotHashes verification
-5. Add BLAKE3 + u256 difficulty comparison utils
-6. Write unit tests with test vectors
-7. Build off-chain miner in Relay
+## Next Actions: MVP Completion Punch-List
+
+### Critical Path (Must Complete for PoW-Gated Withdraws)
+
+#### 1. ✅ Shield-Pool Program ID Binding
+**Status**: 🚧 Partially Complete
+**Files**: 
+- `programs/scramble-registry/src/state/registry.rs` - Add `shield_pool_program: Pubkey` field
+- `programs/scramble-registry/src/instructions/initialize.rs` - Accept program ID as param
+- `programs/scramble-registry/src/instructions/consume_claim.rs` - Verify CPI caller
+
+**Changes Needed**:
+```rust
+// In ScrambleRegistry
+pub shield_pool_program: Pubkey,  // NEW: store authorized caller
+
+// In consume_claim (line 35-38)
+// Replace generic "is_signer" check with:
+if shield_pool_program.key() != registry.shield_pool_program() {
+    return Err(ScrambleError::UnauthorizedCaller.into());
+}
+```
+
+#### 2. 🚧 Fee Share Distribution
+**Status**: TODO
+**File**: `programs/shield-pool/src/instructions/withdraw.rs`
+
+**Changes Needed** (after line 172, before line 174):
+```rust
+// After consume_claim CPI succeeds, split fee
+unsafe {
+    // Fetch registry to get fee_share_bps
+    let registry_data = registry_pda_info.try_borrow_data()?;
+    let fee_share_bps = u16::from_le_bytes(
+        registry_data[80..82].try_into().unwrap() // Offset to fee_share_bps
+    );
+    
+    let scrambler_share = (total_fee as u128 * fee_share_bps as u128 / 10_000) as u64;
+    let protocol_share = total_fee - scrambler_share;
+    
+    // Extract miner authority from miner PDA (offset 8)
+    let miner_data = miner_pda_info.try_borrow_data()?;
+    let miner_authority_bytes: &[u8; 32] = &*(miner_data.as_ptr().add(8) as *const [u8; 32]);
+    let miner_authority = Pubkey::from(miner_authority_bytes);
+    
+    // Distribute fees
+    *treasury_info.borrow_mut_lamports_unchecked() += protocol_share;
+    // Transfer scrambler_share to miner_authority (needs account in withdraw accounts)
+}
+```
+
+**Account Changes**: Add `miner_authority_account` to withdraw instruction accounts (writable).
+
+#### 3. 🚧 Relay Worker Integration
+**Status**: Transaction builders ready, worker needs update
+**File**: `services/relay/src/worker/processor.rs` (or equivalent)
+
+**Changes Needed**:
+```rust
+use crate::solana::transaction_builder::{
+    build_withdraw_transaction_with_pow,
+    derive_scramble_registry_pdas,
+};
+
+// In withdraw handler
+async fn process_withdraw_job(&mut self, job: WithdrawJob) -> Result<()> {
+    // 1. Compute batch hash for this job (k=1 for MVP)
+    let batch_hash = cloak_miner::batch::compute_single_job_hash(&job.id);
+    
+    // 2. Get or mine claim (TODO: implement ClaimManager)
+    let (claim_pda, mined_slot) = self.claim_manager
+        .get_or_mine_claim(&batch_hash)
+        .await?;
+    
+    // 3. Derive PoW PDAs
+    let (registry_pda, miner_pda, _) = derive_scramble_registry_pdas(
+        &self.config.scramble_registry_program_id,
+        &self.config.miner_keypair.pubkey(),
+        &batch_hash,
+        mined_slot,
+    );
+    
+    // 4. Build transaction with PoW
+    let tx = build_withdraw_transaction_with_pow(
+        proof, public_inputs, recipient, amount, batch_hash,
+        shield_pool_program, pool_pda, roots_ring, nullifier_shard, treasury, recipient,
+        scramble_registry_program, claim_pda, miner_pda, registry_pda,
+        fee_payer, blockhash, priority_fee,
+    )?;
+    
+    // 5. Submit and track
+    self.submit_tx(tx).await?;
+    self.claim_manager.record_consume(&batch_hash);
+    Ok(())
+}
+```
+
+#### 4. 🚧 ClaimManager Implementation
+**Status**: Skeleton exists in `packages/cloak-miner/`, needs relay integration
+**New File**: `services/relay/src/claim_manager.rs`
+
+**Core API**:
+```rust
+pub struct ClaimManager {
+    rpc_client: RpcClient,
+    miner_keypair: Keypair,
+    registry_program_id: Pubkey,
+    active_claims: HashMap<[u8; 32], ClaimState>,
+}
+
+impl ClaimManager {
+    /// Get existing usable claim or mine+reveal new one
+    pub async fn get_or_mine_claim(&mut self, batch_hash: &[u8; 32]) 
+        -> Result<(Pubkey, u64)>;
+    
+    /// Record that a claim was consumed (decrement available count)
+    pub fn record_consume(&mut self, batch_hash: &[u8; 32]);
+    
+    /// Background task: monitor and refresh claims before expiry
+    pub async fn maintain_pool(&mut self);
+}
+```
+
+**Integration**: 
+- Add to relay `Config`: `miner_keypair_path`, `scramble_registry_program_id`
+- Initialize in `main.rs`, share via `Arc<Mutex<ClaimManager>>`
+
+#### 5. 📋 SlotHashes Verification Enhancement
+**Status**: Basic implementation exists, needs robustness
+**File**: `programs/scramble-registry/src/instructions/mine_claim.rs`
+
+**Current**: Checks if slot_hash matches SlotHashes entry.
+**Enhance**: Add clear error messages for:
+- Slot too old (>300 slots)
+- Slot not yet in SlotHashes
+- SlotHashes parse failure
+
+#### 6. 📋 Testing & Validation
+**Files**: Create integration tests
+
+**Tests Needed**:
+- [ ] Full flow: mine → reveal → withdraw → consume
+- [ ] Claim expiry handling
+- [ ] Fee distribution verification
+- [ ] Batch hash mismatch rejection
+- [ ] Unauthorized CPI rejection
+
+**Test Environment**: Use Mollusk or solana-program-test with both programs deployed.
+
+---
+
+### Optional Enhancements (Post-MVP)
+
+#### A. Multi-Job Batches (k>1)
+- Implement Merkle tree over job commits
+- Add on-chain inclusion proof verification
+- Batch coordination in relay
+
+#### B. Difficulty Retargeting
+- Implement EMA-based adjustment algorithm
+- Add `retarget_difficulty` instruction
+- Automate retargeting (cron or permissionless trigger)
+
+#### C. Monitoring & Observability
+- Prometheus metrics: claim pool size, mine success rate, fee distribution
+- Alerts: claim expiry, mining failures
+- Dashboard: difficulty trend, active claims
+
+#### D. Multi-Threaded Mining
+- Parallelize nonce search across CPU cores
+- GPU acceleration for high difficulty
+
+---
+
+## Quick Start for Next Developer
+
+### 1. Test Current State
+```bash
+# Build all programs
+anchor build
+
+# Run scramble-registry tests
+cargo test -p scramble-registry
+
+# Run cloak-miner tests
+cargo test -p cloak-miner
+```
+
+### 2. Deploy to Localnet
+```bash
+# Start validator
+solana-test-validator
+
+# Deploy programs
+anchor deploy
+
+# Initialize registry
+programs/scramble-registry/init-localnet.sh
+```
+
+### 3. Complete Fee Distribution
+See **Critical Path #2** above - add fee split logic after line 172 in `withdraw.rs`.
+
+### 4. Wire Up Relay
+See **Critical Path #3** above - update worker to use `build_withdraw_transaction_with_pow`.
+
+### 5. Test End-to-End
+```bash
+# Mine a claim
+cloak-miner mine --timeout 30
+
+# Submit withdraw via relay API
+curl -X POST http://localhost:3000/api/withdraw -d '{...}'
+
+# Verify claim consumed
+solana account <claim_pda>
+```

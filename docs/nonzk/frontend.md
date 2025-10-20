@@ -11,4 +11,4 @@
 
 ## Done criteria
 - Byte-level encoding matches `docs/zk/encoding.md`
-- Smooth UX for scanning and proof generation (<~1.5s target per proof on a laptop)
+- Smooth UX for scanning and proof generation (target under 1.5s per proof on a laptop)

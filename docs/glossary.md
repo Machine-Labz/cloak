@@ -1,3 +1,8 @@
+---
+title: Glossary
+description: Core protocol terms, hashes, and fee definitions used by Cloak components.
+---
+
 # Glossary
 
 - **Note:** spendable record (amount + secrets).

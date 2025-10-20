@@ -202,7 +202,7 @@ Networks:    Localnet, Testnet, Devnet
 
 ## 🔗 Related Documentation
 
-- **[../README.md](../README.md)** - Project overview
+- **[README.md](./README.md)** - Project overview
 - **[roadmap.md](./roadmap.md)** - Future plans
 - **[glossary.md](./glossary.md)** - Term definitions
 - **[CHANGELOG.md](./CHANGELOG.md)** - Recent changes
@@ -233,5 +233,4 @@ This provides **practical privacy** on Solana while maintaining **security** and
 **Last Updated**: January 2025  
 **Status**: ✅ Production Ready
 
-For questions or contributions, see the main [README](../README.md).
-
+For questions or contributions, see the main [README](./README.md).

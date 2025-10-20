@@ -1,3 +1,8 @@
+---
+title: Roadmap (ZK-first)
+description: Milestone tracking for Cloak across Merkle, ZK, on-chain, and relay deliverables.
+---
+
 # Roadmap (ZK-first)
 
 ## ✅ COMPLETED MILESTONES

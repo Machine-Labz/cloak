@@ -1,3 +1,8 @@
+---
+title: Changelog
+description: Release notes and component-level updates across the Cloak stack.
+---
+
 # Changelog
 
 ## January 2025
