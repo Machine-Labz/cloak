@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Production build
+build/
+.docusaurus/
+
+# Generated files
+.DS_Store
+.cache/
+.temp/
+
+# Yarn
+.yarn/
+.pnp.*

@@ -10,7 +10,7 @@ This directory hosts the Docusaurus configuration for the Cloak documentation po
 ## Install
 
 ```bash
-cd docs-site
+cd docs
 npm install
 ```
 
@@ -30,7 +30,7 @@ This launches the documentation site at `http://localhost:3000/` with hot reload
 npm run build
 ```
 
-Produces the static site output in `docs-site/build/`.
+Produces the static site output in `docs/build/`.
 
 ## Preview Production Build
 
@@ -38,15 +38,16 @@ Produces the static site output in `docs-site/build/`.
 npm run serve
 ```
 
-Serves the previously built site from `docs-site/build/`.
+Serves the previously built site from `docs/build/`.
 
 ## Directory Layout
 
-- `docusaurus.config.ts` – site configuration referencing Markdown docs in `../docs`
+- `docusaurus.config.ts` – site configuration referencing Markdown docs in `./docs`
 - `sidebars.ts` – navigation structure covering every Cloak component
 - `src/pages/index.mdx` – landing page for the documentation portal
 - `src/css/custom.css` – theme customisations
 - `static/` – static assets (logo, etc.)
+- `docs/` – all documentation markdown files
 
 ## Next Steps
 

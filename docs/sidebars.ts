@@ -46,10 +46,9 @@ const sidebars: SidebarsConfig = {
       label: 'Proof-of-Work & Miner',
       items: [
         'pow/overview',
-        'pow-architecture',
         'pow-scrambler-gate',
-        'pow-implementation-status',
         'POW_ARCHITECTURE_FIXED',
+        'POW_CORRECT_ARCHITECTURE',
         'POW_DOC_UPDATES_SUMMARY',
         'POW_QUICK_REFERENCE',
         'POW_WILDCARD_IMPLEMENTATION',

@@ -10,14 +10,14 @@ Cloak is a **privacy-preserving exit router** on Solana. This repo hosts the who
 
 ## Quick links
 
-- ZK overview: `docs/zk/README.md`
-- Circuit spec: `docs/zk/circuit-withdraw.md`
-- Encoding contract: `docs/zk/encoding.md`
-- Merkle tree & proofs: `docs/zk/merkle.md`
-- SP1 prover details: `docs/zk/prover-sp1.md`
-- On-chain verifier & program: `docs/zk/onchain-verifier.md`
-- API contracts (Indexer/Relay): `docs/zk/api-contracts.md`
-- Threat model: `docs/zk/threat-model.md`
-- Roadmap: `docs/roadmap.md`
+- ZK overview: `docs/docs/zk/README.md`
+- Circuit spec: `docs/docs/zk/circuit-withdraw.md`
+- Encoding contract: `docs/docs/zk/encoding.md`
+- Merkle tree & proofs: `docs/docs/zk/merkle.md`
+- SP1 prover details: `docs/docs/zk/prover-sp1.md`
+- On-chain verifier & program: `docs/docs/zk/onchain-verifier.md`
+- API contracts (Indexer/Relay): `docs/docs/zk/api-contracts.md`
+- Threat model: `docs/docs/zk/threat-model.md`
+- Roadmap: `docs/docs/roadmap.md`
 
 > Build order (MVP): Merkle+Indexer → Deposit tx/event → SP1 withdraw circuit → On-chain verifier → Relay → Web wiring.

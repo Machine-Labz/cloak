@@ -24,7 +24,7 @@ const config: Config = {
       'classic',
       {
         docs: {
-          path: '../docs',
+          path: './docs',
           routeBasePath: 'docs',
           sidebarPath: require.resolve('./sidebars.ts'),
           editUrl: 'https://github.com/cloak-labz/cloak/edit/main/docs',
