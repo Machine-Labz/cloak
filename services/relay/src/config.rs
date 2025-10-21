@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -90,8 +91,11 @@ impl Config {
             )
             .build()?;
 
-        // Deserialize and return the configuration
-        settings.try_deserialize().map_err(Into::into)
+        let config = settings.try_deserialize::<Self>()?;
+
+        ensure_required_env_vars()?;
+
+        Ok(config)
     }
 }
 
@@ -101,9 +105,61 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        std::env::set_var("RELAY__SERVER__PORT", "4000");
+        let vars = [
+            ("RELAY__SERVER__PORT", "4000"),
+            (
+                "RELAY__DATABASE__URL",
+                "postgres://user:pass@localhost:5432/db",
+            ),
+            ("RELAY__SOLANA__RPC_URL", "https://api.testnet.solana.com"),
+            (
+                "RELAY__SOLANA__PROGRAM_ID",
+                "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp",
+            ),
+        ];
+
+        for (key, value) in vars.iter() {
+            std::env::set_var(key, value);
+        }
+
         let config = Config::load().unwrap();
         assert_eq!(config.server.port, 4000);
-        std::env::remove_var("RELAY__SERVER__PORT");
+
+        for (key, _) in vars.iter() {
+            std::env::remove_var(key);
+        }
     }
+}
+
+fn ensure_required_env_vars() -> anyhow::Result<()> {
+    let mut missing = Vec::new();
+
+    if !has_non_empty_env(&["RELAY__DATABASE__URL", "DATABASE_URL"]) {
+        missing.push("RELAY__DATABASE__URL (or DATABASE_URL)".to_string());
+    }
+
+    if !has_non_empty_env(&["RELAY__SOLANA__RPC_URL"]) {
+        missing.push("RELAY__SOLANA__RPC_URL".to_string());
+    }
+
+    if !has_non_empty_env(&["RELAY__SOLANA__PROGRAM_ID"]) {
+        missing.push("RELAY__SOLANA__PROGRAM_ID".to_string());
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Missing required environment variables: {}",
+            missing.join(", ")
+        ))
+    }
+}
+
+fn has_non_empty_env(keys: &[&str]) -> bool {
+    keys.iter().any(|key| {
+        std::env::var(key)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    })
 }

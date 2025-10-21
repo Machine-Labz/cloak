@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -62,33 +62,15 @@ pub struct Sp1TeeConfig {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        // Load .env file from the project root
-        let env_path = std::env::current_dir().ok().and_then(|dir| {
-            // Try multiple possible locations for .env file
-            let mut paths = vec![
-                dir.join(".env"),
-                dir.join("services").join("indexer").join(".env"),
-            ];
-
-            if let Some(parent) = dir.parent() {
-                paths.push(parent.join("services").join("indexer").join(".env"));
-            }
-
-            for path in paths.iter() {
-                if path.exists() && path.is_file() {
-                    return Some(path.clone());
-                }
-            }
-            None
-        });
-
-        if let Some(env_path) = env_path {
-            tracing::info!("Loading environment from: {:?}", env_path);
-            dotenvy::from_path(&env_path).ok();
-        } else {
-            tracing::warn!("No .env file found, using system environment variables only");
-            dotenvy::dotenv().ok(); // Fallback to default behavior
+        match dotenvy::dotenv() {
+            Ok(path) => tracing::info!("Loading environment from: {:?}", path),
+            Err(err) => tracing::warn!(
+                "No .env file found ({}), using system environment variables only",
+                err
+            ),
         }
+
+        ensure_required_env_vars()?;
 
         let config = Config {
             database: DatabaseConfig {
@@ -97,7 +79,9 @@ impl Config {
                 name: get_env_var("DB_NAME", "cloak_indexer"),
                 user: get_env_var("DB_USER", "cloak"), // Changed from postgres to cloak (Docker default)
                 password: get_env_var("DB_PASSWORD", "development_password_change_in_production"), // Added default password
-                url: std::env::var("DATABASE_URL").ok(),
+                url: std::env::var("INDEXER_DATABASE_URL")
+                    .or_else(|_| std::env::var("DATABASE_URL"))
+                    .ok(),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20)?,
                 min_connections: get_env_var_as_number("DB_MIN_CONNECTIONS", 2)?,
             },
@@ -200,6 +184,60 @@ impl Config {
     pub fn is_test(&self) -> bool {
         self.server.node_env == "test"
     }
+}
+
+fn ensure_required_env_vars() -> Result<()> {
+    let mut missing: Vec<String> = Vec::new();
+
+    if !has_non_empty_env(["INDEXER_DATABASE_URL", "DATABASE_URL"]) {
+        for key in ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"] {
+            if !has_non_empty_env([key]) {
+                missing.push(key.to_string());
+            }
+        }
+    }
+
+    for key in ["SOLANA_RPC_URL", "SHIELD_POOL_PROGRAM_ID"] {
+        if !has_non_empty_env([key]) {
+            missing.push(key.to_string());
+        }
+    }
+
+    let tee_enabled = std::env::var("SP1_TEE_ENABLED")
+        .unwrap_or_else(|_| "false".to_string())
+        .eq_ignore_ascii_case("true");
+
+    if tee_enabled {
+        for key in [
+            "SP1_TEE_WALLET_ADDRESS",
+            "SP1_TEE_RPC_URL",
+            "SP1_TEE_TIMEOUT_SECONDS",
+            "NETWORK_PRIVATE_KEY",
+        ] {
+            if !has_non_empty_env([key]) {
+                missing.push(key.to_string());
+            }
+        }
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        missing.sort();
+        missing.dedup();
+        Err(anyhow!(
+            "Missing required environment variables: {}",
+            missing.join(", ")
+        ))
+    }
+}
+
+fn has_non_empty_env<const N: usize>(keys: [&str; N]) -> bool {
+    keys.iter().any(|key| {
+        std::env::var(key)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    })
 }
 
 fn get_env_var(key: &str, default: &str) -> String {
