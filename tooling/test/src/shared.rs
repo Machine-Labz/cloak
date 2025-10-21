@@ -48,6 +48,11 @@ impl TestConfig {
             indexer_url: "http://localhost:3001".to_string(),
         }
     }
+
+    /// Check if this is a testnet configuration
+    pub fn is_testnet(&self) -> bool {
+        self.rpc_url.contains("testnet.solana.com")
+    }
 }
 
 /// Common test data structures
@@ -274,15 +279,14 @@ pub fn create_withdraw_instruction(
 ) -> Instruction {
     let mut data = Vec::new();
     data.push(ShieldPoolInstruction::Withdraw as u8); // Withdraw discriminator - Byte 0
-    data.extend_from_slice(proof_bytes); // Groth16 proof bytes - Bytes 1-260 (260 bytes)
-    data.extend_from_slice(raw_public_inputs); // Raw public inputs - Bytes 261-364 (104 bytes)
-    data.extend_from_slice(nullifier); // 32 bytes (for nullifier check) - Bytes 365-396
-    data.push(num_outputs); // 1 byte - Bytes 397
-    data.extend_from_slice(&recipient_pubkey.to_bytes()); // 32 bytes - Bytes 398-429
-    data.extend_from_slice(&recipient_amount.to_le_bytes()); // 8 bytes - Bytes 430-437
+    data.extend_from_slice(proof_bytes);
+    data.extend_from_slice(raw_public_inputs);
+    data.extend_from_slice(nullifier);
+    data.push(num_outputs);
+    data.extend_from_slice(&recipient_pubkey.to_bytes());
+    data.extend_from_slice(&recipient_amount.to_le_bytes());
 
     println!("   - Instruction data length: {} bytes", data.len());
-    println!("   - Expected length: 438 bytes (1 + 260 + 104 + 32 + 1 + 32 + 8)");
 
     Instruction {
         program_id: *program_id,

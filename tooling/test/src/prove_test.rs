@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     println!("🔐 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW WITH /PROVE ENDPOINT TEST");
     println!("====================================================================\n");
 
-    let config = TestConfig::localnet();
+    let config = TestConfig::testnet();
     print_config(&config);
 
     // Check cluster health
@@ -61,7 +61,12 @@ async fn main() -> Result<()> {
     // Load keypairs
     let user_keypair = load_keypair(&config.user_keypair_path)?;
     let recipient_keypair = load_keypair(&config.recipient_keypair_path)?;
-    let admin_keypair = load_keypair("admin-keypair.json")?;
+
+    // Use the correct admin keypair (upgrade authority at ~/.config/solana/id.json)
+    let admin_keypair_path = std::env::var("HOME")
+        .map(|home| format!("{}/.config/solana/id.json", home))
+        .unwrap_or_else(|_| "admin-keypair.json".to_string());
+    let admin_keypair = load_keypair(&admin_keypair_path)?;
 
     println!("\n💰 Checking balances...");
     let client = RpcClient::new(&config.rpc_url);
@@ -88,13 +93,42 @@ async fn main() -> Result<()> {
     // Ensure user has sufficient SOL
     ensure_user_funding(&config.rpc_url, &user_keypair, &admin_keypair)?;
 
-    // Deploy program
-    println!("\n🚀 Step 0: Deploying Program...");
-    let program_id = deploy_program(&client)?;
+    // Deploy program only on localnet; on testnet, use existing deployed program
+    let program_id = if config.is_testnet() {
+        println!(
+            "\n✅ Using existing program on testnet: {}",
+            config.program_id
+        );
+        Pubkey::from_str(&config.program_id)?
+    } else {
+        println!("\n🚀 Step 0: Deploying Program...");
+        deploy_program(&client)?
+    };
 
-    // Create program accounts
-    println!("\n📋 Step 1: Creating Program Accounts...");
-    let accounts = create_program_accounts(&client, &program_id, &admin_keypair)?;
+    // Create program accounts only on localnet; on testnet, they should already exist
+    let accounts = if config.is_testnet() {
+        println!("\n✅ Using existing program accounts on testnet...");
+        use test_complete_flow_rust::shared::get_pda_addresses;
+        let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
+            get_pda_addresses(&program_id);
+
+        println!("   - Pool PDA: {}", pool_pda);
+        println!("   - Commitments PDA: {}", commitments_pda);
+        println!("   - Roots Ring PDA: {}", roots_ring_pda);
+        println!("   - Nullifier Shard PDA: {}", nullifier_shard_pda);
+        println!("   - Treasury PDA: {}", treasury_pda);
+
+        ProgramAccounts {
+            pool: pool_pda,
+            commitments: commitments_pda,
+            roots_ring: roots_ring_pda,
+            nullifier_shard: nullifier_shard_pda,
+            treasury: treasury_pda,
+        }
+    } else {
+        println!("\n📋 Step 1: Creating Program Accounts...");
+        create_program_accounts(&client, &program_id, &admin_keypair)?
+    };
 
     // Reset indexer and relay databases
     println!("\n🔄 Step 2: Resetting Indexer and Relay Databases...");
@@ -620,8 +654,12 @@ fn validate_circuit_constraints_local(
         .map(|o| o["amount"].as_u64().unwrap())
         .sum();
 
-    // Fee calculation: 0.75% = 75 bps
-    let fee = (amount * 75) / 10000;
+    // Fee calculation must mirror on-chain logic: 0.0025 SOL + 0.5%
+    let fee = {
+        let fixed_fee = 2_500_000;
+        let variable_fee = (amount * 5) / 1_000;
+        fixed_fee + variable_fee
+    };
     let total_spent = outputs_sum + fee;
 
     println!("         ✓ Outputs sum: {} lamports", outputs_sum);
@@ -766,6 +804,7 @@ fn validate_prove_response(response: &ProveResponse) -> Result<()> {
         );
     } else {
         println!("   ✅ Proof size is correct (260 bytes)");
+        println!("   🔎 Proof prefix: {}", &proof[..8.min(proof.len())]);
     }
 
     // Validate public inputs size (should be 104 bytes = 208 hex chars)
@@ -875,8 +914,6 @@ fn deploy_program(_client: &RpcClient) -> Result<Pubkey> {
             "deploy",
             "--url",
             "http://127.0.0.1:8899",
-            "--keypair",
-            "admin-keypair.json",
             "--program-id",
             "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json",
             "target/deploy/shield_pool.so",
@@ -1314,21 +1351,32 @@ async fn execute_withdraw_via_relay(
     println!("      - outputs_hash: {}", outputs_hash_hex);
     println!("      - amount: {} lamports", amount);
 
-    // Prepare the withdraw request for the relay
+    // Prepare the withdraw request for the relay using current fee policy
+    let fixed_fee = 2_500_000u64;
+    let variable_fee = (test_data.amount.saturating_mul(5)) / 1_000; // 0.5%
+    let total_fee = fixed_fee.saturating_add(variable_fee);
+    let relay_recipient_amount = test_data.amount.saturating_sub(total_fee);
+    let effective_fee_bps = if test_data.amount == 0 {
+        0u16
+    } else {
+        let bps = ((total_fee.saturating_mul(10_000)) + test_data.amount - 1) / test_data.amount;
+        bps.min(u16::MAX as u64) as u16
+    };
+
     let outputs = vec![Output {
         recipient: recipient_keypair.pubkey().to_string(),
-        amount: test_data.amount - 7_500_000, // Subtract fee (0.75%)
+        amount: relay_recipient_amount,
     }];
 
     let policy = Policy {
-        fee_bps: 75, // 0.75%
+        fee_bps: effective_fee_bps,
     };
 
     let public_inputs_for_relay = PublicInputs {
         root: root_hex.to_string(),
         nf: nf_hex.to_string(),
         amount: test_data.amount,
-        fee_bps: 75,
+        fee_bps: effective_fee_bps,
         outputs_hash: outputs_hash_hex.to_string(),
     };
 
@@ -1344,15 +1392,12 @@ async fn execute_withdraw_via_relay(
         "      - outputs[0].recipient: {}",
         recipient_keypair.pubkey()
     );
-    println!(
-        "      - outputs[0].amount: {}",
-        test_data.amount - 7_500_000
-    );
-    println!("      - policy.fee_bps: 75");
+    println!("      - outputs[0].amount: {}", relay_recipient_amount);
+    println!("      - policy.fee_bps: {}", effective_fee_bps);
     println!("      - public_inputs.root: {}", root_hex);
     println!("      - public_inputs.nf: {}", nf_hex);
     println!("      - public_inputs.amount: {}", test_data.amount);
-    println!("      - public_inputs.fee_bps: 75");
+    println!("      - public_inputs.fee_bps: {}", effective_fee_bps);
     println!("      - public_inputs.outputs_hash: {}", outputs_hash_hex);
     println!("      - proof_bytes length: {}", proof_base64.len());
 

@@ -15,6 +15,14 @@ path = "src/testnet_test.rs"
 name = "prove-test"
 path = "src/prove_test.rs"
 
+[[bin]]
+name = "init-testnet"
+path = "src/bin/init_testnet.rs"
+
+[[bin]]
+name = "call-initialize"
+path = "src/bin/call_initialize.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
