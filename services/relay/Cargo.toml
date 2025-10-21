@@ -27,7 +27,9 @@ dotenvy = "0.15"
 
 # Logging and error handling
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+aws-config = "1.1"
+aws-sdk-cloudwatchlogs = "1.13"
 thiserror = "1.0"
 anyhow = "1.0"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "blocking"] }
@@ -43,9 +45,6 @@ sqlx = { version = "0.6", features = [
     "json",
     "offline",
 ] }
-
-# Redis for job queue
-redis = { version = "0.23", features = ["tokio-comp", "connection-manager"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -64,6 +63,9 @@ url = "2.4"
 
 # Random number generation
 fastrand = "2.0"
+
+# Hostname for machine identification
+hostname = "0.3"
 
 # Solana
 solana-sdk = { workspace = true }
