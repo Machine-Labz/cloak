@@ -30,3 +30,8 @@ Cloak is a **privacy-preserving exit router** on Solana. This repo hosts the who
 - Roadmap: `docs/roadmap.md`
 
 > Build order (MVP): Merkle+Indexer → Deposit tx/event → SP1 withdraw circuit → On-chain verifier → Relay → Web wiring.
+
+## 📚 Documentation Site
+
+- Run `yarn` inside `docs-site/` and `yarn start` to launch the Docusaurus portal backed by the markdown docs in `docs/`.
+- Generated site covers architecture, workflows, on-chain programs, services, PoW, tooling, and operations.

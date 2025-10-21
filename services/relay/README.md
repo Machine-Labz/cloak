@@ -20,7 +20,7 @@ The relay service is responsible for accepting withdraw requests with ZK proofs,
 
 - **ZK Proof Validation**: Validates SP1 proofs for withdraw requests
 - **Double-spend Prevention**: Tracks nullifiers to prevent double spending
-- **Job Queue**: Redis-based job queue with retry logic and exponential backoff
+- **Job Queue**: Database-backed job queue with retry logic and exponential backoff
 - **Transaction Submission**: Submits withdraw transactions to Solana with confirmation
 - **Observability**: Comprehensive metrics, logging, and health checks
 - **Database Persistence**: PostgreSQL for job state and nullifier storage
@@ -102,9 +102,6 @@ RELAY_SERVER__HOST=0.0.0.0
 # Database
 RELAY_DATABASE__URL=postgres://postgres:postgres@localhost:5432/relay
 
-# Redis
-RELAY_REDIS__URL=redis://localhost:6379
-
 # Solana
 RELAY_SOLANA__RPC_URL=http://127.0.0.1:8899
 RELAY_SOLANA__PROGRAM_ID=your-program-id
@@ -116,7 +113,6 @@ RELAY_SOLANA__PROGRAM_ID=your-program-id
 
 - Rust 1.70+
 - PostgreSQL 15+
-- Redis 7+
 - Docker & Docker Compose (optional)
 
 ### Quick Start
@@ -148,15 +144,9 @@ RELAY_SOLANA__PROGRAM_ID=your-program-id
    # Migrations will run automatically on startup
    ```
 
-2. **Start Redis:**
-   ```bash
-   redis-server
-   ```
-
-3. **Configure environment:**
+2. **Configure environment:**
    ```bash
    export RELAY_DATABASE__URL=postgres://postgres:postgres@localhost:5432/relay
-   export RELAY_REDIS__URL=redis://localhost:6379
    export RELAY_SOLANA__RPC_URL=http://localhost:8899  # For local validator
    ```
 
@@ -166,7 +156,7 @@ The relay uses a robust job processing system:
 
 1. **Request Validation**: Validates proof format, public inputs, and business logic
 2. **Job Creation**: Creates a job record in PostgreSQL
-3. **Queue Enqueue**: Adds job to Redis priority queue
+3. **Queue Enqueue**: Enqueues job in Postgres with retry metadata
 4. **Background Processing**: Worker processes jobs asynchronously
 5. **Transaction Submission**: Submits transactions to Solana with retries
 6. **Status Updates**: Updates job status in database
@@ -229,7 +219,6 @@ Structured logging with tracing:
 
 The `/health` endpoint checks:
 - Database connectivity
-- Redis connectivity
 - Solana RPC connectivity
 
 ## Security Considerations
@@ -246,7 +235,6 @@ The `/health` endpoint checks:
 ```bash
 # Required
 RELAY_DATABASE__URL=postgres://user:pass@host:5432/relay
-RELAY_REDIS__URL=redis://host:6379
 RELAY_SOLANA__RPC_URL=https://api.mainnet-beta.solana.com
 RELAY_SOLANA__PROGRAM_ID=your-mainnet-program-id
 
@@ -277,7 +265,6 @@ Set up monitoring for:
 - Application metrics (Prometheus + Grafana)
 - Logs aggregation (ELK stack or similar)
 - Database monitoring
-- Redis monitoring
 - Solana network status
 
 ## Troubleshooting
@@ -289,30 +276,18 @@ Set up monitoring for:
    - Verify connection string
    - Check database exists
 
-2. **Redis connection failed**
-   - Check Redis is running
-   - Verify Redis URL
-   - Check network connectivity
-
-3. **Solana RPC errors**
+2. **Solana RPC errors**
    - Check RPC endpoint is accessible
    - Verify network (devnet/mainnet)
    - Check rate limits
 
-4. **Job processing stuck**
+3. **Job processing stuck**
    - Check worker is running
-   - Check Redis queue size
    - Check database job status
 
 ### Debug Commands
 
 ```bash
-# Check queue status
-redis-cli ZCARD relay:queue:jobs
-
-# Check processing queue
-redis-cli ZCARD relay:queue:processing
-
 # Check database jobs
 psql -d relay -c "SELECT status, COUNT(*) FROM jobs GROUP BY status;"
 
