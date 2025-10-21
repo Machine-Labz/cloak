@@ -21,23 +21,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Redis - For relay job queuing
-  redis:
-    image: redis:7-alpine
-    container_name: cloak-redis
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - cloak-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-
   # # Indexer Service
   # indexer:
   #   build:
@@ -78,20 +61,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
 volumes:
   cloak_postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-  indexer_logs:
-    driver: local
-  indexer_artifacts:
     driver: local
   relay_logs:
     driver: local
