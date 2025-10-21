@@ -70,7 +70,7 @@ curl -X POST http://localhost:3002/withdraw \
   }'
 ```
 
-The relay validates shapes, stores the job in PostgreSQL, and enqueues it in Redis.
+The relay validates shapes, stores the job in PostgreSQL, and marks it ready for workers via database metadata.
 
 Monitor job state:
 
@@ -80,7 +80,7 @@ curl http://localhost:3002/status/<request_id>
 
 ## 5. Worker Processing
 
-1. Pop job from Redis queue.
+1. Fetch the next eligible job from PostgreSQL.
 2. Reconstruct Solana instruction data, recomputing outputs hash and conservation checks.
 3. Fetch wildcard claims (if enabled) with `ClaimFinder`.
 4. Simulate the transaction to obtain compute unit usage.

@@ -39,7 +39,7 @@ At a high level, Cloak consists of four cooperating domains:
    - `vkey-generator` outputs the verification key hash stored in `shield-pool`.
 4. **Relay Workflow:**
    - Clients submit withdraw jobs to the relay.
-   - The relay validates inputs, checks nullifiers via PostgreSQL, and enqueues the job in Redis.
+   - The relay validates inputs, checks nullifiers via PostgreSQL, and marks the job ready for workers in the database.
    - Workers look up wildcard claims using `ClaimFinder` (scramble registry PoW) and assemble Solana transactions.
    - Transactions are simulated, broadcast, optionally via Jito, and confirmed.
 5. **PoW Miners:**
@@ -62,8 +62,7 @@ At a high level, Cloak consists of four cooperating domains:
 
 ## Key Storages
 
-- **PostgreSQL (`services/indexer`, `services/relay`)** – Merkle nodes, encrypted notes, job state, nullifiers.
-- **Redis** – High throughput queue for withdraw jobs with retry/backoff configuration.
+- **PostgreSQL (`services/indexer`, `services/relay`)** – Merkle nodes, encrypted notes, job state, nullifiers, retry metadata.
 - **Solana Accounts** – Pool PDA (funds), roots ring buffer, nullifier shards, scramble registry data.
 - **Filesystem (`packages/zk-guest-sp1/out/`)** – Proof artifacts generated during development/testing.
 

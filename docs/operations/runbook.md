@@ -17,7 +17,6 @@ Profiles below assume devnet/mainnet priorities and the default SLOs. Start with
 - Disk: 50–100 GB (logs + Postgres + OS)
 - Postgres: 1–2 vCPU, 2–4 GB RAM, 20+ GB SSD
   - Pool size: 10–20 connections; WAL on SSD
-- Redis: 1 vCPU, 1 GB RAM (queue only)
 - Outbound bandwidth: ≥50 Mbps sustained, low jitter
 - RPC access: 1–2 dedicated RPC endpoints (confirmed/finalized), rate limit ≥ 50 rps burst
 - Jito (optional): 1–2 bundle relays; ensure low latency path
@@ -28,7 +27,6 @@ Profiles below assume devnet/mainnet priorities and the default SLOs. Start with
 - Disk: 100–200 GB (proof artifacts + logs)
 - Postgres: 2–4 vCPU, 8 GB RAM, 50+ GB SSD
   - Enable auto-vacuum; tune shared_buffers (25% RAM)
-- Redis: 2 vCPU, 2–4 GB RAM
 - Outbound bandwidth: ≥100 Mbps; ensure consistent egress for Jito
 - GPU: not required for current SP1 pipeline (CPU proving). If moved to GPU/cloud prover, right-size accordingly.
 
@@ -40,7 +38,6 @@ Profiles below assume devnet/mainnet priorities and the default SLOs. Start with
 
 ### D. Dependencies
 - Postgres 14+
-- Redis 6+
 - Solana RPC(s) (confirmed and finalized)
 - Optional Jito bundle relay access
 - Indexer URL (if using a shared indexer) and artifacts route
@@ -57,7 +54,6 @@ Profiles below assume devnet/mainnet priorities and the default SLOs. Start with
 - Jitter: set `RELAY_JITTER_BLOCK_MS` (default 400 ms) to spread submissions
 - Database:
   - Postgres pool: 10–20 connections, statement timeout 10–30s
-  - Redis: persistence off for queue-only, notify-keyspace-events disabled
 
 ## 4) Alerting (Symptoms, Signals, Thresholds)
 

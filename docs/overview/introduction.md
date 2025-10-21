@@ -31,7 +31,7 @@ Cloak is a privacy-preserving exit router for Solana. It combines zero-knowledge
 | `programs/` | Solana BPF programs (Pinocchio) for shield pool and scramble registry. |
 | `services/` | Rust indexer, Rust relay, and Next.js web interface. |
 | `tooling/` | Shared testing utilities for localnet/testnet validation. |
-| `compose.yml` | Docker services for Postgres, Redis, and local dependencies. |
+| `compose.yml` | Docker services for Postgres and local dependencies. |
 
 ## Feature Pillars
 
