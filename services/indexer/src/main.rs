@@ -1,4 +1,5 @@
 mod artifacts;
+mod cloudwatch;
 mod config;
 mod database;
 mod error;
@@ -17,8 +18,8 @@ async fn main() -> Result<()> {
     // Load configuration
     let config = Config::from_env()?;
 
-    // Initialize logging
-    init_logging(&config)?;
+    // Initialize logging (now async to support CloudWatch)
+    init_logging(&config).await?;
 
     // Log configuration summary now that logging is ready
     config.log_summary();

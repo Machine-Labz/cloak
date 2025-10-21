@@ -3,7 +3,40 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 
-pub fn init_logging(config: &Config) -> anyhow::Result<()> {
+pub async fn init_logging(config: &Config) -> anyhow::Result<()> {
+    // Check if CloudWatch is enabled via environment variables
+    let cloudwatch_enabled = std::env::var("CLOUDWATCH_ENABLED")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    if cloudwatch_enabled {
+        // Get CloudWatch configuration from environment
+        let aws_access_key_id = std::env::var("AWS_ACCESS_KEY_ID")
+            .map_err(|_| anyhow::anyhow!("AWS_ACCESS_KEY_ID must be set when CLOUDWATCH_ENABLED=true"))?;
+        let aws_secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
+            .map_err(|_| anyhow::anyhow!("AWS_SECRET_ACCESS_KEY must be set when CLOUDWATCH_ENABLED=true"))?;
+        let aws_region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+        let log_group = std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
+
+        // Initialize CloudWatch logging
+        crate::cloudwatch::init_logging_with_cloudwatch(
+            &aws_access_key_id,
+            &aws_secret_access_key,
+            &aws_region,
+            &log_group,
+            &config.server.log_level,
+        )
+        .await?;
+    } else {
+        // Standard logging initialization
+        init_logging_standard(config)?;
+    }
+
+    Ok(())
+}
+
+fn init_logging_standard(config: &Config) -> anyhow::Result<()> {
     let level = parse_level(&config.server.log_level);
     let level_str = level_to_str(level);
 
