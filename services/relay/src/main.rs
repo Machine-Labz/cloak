@@ -1,5 +1,6 @@
 mod api;
 mod claim_manager;
+mod cloudwatch;
 mod config;
 mod db;
 mod error;
@@ -102,10 +103,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file (ignore error if file doesn't exist)
     let _ = dotenvy::dotenv();
 
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    // Check if CloudWatch is enabled via environment variables
+    let cloudwatch_enabled = std::env::var("CLOUDWATCH_ENABLED")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    if cloudwatch_enabled {
+        // Get CloudWatch configuration from environment
+        let aws_access_key_id = std::env::var("AWS_ACCESS_KEY_ID")
+            .expect("AWS_ACCESS_KEY_ID must be set when CLOUDWATCH_ENABLED=true");
+        let aws_secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
+            .expect("AWS_SECRET_ACCESS_KEY must be set when CLOUDWATCH_ENABLED=true");
+        let aws_region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+        let log_group = std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
+
+        // Initialize CloudWatch logging
+        cloudwatch::init_logging_with_cloudwatch(
+            &aws_access_key_id,
+            &aws_secret_access_key,
+            &aws_region,
+            &log_group,
+        )
+        .await?;
+    } else {
+        // Initialize standard tracing
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+    }
 
     info!("Starting Cloak Relay Service");
 
