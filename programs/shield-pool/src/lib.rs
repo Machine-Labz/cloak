@@ -1,9 +1,6 @@
 use crate::instructions::ShieldPoolInstruction;
 use five8_const::decode_32_const;
-use instructions::{
-    admin_push_root::process_admin_push_root_instruction, deposit::process_deposit_instruction,
-    withdraw::process_withdraw_instruction,
-};
+use instructions::*;
 use pinocchio::{
     account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
@@ -11,7 +8,6 @@ use pinocchio::{
 
 mod constants;
 mod error;
-// pub mod groth16;
 pub mod instructions;
 mod state;
 
@@ -20,8 +16,7 @@ pub use state::CommitmentQueue;
 #[cfg(test)]
 mod tests;
 
-// Shield Pool Program ID
-const ID: [u8; 32] = decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
+pub const ID: [u8; 32] = decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 
 program_entrypoint!(process_instruction);
 default_allocator!();
@@ -32,7 +27,8 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if program_id != &ID {
+    let expected_program_id = Pubkey::from(ID);
+    if program_id != &expected_program_id {
         return Err(ProgramError::IncorrectProgramId);
     }
 
@@ -41,10 +37,17 @@ pub fn process_instruction(
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     match ShieldPoolInstruction::try_from(instruction_discriminant)? {
-        ShieldPoolInstruction::Deposit => process_deposit_instruction(accounts, instruction_data),
-        ShieldPoolInstruction::AdminPushRoot => {
-            process_admin_push_root_instruction(accounts, instruction_data)
+        ShieldPoolInstruction::Deposit => {
+            deposit::process_deposit_instruction(accounts, instruction_data)
         }
-        ShieldPoolInstruction::Withdraw => process_withdraw_instruction(accounts, instruction_data),
+        ShieldPoolInstruction::AdminPushRoot => {
+            admin_push_root::process_admin_push_root_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::Withdraw => {
+            withdraw::process_withdraw_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::Initialize => {
+            initialize::process_initialize_instruction(accounts, instruction_data)
+        }
     }
 }

@@ -52,10 +52,14 @@ pub fn process_consume_claim_instruction(
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
 
-    // Anti-replay: verify batch_hash matches
-    if claim.batch_hash() != &expected_batch_hash {
-        msg!("Batch hash mismatch");
+    // Anti-replay: verify batch_hash matches (unless wildcard)
+    if !claim.is_wildcard() && claim.batch_hash() != &expected_batch_hash {
+        msg!("Batch hash mismatch (claim is not wildcard)");
         return Err(ScrambleError::BatchHashMismatch.into());
+    }
+
+    if claim.is_wildcard() {
+        msg!("Using wildcard claim (batch_hash check skipped)");
     }
 
     // Verify claim is consumable

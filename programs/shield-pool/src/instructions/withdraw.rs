@@ -1,25 +1,190 @@
 use crate::constants::{
-    PROOF_LEN, PROOF_OFF, PUB_AMOUNT_OFF, PUB_LEN, PUB_NF_OFF, PUB_OFF, PUB_OUT_HASH_OFF,
-    PUB_ROOT_OFF, RECIP_AMT_OFF, RECIP_OFF, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
+    DUPLICATE_NULLIFIER_LEN, NUM_OUTPUTS_LEN, POW_BATCH_HASH_LEN, PROOF_LEN, PUB_LEN,
+    RECIPIENT_ADDR_LEN, RECIPIENT_AMOUNT_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
 };
 use crate::error::ShieldPoolError;
 use crate::ID;
+use core::convert::TryInto;
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, program::invoke, ProgramResult,
+    account_info::AccountInfo, instruction::AccountMeta, program::invoke, pubkey::Pubkey,
+    ProgramResult,
 };
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
-pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    // Parse accounts - expecting: [pool, treasury, roots_ring, nullifier_shard, recipient, system,
-    //                              scramble_program, claim_pda, miner_pda, registry_pda, clock]
-    let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, ..] =
-        accounts
-    else {
-        return Err(ShieldPoolError::MissingAccounts.into());
+const BASE_TAIL_LEN: usize =
+    PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN + RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
+
+struct ParsedWithdraw<'a> {
+    proof: &'a [u8],
+    public_inputs: [u8; PUB_LEN],
+    root: [u8; 32],
+    nullifier: [u8; 32],
+    outputs_hash: [u8; 32],
+    public_amount: u64,
+    recipient_address: [u8; 32],
+    recipient_amount: u64,
+    batch_hash: Option<[u8; 32]>,
+}
+
+fn parse_withdraw_data<'a>(
+    data: &'a [u8],
+    expect_batch_hash: bool,
+) -> Result<ParsedWithdraw<'a>, ShieldPoolError> {
+    let tail_len = BASE_TAIL_LEN
+        + if expect_batch_hash {
+            POW_BATCH_HASH_LEN
+        } else {
+            0
+        };
+    if data.len() <= tail_len {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    let proof_len = data.len() - tail_len;
+    let (proof, remainder) = data.split_at(proof_len);
+    if proof.is_empty() {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    let (public_inputs_slice, remainder) = remainder.split_at(PUB_LEN);
+    let mut public_inputs = [0u8; PUB_LEN];
+    public_inputs.copy_from_slice(public_inputs_slice);
+
+    if proof.len() != PROOF_LEN {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    let (duplicate_nullifier_slice, remainder) = remainder.split_at(DUPLICATE_NULLIFIER_LEN);
+    let duplicate_nullifier: [u8; 32] = duplicate_nullifier_slice
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidInstructionData)?;
+
+    let (&num_outputs, remainder) = remainder
+        .split_first()
+        .ok_or(ShieldPoolError::InvalidInstructionData)?;
+    if num_outputs != 1 {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    let (recipient_address_slice, remainder) = remainder.split_at(RECIPIENT_ADDR_LEN);
+    let recipient_address: [u8; 32] = recipient_address_slice
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidInstructionData)?;
+
+    let (recipient_amount_slice, remainder) = remainder.split_at(RECIPIENT_AMOUNT_LEN);
+    let recipient_amount = u64::from_le_bytes(
+        recipient_amount_slice
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+    );
+
+    let batch_hash = if expect_batch_hash {
+        let (hash_slice, remainder) = remainder.split_at(POW_BATCH_HASH_LEN);
+        if !remainder.is_empty() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+        Some(
+            hash_slice
+                .try_into()
+                .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+        )
+    } else {
+        if !remainder.is_empty() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+        None
     };
 
-    // Pool should be program-owned for the program to modify its lamports
-    if pool_info.owner() != &ID {
+    let root: [u8; 32] = public_inputs[0..32]
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidInstructionData)?;
+    let nullifier: [u8; 32] = public_inputs[32..64]
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidInstructionData)?;
+    let outputs_hash: [u8; 32] = public_inputs[64..96]
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidInstructionData)?;
+    let public_amount = u64::from_le_bytes(
+        public_inputs[96..104]
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+    );
+
+    if duplicate_nullifier != nullifier {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+
+    Ok(ParsedWithdraw {
+        proof,
+        public_inputs,
+        root,
+        nullifier,
+        outputs_hash,
+        public_amount,
+        recipient_address,
+        recipient_amount,
+        batch_hash,
+    })
+}
+
+pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    let is_pow_mode = accounts.len() >= 12;
+
+    if is_pow_mode {
+        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, miner_authority_account, ..] =
+            accounts
+        else {
+            return Err(ShieldPoolError::MissingAccounts.into());
+        };
+
+        process_withdraw_pow_mode(
+            pool_info,
+            treasury_info,
+            roots_ring_info,
+            nullifier_shard_info,
+            recipient_account,
+            scramble_program_info,
+            claim_pda_info,
+            miner_pda_info,
+            registry_pda_info,
+            clock_sysvar_info,
+            miner_authority_account,
+            data,
+        )
+    } else {
+        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, ..] =
+            accounts
+        else {
+            return Err(ShieldPoolError::MissingAccounts.into());
+        };
+
+        process_withdraw_legacy_mode(
+            pool_info,
+            treasury_info,
+            roots_ring_info,
+            nullifier_shard_info,
+            recipient_account,
+            data,
+        )
+    }
+}
+
+fn process_withdraw_pow_mode(
+    pool_info: &AccountInfo,
+    treasury_info: &AccountInfo,
+    roots_ring_info: &AccountInfo,
+    nullifier_shard_info: &AccountInfo,
+    recipient_account: &AccountInfo,
+    scramble_program_info: &AccountInfo,
+    claim_pda_info: &AccountInfo,
+    miner_pda_info: &AccountInfo,
+    registry_pda_info: &AccountInfo,
+    clock_sysvar_info: &AccountInfo,
+    miner_authority_account: &AccountInfo,
+    data: &[u8],
+) -> ProgramResult {
+    let program_id = Pubkey::from(ID);
+    if pool_info.owner() != &program_id {
         return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
     }
     if !pool_info.is_writable() {
@@ -28,154 +193,236 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
     if !treasury_info.is_writable() {
         return Err(ShieldPoolError::TreasuryNotWritable.into());
     }
+    if roots_ring_info.owner() != &program_id {
+        return Err(ShieldPoolError::RootsRingOwnerNotProgramId.into());
+    }
+    if nullifier_shard_info.owner() != &program_id {
+        return Err(ShieldPoolError::NullifierShardOwnerNotProgramId.into());
+    }
+    if !nullifier_shard_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
     if !recipient_account.is_writable() {
         return Err(ShieldPoolError::RecipientNotWritable.into());
     }
-
-    // Instruction data consists of:
-    // 0 to 259: proof (260 bytes)
-    // 260 to 363: public inputs (104 bytes)
-    // 364 to 395: nullifier (32 bytes)
-    // 396: number of outputs (1 byte)
-    // 397 to 428: recipient address (32 bytes)
-    // 429 to 436: recipient amount (8 bytes)
-    // 437 to 468: batch_hash (32 bytes) - NEW for PoW
-    // Total length: 469
-    if data.len() < 469 {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+    if !miner_authority_account.is_writable() {
+        return Err(ShieldPoolError::InvalidMinerAccount.into());
     }
 
-    // Extract proof and public inputs using constants
-    let sp1_proof: &[u8] = &data[PROOF_OFF..(PROOF_OFF + PROOF_LEN)];
-    let raw_public_inputs: &[u8] = &data[PUB_OFF..(PUB_OFF + PUB_LEN)];
+    let parsed = parse_withdraw_data(data, true)?;
 
-    // Verify SP1 proof
-    // Use full 104-byte public inputs
-    // The SP1 guest program commits: root(32) + nf(32) + outputs_hash(32) + amount(8) = 104 bytes
-    let full_public_inputs = &raw_public_inputs[..SP1_PUB_LEN];
-
-    // Use SP1 verification with our circuit's verification key hash
     verify_proof(
-        sp1_proof,
-        full_public_inputs,
+        parsed.proof,
+        &parsed.public_inputs[..SP1_PUB_LEN],
         WITHDRAW_VKEY_HASH,
         GROTH16_VK_5_0_0_BYTES,
     )
     .map_err(|_| ShieldPoolError::ProofInvalid)?;
 
-    let (public_amount, recipient_amount, total_fee) = unsafe {
-        let public_amount =
-            *((raw_public_inputs.as_ptr().add(PUB_AMOUNT_OFF - PUB_OFF)) as *const u64);
-
-        let root = *((raw_public_inputs.as_ptr().add(PUB_ROOT_OFF - PUB_OFF)) as *const [u8; 32]);
-
-        let nf = *((raw_public_inputs.as_ptr().add(PUB_NF_OFF - PUB_OFF)) as *const [u8; 32]);
-
-        let outputs_hash_public =
-            *((raw_public_inputs.as_ptr().add(PUB_OUT_HASH_OFF - PUB_OFF)) as *const [u8; 32]);
-
-        let recipient_addr = *((data.as_ptr().add(RECIP_OFF)) as *const [u8; 32]);
-
-        let recipient_amount = *((data.as_ptr().add(RECIP_AMT_OFF)) as *const u64);
-
+    {
         let roots_ring = crate::state::RootsRing::from_account_info(roots_ring_info)?;
-        assert!(
-            roots_ring.contains_root(&root),
-            "Root not found in RootsRing"
-        );
-
-        let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
-        assert!(!shard.contains_nullifier(&nf), "Nullifier already used");
-
-        let mut buf = [0u8; 32 + 8];
-        buf[..32].copy_from_slice(&recipient_addr);
-        let outputs_hash_local = *blake3::hash(&buf).as_bytes();
-        if outputs_hash_local != outputs_hash_public {
-            return Err(ShieldPoolError::InvalidOutputsHash.into());
+        if !roots_ring.contains_root(&parsed.root) {
+            return Err(ShieldPoolError::RootNotFound.into());
         }
-
-        if recipient_amount > public_amount {
-            return Err(ShieldPoolError::InvalidAmount.into());
-        }
-
-        let expected_fee = {
-            let fixed_fee = 2_500_000; // 0.0025 SOL
-            let variable_fee = (public_amount * 5) / 1_000; // 0.5% = 5/1000
-            fixed_fee + variable_fee
-        };
-        let total_fee = public_amount - recipient_amount;
-        if total_fee != expected_fee {
-            return Err(ShieldPoolError::Conservation.into());
-        }
-
-        if pool_info.lamports() < public_amount {
-            return Err(ShieldPoolError::InsufficientLamports.into());
-        }
-
-        shard.add_nullifier(&nf)?;
-
-        (public_amount, recipient_amount, total_fee)
-    };
-
-    // PoW: Call consume_claim CPI before transfers
-    unsafe {
-        // Extract batch_hash from instruction data (bytes 437-468)
-        let batch_hash: &[u8; 32] = &*(data.as_ptr().add(437) as *const [u8; 32]);
-
-        // Extract miner authority from miner PDA account data
-        // Miner PDA layout: discriminator(8) + authority(32) + ...
-        let miner_data = miner_pda_info.try_borrow_data()?;
-        if miner_data.len() < 40 {
-            return Err(ShieldPoolError::InvalidMinerAccount.into());
-        }
-        let miner_authority: &[u8; 32] = &*(miner_data.as_ptr().add(8) as *const [u8; 32]);
-
-        // Build consume_claim instruction data
-        // Layout: discriminator(1) + miner_authority(32) + batch_hash(32) = 65 bytes
-        let mut consume_ix_data = [0u8; 65];
-        consume_ix_data[0] = 4; // consume_claim discriminator
-        consume_ix_data[1..33].copy_from_slice(miner_authority);
-        consume_ix_data[33..65].copy_from_slice(batch_hash);
-
-        // Build consume_claim instruction
-        // Accounts: [claim_pda(W), miner_pda(W), registry_pda(W), shield_pool(S), clock]
-        let account_metas = [
-            AccountMeta::writable(claim_pda_info.key()),
-            AccountMeta::writable(miner_pda_info.key()),
-            AccountMeta::writable(registry_pda_info.key()),
-            AccountMeta::readonly_signer(pool_info.key()),
-            AccountMeta::readonly(clock_sysvar_info.key()),
-        ];
-
-        let consume_ix = pinocchio::instruction::Instruction {
-            program_id: scramble_program_info.key(),
-            accounts: &account_metas,
-            data: &consume_ix_data,
-        };
-
-        // CPI to scramble-registry::consume_claim
-        // This will:
-        // 1. Verify claim is revealed and not expired
-        // 2. Verify miner_authority and batch_hash match (anti-replay)
-        // 3. Increment consumed_count
-        // 4. Mark as Consumed if fully used
-        invoke(
-            &consume_ix,
-            &[
-                claim_pda_info,
-                miner_pda_info,
-                registry_pda_info,
-                pool_info,
-                clock_sysvar_info,
-            ],
-        )?;
     }
 
-    // Perform lamport transfers
+    {
+        let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
+        if shard.contains_nullifier(&parsed.nullifier) {
+            return Err(ShieldPoolError::DoubleSpend.into());
+        }
+        shard.add_nullifier(&parsed.nullifier)?;
+    }
+
+    let mut hash_input = [0u8; RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN];
+    hash_input[..RECIPIENT_ADDR_LEN].copy_from_slice(&parsed.recipient_address);
+    hash_input[RECIPIENT_ADDR_LEN..].copy_from_slice(&parsed.recipient_amount.to_le_bytes());
+    let outputs_hash_local = blake3::hash(&hash_input);
+    if outputs_hash_local.as_bytes() != &parsed.outputs_hash {
+        return Err(ShieldPoolError::InvalidOutputsHash.into());
+    }
+
+    if parsed.recipient_amount > parsed.public_amount {
+        return Err(ShieldPoolError::InvalidAmount.into());
+    }
+
+    let expected_fee =
+        2_500_000u64.saturating_add((parsed.public_amount.saturating_mul(5)) / 1_000);
+    let total_fee = parsed.public_amount - parsed.recipient_amount;
+    if total_fee != expected_fee {
+        return Err(ShieldPoolError::Conservation.into());
+    }
+
+    if pool_info.lamports() < parsed.public_amount {
+        return Err(ShieldPoolError::InsufficientLamports.into());
+    }
+
+    let batch_hash = parsed
+        .batch_hash
+        .ok_or(ShieldPoolError::InvalidInstructionData)?;
+
+    let miner_data = miner_pda_info.try_borrow_data()?;
+    if miner_data.len() < 40 {
+        return Err(ShieldPoolError::InvalidMinerAccount.into());
+    }
+    let miner_authority: [u8; 32] = miner_data[8..40]
+        .try_into()
+        .map_err(|_| ShieldPoolError::InvalidMinerAccount)?;
+
+    let mut consume_ix_data = [0u8; 65];
+    consume_ix_data[0] = 4; // consume_claim discriminant
+    consume_ix_data[1..33].copy_from_slice(&miner_authority);
+    consume_ix_data[33..65].copy_from_slice(&batch_hash);
+
+    let account_metas = [
+        AccountMeta::writable(claim_pda_info.key()),
+        AccountMeta::writable(miner_pda_info.key()),
+        AccountMeta::writable(registry_pda_info.key()),
+        AccountMeta::readonly_signer(pool_info.key()),
+        AccountMeta::readonly(clock_sysvar_info.key()),
+    ];
+
+    let consume_ix = pinocchio::instruction::Instruction {
+        program_id: scramble_program_info.key(),
+        accounts: &account_metas,
+        data: &consume_ix_data,
+    };
+
+    invoke(
+        &consume_ix,
+        &[
+            claim_pda_info,
+            miner_pda_info,
+            registry_pda_info,
+            pool_info,
+            clock_sysvar_info,
+        ],
+    )?;
+
+    let registry_data = registry_pda_info.try_borrow_data()?;
+    if registry_data.len() < 98 {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+    let fee_share_bps = u16::from_le_bytes(
+        registry_data[96..98]
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+    );
+
+    let scrambler_share = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
+    let protocol_share = total_fee.saturating_sub(scrambler_share);
+
+    let pool_lamports = pool_info.lamports();
+    let recipient_lamports = recipient_account.lamports();
+    let treasury_lamports = treasury_info.lamports();
+    let miner_lamports = miner_authority_account.lamports();
+
     unsafe {
-        *pool_info.borrow_mut_lamports_unchecked() -= public_amount; // Move funds from pool to recipient
-        *recipient_account.borrow_mut_lamports_unchecked() += recipient_amount; // Move funds from pool to recipient
-        *treasury_info.borrow_mut_lamports_unchecked() += total_fee; // Move funds from pool to treasury
+        *pool_info.borrow_mut_lamports_unchecked() =
+            pool_lamports.saturating_sub(parsed.public_amount);
+        *recipient_account.borrow_mut_lamports_unchecked() =
+            recipient_lamports.saturating_add(parsed.recipient_amount);
+        *treasury_info.borrow_mut_lamports_unchecked() =
+            treasury_lamports.saturating_add(protocol_share);
+        *miner_authority_account.borrow_mut_lamports_unchecked() =
+            miner_lamports.saturating_add(scrambler_share);
+    }
+
+    Ok(())
+}
+
+fn process_withdraw_legacy_mode(
+    pool_info: &AccountInfo,
+    treasury_info: &AccountInfo,
+    roots_ring_info: &AccountInfo,
+    nullifier_shard_info: &AccountInfo,
+    recipient_account: &AccountInfo,
+    data: &[u8],
+) -> ProgramResult {
+    let program_id = Pubkey::from(ID);
+    if pool_info.owner() != &program_id {
+        return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
+    }
+    if !pool_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !treasury_info.is_writable() {
+        return Err(ShieldPoolError::TreasuryNotWritable.into());
+    }
+    if roots_ring_info.owner() != &program_id {
+        return Err(ShieldPoolError::RootsRingOwnerNotProgramId.into());
+    }
+    if nullifier_shard_info.owner() != &program_id {
+        return Err(ShieldPoolError::NullifierShardOwnerNotProgramId.into());
+    }
+    if !nullifier_shard_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !recipient_account.is_writable() {
+        return Err(ShieldPoolError::RecipientNotWritable.into());
+    }
+
+    let parsed = parse_withdraw_data(data, false)?;
+
+    verify_proof(
+        parsed.proof,
+        &parsed.public_inputs[..SP1_PUB_LEN],
+        WITHDRAW_VKEY_HASH,
+        GROTH16_VK_5_0_0_BYTES,
+    )
+    .map_err(|_| ShieldPoolError::ProofInvalid)?;
+
+    {
+        let roots_ring = crate::state::RootsRing::from_account_info(roots_ring_info)?;
+        if !roots_ring.contains_root(&parsed.root) {
+            return Err(ShieldPoolError::RootNotFound.into());
+        }
+    }
+
+    {
+        let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
+        if shard.contains_nullifier(&parsed.nullifier) {
+            return Err(ShieldPoolError::DoubleSpend.into());
+        }
+        shard.add_nullifier(&parsed.nullifier)?;
+    }
+
+    let mut hash_input = [0u8; RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN];
+    hash_input[..RECIPIENT_ADDR_LEN].copy_from_slice(&parsed.recipient_address);
+    hash_input[RECIPIENT_ADDR_LEN..].copy_from_slice(&parsed.recipient_amount.to_le_bytes());
+    let outputs_hash_local = blake3::hash(&hash_input);
+    if outputs_hash_local.as_bytes() != &parsed.outputs_hash {
+        return Err(ShieldPoolError::InvalidOutputsHash.into());
+    }
+
+    if parsed.recipient_amount > parsed.public_amount {
+        return Err(ShieldPoolError::InvalidAmount.into());
+    }
+
+    let expected_fee =
+        2_500_000u64.saturating_add((parsed.public_amount.saturating_mul(5)) / 1_000);
+    let total_fee = parsed.public_amount - parsed.recipient_amount;
+    if total_fee != expected_fee {
+        return Err(ShieldPoolError::Conservation.into());
+    }
+
+    if pool_info.lamports() < parsed.public_amount {
+        return Err(ShieldPoolError::InsufficientLamports.into());
+    }
+
+    let protocol_share = total_fee;
+
+    let pool_lamports = pool_info.lamports();
+    let recipient_lamports = recipient_account.lamports();
+    let treasury_lamports = treasury_info.lamports();
+
+    unsafe {
+        *pool_info.borrow_mut_lamports_unchecked() =
+            pool_lamports.saturating_sub(parsed.public_amount);
+        *recipient_account.borrow_mut_lamports_unchecked() =
+            recipient_lamports.saturating_add(parsed.recipient_amount);
+        *treasury_info.borrow_mut_lamports_unchecked() =
+            treasury_lamports.saturating_add(protocol_share);
     }
 
     Ok(())

@@ -176,7 +176,7 @@ pub struct NullifierShard(*mut u8);
 
 impl NullifierShard {
     pub const MIN_SIZE: usize = 4; // Just the count field
-    pub const MAX_NULLIFIERS: usize = 1000; // Reasonable limit for MVP
+    pub const MAX_NULLIFIERS: usize = 319; // Limited by 10KB CPI realloc cap
 
     #[inline(always)]
     pub fn from_account_info_unchecked(

@@ -441,4 +441,11 @@ impl Claim {
             && !self.is_expired(current_slot)
             && self.consumed_count() < self.max_consumes()
     }
+
+    /// Check if this claim is a wildcard (can be used for any batch)
+    /// Wildcard claims have batch_hash = [0; 32]
+    #[inline(always)]
+    pub fn is_wildcard(&self) -> bool {
+        self.batch_hash() == &[0u8; 32]
+    }
 }

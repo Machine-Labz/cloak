@@ -1,5 +1,5 @@
 use crate::{error::ShieldPoolError, state::CommitmentQueue};
-use pinocchio::{account_info::AccountInfo, ProgramResult};
+use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
 
 use pinocchio_system::instructions::Transfer;
 #[cfg(target_arch = "bpf")]
@@ -27,7 +27,8 @@ pub fn process_deposit_instruction(
         return Err(ShieldPoolError::BadAccounts.into());
     }
 
-    if pool.owner() != &crate::ID {
+    let program_id = Pubkey::from(crate::ID);
+    if pool.owner() != &program_id {
         return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
     }
 

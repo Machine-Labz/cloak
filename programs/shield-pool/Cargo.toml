@@ -32,3 +32,4 @@ mollusk-svm = "0.5.1"
 spl-token = "6.0.0"
 mollusk-svm-programs-token = "0.5.1"
 sp1-sdk.workspace = true
+cloak-proof-extract = { path = "../../packages/cloak-proof-extract" }
