@@ -43,11 +43,12 @@ serde_json = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
 
-# SP1 SDK for proof generation
+# SP1 SDK for proof generation and TEE support
 sp1-sdk = "5.2"
 
 # SP1 Host library for direct proof generation
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
+cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
 
 # Configuration and environment
 config = "0.14"
@@ -71,6 +72,9 @@ validator = { version = "0.18", features = ["derive"] }
 # Base64 encoding/decoding
 base64 = "0.22"
 
+# Binary serialization for SP1 proofs
+bincode = "1.3"
+
 # Async trait support
 async-trait = "0.1"
 
@@ -93,5 +97,3 @@ tempfile = "3.0"
 # Test database setup
 testcontainers = "0.15"
 testcontainers-modules = { version = "0.3", features = ["postgres"] }
-
-# Profile configuration moved to workspace root

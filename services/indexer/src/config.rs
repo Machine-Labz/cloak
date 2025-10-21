@@ -9,6 +9,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub merkle: MerkleConfig,
     pub artifacts: ArtifactsConfig,
+    pub sp1_tee: Sp1TeeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,9 +51,44 @@ pub struct ArtifactsConfig {
     pub sp1_version: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sp1TeeConfig {
+    pub enabled: bool,
+    pub wallet_address: String,
+    pub rpc_url: String,
+    pub timeout_seconds: u64,
+    pub private_key: Option<String>,
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
-        dotenvy::dotenv().ok(); // Load .env file if it exists
+        // Load .env file from the project root
+        let env_path = std::env::current_dir().ok().and_then(|dir| {
+            // Try multiple possible locations for .env file
+            let mut paths = vec![
+                dir.join(".env"),
+                dir.join("services").join("indexer").join(".env"),
+            ];
+
+            if let Some(parent) = dir.parent() {
+                paths.push(parent.join("services").join("indexer").join(".env"));
+            }
+
+            for path in paths.iter() {
+                if path.exists() && path.is_file() {
+                    return Some(path.clone());
+                }
+            }
+            None
+        });
+
+        if let Some(env_path) = env_path {
+            tracing::info!("Loading environment from: {:?}", env_path);
+            dotenvy::from_path(&env_path).ok();
+        } else {
+            tracing::warn!("No .env file found, using system environment variables only");
+            dotenvy::dotenv().ok(); // Fallback to default behavior
+        }
 
         let config = Config {
             database: DatabaseConfig {
@@ -87,6 +123,15 @@ impl Config {
                 base_path: PathBuf::from(get_env_var("ARTIFACTS_BASE_PATH", "./artifacts")),
                 sp1_version: get_env_var("SP1_VERSION", "v2.0.0"),
             },
+            sp1_tee: Sp1TeeConfig {
+                enabled: get_env_var("SP1_TEE_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                wallet_address: get_env_var("SP1_TEE_WALLET_ADDRESS", ""),
+                rpc_url: get_env_var("SP1_TEE_RPC_URL", "https://rpc.sp1-lumiere.xyz"),
+                timeout_seconds: get_env_var_as_number("SP1_TEE_TIMEOUT_SECONDS", 300)?,
+                private_key: std::env::var("NETWORK_PRIVATE_KEY").ok(),
+            },
         };
 
         // Validate configuration
@@ -103,7 +148,10 @@ impl Config {
             eprintln!("   Set DB_PASSWORD environment variable or use default: development_password_change_in_production");
         }
 
-        // Print configuration summary
+        Ok(())
+    }
+
+    pub fn log_summary(&self) {
         tracing::info!("Configuration loaded:");
         tracing::info!(
             "  Database: {}@{}:{}/{}",
@@ -118,8 +166,12 @@ impl Config {
             self.server.node_env
         );
         tracing::info!("  Merkle tree: height {}", self.merkle.tree_height);
-
-        Ok(())
+        tracing::info!(
+            "  SP1 TEE: enabled={}, wallet={}, private_key_present={}",
+            self.sp1_tee.enabled,
+            self.sp1_tee.wallet_address,
+            self.sp1_tee.private_key.is_some()
+        );
     }
 
     pub fn database_url(&self) -> String {

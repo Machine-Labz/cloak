@@ -2,24 +2,8 @@ use crate::config::Config;
 use crate::error::{IndexerError, Result};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::time::Duration;
-
-/// Mask password in connection string for logging
-fn mask_password(url: &str) -> String {
-    if let Some(idx) = url.find("://") {
-        let after_protocol = &url[idx + 3..];
-        if let Some(at_idx) = after_protocol.find('@') {
-            let before_at = &after_protocol[..at_idx];
-            if let Some(colon_idx) = before_at.find(':') {
-                let user = &before_at[..colon_idx];
-                let after_at = &after_protocol[at_idx..];
-                return format!("{}://{}:****{}", &url[..idx], user, after_at);
-            }
-        }
-    }
-    url.to_string()
-}
-
 #[derive(Clone)]
+
 pub struct Database {
     pool: Pool<Postgres>,
 }
@@ -58,12 +42,10 @@ impl Database {
                 config.database.host,
                 config.database.port
             );
-            tracing::error!("Connection string: {}", mask_password(&database_url));
             IndexerError::internal("Database connection timeout")
         })?
         .map_err(|e| {
             tracing::error!("Failed to connect to database: {}", e);
-            tracing::error!("Connection string: {}", mask_password(&database_url));
             tracing::error!("Possible issues:");
             tracing::error!("  1. PostgreSQL is not running");
             tracing::error!("  2. Wrong host/port");
@@ -79,10 +61,11 @@ impl Database {
                 .await
                 .map_err(IndexerError::Database)?;
 
+        tracing::info!("Database connection established");
         tracing::info!(
             current_time = %row.0,
             postgres_version = %row.1.split(' ').take(2).collect::<Vec<&str>>().join(" "),
-            "Database connection established"
+            "Database connection verified"
         );
 
         Ok(Database { pool })

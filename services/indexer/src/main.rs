@@ -5,6 +5,7 @@ mod error;
 mod logging;
 mod merkle;
 mod server;
+mod sp1_tee_client;
 
 use crate::config::Config;
 use crate::logging::init_logging;
@@ -18,6 +19,12 @@ async fn main() -> Result<()> {
 
     // Initialize logging
     init_logging(&config)?;
+
+    // Log configuration summary now that logging is ready
+    config.log_summary();
+
+    // Log service startup information
+    crate::logging::log_service_startup(&config);
 
     // Start the server
     if let Err(e) = start_server(config).await {

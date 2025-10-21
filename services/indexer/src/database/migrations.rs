@@ -2,7 +2,7 @@ use crate::error::{IndexerError, Result};
 use sqlx::{Acquire, Executor, Pool, Postgres, Row};
 
 pub async fn run_migrations(pool: &Pool<Postgres>) -> Result<()> {
-    tracing::info!("Starting database migrations");
+    tracing::info!("Running database migrations");
 
     // Create migrations tracking table
     create_migrations_table(pool).await?;

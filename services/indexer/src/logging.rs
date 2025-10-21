@@ -1,55 +1,77 @@
 use crate::config::Config;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 pub fn init_logging(config: &Config) -> anyhow::Result<()> {
-    let log_level = &config.server.log_level;
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new(format!("indexer={},cloak_indexer={}", log_level, log_level))
-    });
+    let level = parse_level(&config.server.log_level);
+    let level_str = level_to_str(level);
 
-    if config.is_production() {
-        // JSON logging for production with unbuffered output
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_target(true)
-                    .with_level(true)
-                    .with_thread_ids(true)
-                    .with_thread_names(true)
-                    .with_writer(std::io::stdout)
-                    .with_ansi(false)
-                    .with_filter(env_filter),
-            )
-            .init();
-    } else {
-        // Compact logging for development with unbuffered output
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .compact()
-                    .with_target(true)
-                    .with_level(true)
-                    .with_thread_ids(false)
-                    .with_thread_names(false)
-                    .with_writer(std::io::stdout)
-                    .with_ansi(false)
-                    .with_filter(env_filter),
-            )
-            .init();
-    }
+    let fallback_directives = format!("indexer={level},cloak_indexer={level}", level = level_str);
 
-    eprintln!("🔮 Cloak Indexer Service - Logging initialized");
-    eprintln!("   Environment: {}", config.server.node_env);
-    eprintln!("   Log Level: {}", log_level);
+    let combined_directives = match std::env::var("RUST_LOG") {
+        Ok(existing) if !existing.trim().is_empty() => {
+            if has_indexer_directive(&existing) {
+                existing
+            } else {
+                format!("{existing},{fallback_directives}")
+            }
+        }
+        _ => fallback_directives.clone(),
+    };
+
+    let env_filter = EnvFilter::try_new(combined_directives.as_str()).or_else(|err| {
+        eprintln!(
+            "Invalid RUST_LOG directives '{}': {}. Falling back to '{}'",
+            combined_directives, err, fallback_directives
+        );
+        EnvFilter::try_new(fallback_directives.as_str()).map_err(|fallback_err| {
+            anyhow::anyhow!(
+                "Failed to parse logging directives. Provided: '{}' ({}), fallback ('{}') error: {}",
+                combined_directives, err, fallback_directives, fallback_err
+            )
+        })
+    })?;
+
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_target(true)
+        .with_level(true)
+        .try_init()
+        .map_err(|e| anyhow::anyhow!("Failed to initialize tracing subscriber: {}", e))?;
 
     tracing::info!(
-        environment = config.server.node_env,
-        log_level = log_level,
+        log_level = level_str,
+        directives = %combined_directives,
         "Logging initialized"
     );
 
     Ok(())
+}
+
+fn parse_level(value: &str) -> LevelFilter {
+    value
+        .trim()
+        .parse::<LevelFilter>()
+        .unwrap_or(LevelFilter::INFO)
+}
+
+fn level_to_str(level: LevelFilter) -> &'static str {
+    match level {
+        LevelFilter::OFF => "off",
+        LevelFilter::ERROR => "error",
+        LevelFilter::WARN => "warn",
+        LevelFilter::INFO => "info",
+        LevelFilter::DEBUG => "debug",
+        LevelFilter::TRACE => "trace",
+    }
+}
+
+fn has_indexer_directive(value: &str) -> bool {
+    value.split(',').any(|directive| {
+        let directive = directive.trim();
+        directive.starts_with("indexer") || directive.starts_with("cloak_indexer")
+    })
 }
 
 // Custom tracing layer for request logging
@@ -159,6 +181,21 @@ pub fn log_startup_info(config: &Config) {
         database_name = config.database.name,
         solana_rpc = config.solana.rpc_url,
         "Cloak Indexer starting up"
+    );
+}
+
+// Enhanced startup logging similar to relay service
+pub fn log_service_startup(config: &Config) {
+    tracing::info!("Starting Cloak Indexer Service");
+
+    tracing::info!(
+        service = "cloak-indexer",
+        version = env!("CARGO_PKG_VERSION"),
+        tree_height = config.merkle.tree_height,
+        zero_value = config.merkle.zero_value,
+        solana_rpc = config.solana.rpc_url,
+        shield_pool_program_id = config.solana.shield_pool_program_id,
+        "Indexer service configuration loaded"
     );
 }
 

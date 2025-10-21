@@ -18,27 +18,62 @@ pub async fn logging_middleware(request: Request<axum::body::Body>, next: Next) 
         .unwrap_or("unknown")
         .to_string();
 
+    let client_ip = request
+        .headers()
+        .get("x-forwarded-for")
+        .or_else(|| request.headers().get("x-real-ip"))
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    tracing::info!(
+        method = %method,
+        uri = %uri,
+        user_agent = %user_agent,
+        client_ip = %client_ip,
+        "📥 Incoming request"
+    );
+
     // Process the request
     let response = next.run(request).await;
 
     let duration = start.elapsed();
     let status = response.status();
 
-    crate::log_request!(
-        method.as_str(),
-        uri.path(),
-        status.as_u16(),
-        duration.as_millis() as u64
-    );
-
-    tracing::info!(
-        method = %method,
-        uri = %uri,
-        status = status.as_u16(),
-        duration_ms = duration.as_millis(),
-        user_agent = %user_agent,
-        "Request processed"
-    );
+    // Log completion with detailed information
+    if status.is_success() {
+        tracing::info!(
+            method = %method,
+            uri = %uri,
+            status = status.as_u16(),
+            duration_ms = duration.as_millis(),
+            "✅ Request completed successfully"
+        );
+    } else if status.is_client_error() {
+        tracing::warn!(
+            method = %method,
+            uri = %uri,
+            status = status.as_u16(),
+            duration_ms = duration.as_millis(),
+            "⚠️ Client error response"
+        );
+    } else if status.is_server_error() {
+        tracing::error!(
+            method = %method,
+            uri = %uri,
+            status = status.as_u16(),
+            duration_ms = duration.as_millis(),
+            "❌ Server error response"
+        );
+    } else {
+        tracing::info!(
+            method = %method,
+            uri = %uri,
+            status = status.as_u16(),
+            duration_ms = duration.as_millis(),
+            "📤 Request completed"
+        );
+    }
 
     response
 }
