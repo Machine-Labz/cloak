@@ -4,7 +4,7 @@ use anyhow::Result;
 use sp1_sdk::Prover;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 
-const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
+pub const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
 
 /// SP1 proof generation result
 #[derive(Debug)]
@@ -55,11 +55,6 @@ pub fn generate_proof(
             let total_cycles = report.total_instruction_count();
             let total_syscalls = report.total_syscall_count();
             let execution_report = format!("{}", report); // Full formatted report
-
-            println!("📊 SP1 Execution Report:");
-            println!("   Total cycles: {}", total_cycles);
-            println!("   Total syscalls: {}", total_syscalls);
-            println!("\n{}", execution_report);
 
             // Then generate the proof
             let proof = client.prove(&pk, &stdin).groth16().run()?;

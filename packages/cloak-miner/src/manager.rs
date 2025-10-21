@@ -19,7 +19,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use super::{
-    batch::compute_single_job_hash,
     engine::MiningEngine,
     instructions::{build_mine_and_reveal_instructions, derive_claim_pda, derive_registry_pda},
     rpc::{fetch_recent_slot_hash, fetch_registry, get_current_slot},
@@ -73,8 +72,17 @@ impl ClaimManager {
     /// Get or mine a claim for a single job
     ///
     /// Returns the claim PDA that can be consumed.
+    /// Uses wildcard batch_hash ([0; 32]) so claim can be used for any withdraw.
     pub async fn get_claim_for_job(&mut self, job_id: &str) -> Result<Pubkey> {
-        let batch_hash = compute_single_job_hash(job_id);
+        // Use wildcard batch_hash instead of computing from job_id
+        // This allows the claim to be used for ANY withdraw
+        let batch_hash = [0u8; 32]; // Wildcard
+
+        tracing::debug!(
+            "Mining wildcard claim for job '{}' (batch_hash will be [0; 32])",
+            job_id
+        );
+
         self.get_claim(batch_hash).await
     }
 
@@ -246,6 +254,24 @@ impl ClaimManager {
         }
 
         Ok(true)
+    }
+
+    /// Get the number of active claims
+    pub fn get_active_claims_count(&self) -> usize {
+        self.active_claims.len()
+    }
+
+    /// Check if we have a usable claim for the given batch_hash
+    ///
+    /// Returns true if a claim exists and is still valid
+    pub fn has_usable_claim(&self, batch_hash: &[u8; 32]) -> bool {
+        if let Some(state) = self.active_claims.get(&batch_hash.to_vec()) {
+            // Simple check without async slot fetch
+            // This is a quick check; actual usability is verified in is_claim_usable
+            state.consumed_count < state.max_consumes
+        } else {
+            false
+        }
     }
 
     /// Record that a claim was consumed

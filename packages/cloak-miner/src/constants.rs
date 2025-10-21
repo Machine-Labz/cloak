@@ -73,11 +73,11 @@ const MAINNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 /// TODO: Replace with actual program ID after devnet deployment
 const DEVNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 
-/// Testnet scramble registry program ID
-const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "9yoeUduVanEN5RGp144Czfa5GXNiLdGmDMAboM4vfqsm";
+/// Testnet scramble registry program ID (deployed 2025-10-19)
+const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6";
 
 /// Localnet scramble registry program ID (from build-sbf)
-const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6";
+const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111";
 
 #[cfg(test)]
 mod tests {

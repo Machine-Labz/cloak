@@ -236,7 +236,9 @@ fn find_guest_elf() -> Result<Vec<u8>> {
 fn test_valid_proof_generation_and_verification() -> Result<()> {
     // Skip proof generation in debug mode as SP1 SDK requires release mode
     if cfg!(debug_assertions) {
-        println!("⚠️  Skipping proof generation test in debug mode (SP1 SDK requires release mode)");
+        println!(
+            "⚠️  Skipping proof generation test in debug mode (SP1 SDK requires release mode)"
+        );
         return Ok(());
     }
 
@@ -327,10 +329,7 @@ fn test_conservation_failure() -> Result<()> {
     );
 
     println!("✅ Conservation check correctly rejected invalid amounts");
-    println!(
-        "   Expected: {} + {} = {}",
-        outputs_sum, fee, test_amount
-    );
+    println!("   Expected: {} + {} = {}", outputs_sum, fee, test_amount);
     println!("   Actual sum: {}", outputs_sum + fee);
     Ok(())
 }

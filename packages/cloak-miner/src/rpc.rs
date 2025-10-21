@@ -60,14 +60,18 @@ pub fn fetch_registry(client: &RpcClient, registry_pubkey: &Pubkey) -> Result<Re
 /// - total_claims: u64
 /// - active_claims: u64
 fn deserialize_registry(data: &[u8]) -> Result<RegistryState> {
-    if data.len() < 196 {
-        return Err(anyhow!("Registry data too short: {} bytes", data.len()));
+    // Pinocchio programs don't use discriminators - expect exactly 188 bytes
+    if data.len() != 188 {
+        return Err(anyhow!(
+            "Registry data has wrong size: {} bytes (expected 188)",
+            data.len()
+        ));
     }
 
     let mut offset = 0;
 
-    // Skip discriminator (8 bytes)
-    offset += 8;
+    // No discriminator in Pinocchio programs
+    // offset += 0;
 
     // Admin (32 bytes)
     let admin = Pubkey::try_from(&data[offset..offset + 32])

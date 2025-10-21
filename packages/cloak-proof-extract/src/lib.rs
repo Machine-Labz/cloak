@@ -125,7 +125,7 @@ mod sp1_helpers {
             return Err(Error::InvalidFormat);
         }
         let mut out = [0u8; 260];
-        out.copy_from_slice(bytes);
+        out.copy_from_slice(&bytes);
         Ok(out)
     }
 

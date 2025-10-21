@@ -189,6 +189,7 @@ async fn mine_continuously(
     info!("  Timeout: {}s per attempt", timeout_secs);
     info!("  Interval: {}s between attempts", interval_secs);
     info!("  Target claims: {}", target_claims);
+    info!("  Mode: Continuous mining (always mine)");
 
     // Set up signal handler for graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
@@ -209,6 +210,7 @@ async fn mine_continuously(
     .context("Failed to initialize ClaimManager")?;
 
     info!("✓ ClaimManager initialized");
+    info!("🔄 Continuous mining mode enabled");
 
     // Fetch registry to display difficulty
     let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
@@ -235,22 +237,47 @@ async fn mine_continuously(
         mining_round += 1;
         info!("=== Mining Round {} ===", mining_round);
 
-        // Generate a unique job ID for this mining attempt
-        // In production, this could be based on user requests or a pool
-        let job_id = format!("auto-mine-{}", mining_round);
+        // Check current number of active claims
+        let current_claims = manager.get_active_claims_count();
+        info!(
+            "Current active claims: {}/{}",
+            current_claims, target_claims
+        );
 
-        match manager.get_claim_for_job(&job_id).await {
-            Ok(claim_pda) => {
-                info!("✓ Claim mined and revealed: {}", claim_pda);
-                info!("  Miners can now earn fees when this claim is consumed");
+        // If we have enough claims, wait before checking again
+        if current_claims >= target_claims {
+            info!("✓ Sufficient claims available, waiting before next check...");
+            if running.load(Ordering::SeqCst) {
+                info!("Waiting {}s before next check...\n", interval_secs);
+                tokio::time::sleep(Duration::from_secs(interval_secs)).await;
             }
-            Err(e) => {
-                error!("✗ Mining failed: {}", e);
-                error!("  Retrying in {}s...", interval_secs);
+            continue;
+        }
+
+        // Mine new claims to reach target
+        let claims_needed = target_claims - current_claims;
+        info!("🔨 Mining {} new claim(s)...", claims_needed);
+
+        for i in 0..claims_needed {
+            if !running.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let job_id = format!("auto-mine-{}-{}", mining_round, i + 1);
+
+            match manager.get_claim_for_job(&job_id).await {
+                Ok(claim_pda) => {
+                    info!("✓ Claim {} mined and revealed: {}", i + 1, claim_pda);
+                    info!("  Miners can now earn fees when this claim is consumed");
+                }
+                Err(e) => {
+                    error!("✗ Mining claim {} failed: {}", i + 1, e);
+                    error!("  Continuing with next claim...");
+                }
             }
         }
 
-        // Wait before next mining attempt
+        // Wait before next mining round
         if running.load(Ordering::SeqCst) {
             info!("Waiting {}s before next mining round...\n", interval_secs);
             tokio::time::sleep(Duration::from_secs(interval_secs)).await;
