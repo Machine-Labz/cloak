@@ -142,6 +142,10 @@ mod tests {
             max_retries: 3,
             retry_delay_ms: 1000,
             scramble_registry_program_id: None,
+            pool_address: Some("11111111111111111111111111111111".to_string()),
+            treasury_address: Some("11111111111111111111111111111111".to_string()),
+            roots_ring_address: Some("11111111111111111111111111111111".to_string()),
+            nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
         };
 
         let config2 = SolanaConfig {
@@ -156,6 +160,10 @@ mod tests {
             max_retries: 3,
             retry_delay_ms: 1000,
             scramble_registry_program_id: None,
+            pool_address: Some("11111111111111111111111111111111".to_string()),
+            treasury_address: Some("11111111111111111111111111111111".to_string()),
+            roots_ring_address: Some("11111111111111111111111111111111".to_string()),
+            nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
         };
 
         let config3 = SolanaConfig {
@@ -170,6 +178,10 @@ mod tests {
             max_retries: 3,
             retry_delay_ms: 1000,
             scramble_registry_program_id: None,
+            pool_address: Some("11111111111111111111111111111111".to_string()),
+            treasury_address: Some("11111111111111111111111111111111".to_string()),
+            roots_ring_address: Some("11111111111111111111111111111111".to_string()),
+            nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
         };
 
         // Test commitment parsing

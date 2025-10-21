@@ -577,6 +577,10 @@ mod tests {
             scramble_registry_program_id: Some(
                 "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
             ),
+            pool_address: Some("11111111111111111111111111111111".to_string()),
+            treasury_address: Some("11111111111111111111111111111111".to_string()),
+            roots_ring_address: Some("11111111111111111111111111111111".to_string()),
+            nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
         };
 
         // This would need to be updated when we implement the actual service
