@@ -13,49 +13,91 @@ use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use super::Output;
 use crate::error::Error;
 
-/// Build the 437-byte withdraw instruction body:
-/// [proof:260][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8]
+const PUBLIC_INPUTS_LEN: usize = 104;
+const DUPLICATE_NULLIFIER_LEN: usize = 32;
+const NUM_OUTPUTS_LEN: usize = 1;
+const RECIPIENT_ADDR_LEN: usize = 32;
+const RECIPIENT_AMOUNT_LEN: usize = 8;
+const POW_BATCH_HASH_LEN: usize = 32;
+
+/// Build the withdraw instruction body (legacy, no PoW)
+/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8]
 pub fn build_withdraw_ix_body(
-    groth16_260: &[u8; 260],
-    public_104: &[u8; 104],
-    recipient_addr_32: &[u8; 32],
+    proof: &[u8],
+    public_104: &[u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: &[u8; RECIPIENT_ADDR_LEN],
     recipient_amount: u64,
 ) -> Result<Vec<u8>, Error> {
-    let mut data = Vec::with_capacity(437);
-    data.extend_from_slice(groth16_260);
+    if proof.is_empty() {
+        return Err(Error::ValidationError("proof must be non-empty".into()));
+    }
+
+    let expected_len = proof.len()
+        + PUBLIC_INPUTS_LEN
+        + DUPLICATE_NULLIFIER_LEN
+        + NUM_OUTPUTS_LEN
+        + RECIPIENT_ADDR_LEN
+        + RECIPIENT_AMOUNT_LEN;
+
+    let mut data = Vec::with_capacity(expected_len);
+    data.extend_from_slice(proof);
     data.extend_from_slice(public_104);
-    // duplicate nullifier (bytes 32..64 of public inputs)
-    let nf = &public_104[32..64];
-    data.extend_from_slice(nf);
-    // num_outputs = 1 (MVP)
-    data.push(1u8);
-    // recipient address
+    data.extend_from_slice(&public_104[32..64]); // duplicate nullifier
+    data.push(1u8); // single output (MVP)
     data.extend_from_slice(recipient_addr_32);
-    // recipient amount LE
     data.extend_from_slice(&recipient_amount.to_le_bytes());
 
-    if data.len() != 437 {
-        return Err(Error::ValidationError(format!(
-            "withdraw body must be 437 bytes, got {}",
-            data.len()
-        )));
-    }
+    debug_assert_eq!(data.len(), expected_len);
     Ok(data)
 }
 
-/// Build an Instruction for shield-pool::Withdraw with discriminant = 2
+/// Build the withdraw instruction body with PoW batch hash appended
+/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8][batch_hash:32]
+pub fn build_withdraw_ix_body_with_pow(
+    proof: &[u8],
+    public_104: &[u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: &[u8; RECIPIENT_ADDR_LEN],
+    recipient_amount: u64,
+    batch_hash: &[u8; POW_BATCH_HASH_LEN],
+) -> Result<Vec<u8>, Error> {
+    if proof.is_empty() {
+        return Err(Error::ValidationError("proof must be non-empty".into()));
+    }
+
+    let expected_len = proof.len()
+        + PUBLIC_INPUTS_LEN
+        + DUPLICATE_NULLIFIER_LEN
+        + NUM_OUTPUTS_LEN
+        + RECIPIENT_ADDR_LEN
+        + RECIPIENT_AMOUNT_LEN
+        + POW_BATCH_HASH_LEN;
+
+    let mut data = Vec::with_capacity(expected_len);
+    data.extend_from_slice(proof);
+    data.extend_from_slice(public_104);
+    data.extend_from_slice(&public_104[32..64]);
+    data.push(1u8);
+    data.extend_from_slice(recipient_addr_32);
+    data.extend_from_slice(&recipient_amount.to_le_bytes());
+    data.extend_from_slice(batch_hash);
+
+    debug_assert_eq!(data.len(), expected_len);
+    Ok(data)
+}
+
+/// Build an Instruction for shield-pool::Withdraw with discriminant = 2 (legacy, no PoW)
 pub fn build_withdraw_instruction(
     program_id: Pubkey,
-    body_437: &[u8],
+    body: &[u8],
     pool_pda: Pubkey,
     treasury: Pubkey,
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
     recipient: Pubkey,
 ) -> Instruction {
-    let mut data = Vec::with_capacity(1 + 437);
+    let mut data = Vec::with_capacity(1 + body.len());
     data.push(2u8); // ShieldPoolInstruction::Withdraw
-    data.extend_from_slice(body_437);
+    data.extend_from_slice(body);
 
     let accounts = vec![
         AccountMeta::new(pool_pda, false),                // pool (writable)
@@ -64,6 +106,65 @@ pub fn build_withdraw_instruction(
         AccountMeta::new(nullifier_shard_pda, false),     // nullifier shard (writable)
         AccountMeta::new(recipient, false),               // recipient (writable)
         AccountMeta::new_readonly(system_program::id(), false),
+    ];
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+/// Build an Instruction for shield-pool::Withdraw with PoW accounts (discriminant = 2)
+///
+/// Accounts layout:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+/// 6. scramble_registry_program (readonly) - NEW
+/// 7. claim_pda (writable) - NEW
+/// 8. miner_pda (writable) - NEW
+/// 9. registry_pda (writable) - NEW
+/// 10. clock_sysvar (readonly) - NEW
+/// 11. miner_authority (writable) - NEW (receives fee share)
+pub fn build_withdraw_instruction_with_pow(
+    program_id: Pubkey,
+    body: &[u8],
+    pool_pda: Pubkey,
+    treasury: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    recipient: Pubkey,
+    scramble_registry_program: Pubkey,
+    claim_pda: Pubkey,
+    miner_pda: Pubkey,
+    registry_pda: Pubkey,
+    miner_authority: Pubkey,
+) -> Instruction {
+    use solana_sdk::sysvar;
+
+    let mut data = Vec::with_capacity(1 + body.len());
+    data.push(2u8); // ShieldPoolInstruction::Withdraw
+    data.extend_from_slice(body);
+
+    let accounts = vec![
+        // Standard withdraw accounts
+        AccountMeta::new(pool_pda, false),
+        AccountMeta::new(treasury, false),
+        AccountMeta::new_readonly(roots_ring_pda, false),
+        AccountMeta::new(nullifier_shard_pda, false),
+        AccountMeta::new(recipient, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+        // PoW scrambler accounts
+        AccountMeta::new_readonly(scramble_registry_program, false),
+        AccountMeta::new(claim_pda, false),
+        AccountMeta::new(miner_pda, false),
+        AccountMeta::new(registry_pda, false),
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+        AccountMeta::new(miner_authority, false), // Receives scrambler fee share
     ];
 
     Instruction {
@@ -82,11 +183,51 @@ pub(crate) fn derive_shield_pool_pdas(program_id: &Pubkey) -> (Pubkey, Pubkey, P
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
 }
 
-/// Build a full legacy Transaction including compute budget and priority fee.
+/// Derive Scramble Registry PDAs according to the on-chain program seeds.
+///
+/// # Arguments
+/// * `registry_program_id` - The scramble-registry program ID
+/// * `miner_authority` - The miner's authority pubkey
+/// * `batch_hash` - The batch commitment hash (32 bytes)
+/// * `slot` - The slot when the claim was mined
+///
+/// # Returns
+/// * `registry_pda` - Singleton registry state
+/// * `miner_pda` - Miner account for the authority
+/// * `claim_pda` - Claim account for this specific batch
+pub fn derive_scramble_registry_pdas(
+    registry_program_id: &Pubkey,
+    miner_authority: &Pubkey,
+    batch_hash: &[u8; 32],
+    slot: u64,
+) -> (Pubkey, Pubkey, Pubkey) {
+    // Registry PDA: ["scramble_registry"]
+    let (registry_pda, _) =
+        Pubkey::find_program_address(&[b"scramble_registry"], registry_program_id);
+
+    // Miner PDA: ["miner", authority]
+    let (miner_pda, _) =
+        Pubkey::find_program_address(&[b"miner", miner_authority.as_ref()], registry_program_id);
+
+    // Claim PDA: ["claim", miner_authority, batch_hash, slot_le]
+    let (claim_pda, _) = Pubkey::find_program_address(
+        &[
+            b"claim",
+            miner_authority.as_ref(),
+            batch_hash,
+            &slot.to_le_bytes(),
+        ],
+        registry_program_id,
+    );
+
+    (registry_pda, miner_pda, claim_pda)
+}
+
+/// Build a full legacy Transaction including compute budget and priority fee (no PoW).
 pub fn build_withdraw_transaction(
-    groth16_260: [u8; 260],
-    public_104: [u8; 104],
-    recipient_addr_32: [u8; 32],
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
     recipient_amount: u64,
     program_id: Pubkey,
     pool_pda: Pubkey,
@@ -99,7 +240,7 @@ pub fn build_withdraw_transaction(
     priority_micro_lamports: u64,
 ) -> Result<Transaction, Error> {
     let body = build_withdraw_ix_body(
-        &groth16_260,
+        proof_bytes.as_slice(),
         &public_104,
         &recipient_addr_32,
         recipient_amount,
@@ -123,12 +264,68 @@ pub fn build_withdraw_transaction(
     Ok(tx)
 }
 
+/// Build a full legacy Transaction with PoW support.
+///
+/// This variant includes the PoW scrambler accounts and batch_hash in instruction data.
+#[allow(clippy::too_many_arguments)]
+pub fn build_withdraw_transaction_with_pow(
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
+    recipient_amount: u64,
+    batch_hash: [u8; POW_BATCH_HASH_LEN],
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    treasury: Pubkey,
+    recipient: Pubkey,
+    scramble_registry_program: Pubkey,
+    claim_pda: Pubkey,
+    miner_pda: Pubkey,
+    registry_pda: Pubkey,
+    miner_authority: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+) -> Result<Transaction, Error> {
+    let body = build_withdraw_ix_body_with_pow(
+        proof_bytes.as_slice(),
+        &public_104,
+        &recipient_addr_32,
+        recipient_amount,
+        &batch_hash,
+    )?;
+    let withdraw_ix = build_withdraw_instruction_with_pow(
+        program_id,
+        &body,
+        pool_pda,
+        treasury,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        recipient,
+        scramble_registry_program,
+        claim_pda,
+        miner_pda,
+        registry_pda,
+        miner_authority,
+    );
+
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+
+    let mut msg = Message::new(&[cu_ix, pri_ix, withdraw_ix], Some(&fee_payer));
+    msg.recent_blockhash = recent_blockhash;
+    let tx = Transaction::new_unsigned(msg);
+    Ok(tx)
+}
+
 /// Build a VersionedTransaction (for Jito bundles) when feature `jito` is enabled.
 #[cfg(feature = "jito")]
 pub fn build_withdraw_versioned(
-    groth16_260: [u8; 260],
-    public_104: [u8; 104],
-    recipient_addr_32: [u8; 32],
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
     recipient_amount: u64,
     program_id: Pubkey,
     pool_pda: Pubkey,
@@ -141,7 +338,7 @@ pub fn build_withdraw_versioned(
     priority_micro_lamports: u64,
 ) -> Result<VersionedTransaction, Error> {
     let body = build_withdraw_ix_body(
-        &groth16_260,
+        proof_bytes.as_slice(),
         &public_104,
         &recipient_addr_32,
         recipient_amount,
@@ -169,13 +366,13 @@ pub fn build_withdraw_versioned(
     Ok(vtx)
 }
 
-/// Build a VersionedTransaction with a Jito tip instruction.
+/// Build a VersionedTransaction with a Jito tip instruction (no PoW).
 /// The tip is added as the final instruction in the transaction.
 #[cfg(feature = "jito")]
 pub fn build_withdraw_versioned_with_tip(
-    groth16_260: [u8; 260],
-    public_104: [u8; 104],
-    recipient_addr_32: [u8; 32],
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
     recipient_amount: u64,
     program_id: Pubkey,
     pool_pda: Pubkey,
@@ -192,7 +389,7 @@ pub fn build_withdraw_versioned_with_tip(
     use solana_sdk::system_instruction;
 
     let body = build_withdraw_ix_body(
-        &groth16_260,
+        proof_bytes.as_slice(),
         &public_104,
         &recipient_addr_32,
         recipient_amount,
@@ -205,6 +402,72 @@ pub fn build_withdraw_versioned_with_tip(
         roots_ring_pda,
         nullifier_shard_pda,
         recipient,
+    );
+
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+
+    // Add tip instruction as the last instruction in the bundle
+    let tip_ix = system_instruction::transfer(&fee_payer, &jito_tip_account, jito_tip_lamports);
+
+    let mut legacy = Message::new(&[cu_ix, pri_ix, withdraw_ix, tip_ix], Some(&fee_payer));
+    legacy.recent_blockhash = recent_blockhash;
+    let vmsg = VersionedMessage::Legacy(legacy);
+    let vtx = VersionedTransaction {
+        message: vmsg,
+        signatures: vec![],
+    };
+    Ok(vtx)
+}
+
+/// Build a VersionedTransaction with PoW support and Jito tip.
+#[cfg(feature = "jito")]
+#[allow(clippy::too_many_arguments)]
+pub fn build_withdraw_versioned_with_tip_and_pow(
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
+    recipient_amount: u64,
+    batch_hash: [u8; 32],
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    treasury: Pubkey,
+    recipient: Pubkey,
+    scramble_registry_program: Pubkey,
+    claim_pda: Pubkey,
+    miner_pda: Pubkey,
+    registry_pda: Pubkey,
+    miner_authority: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+    jito_tip_account: Pubkey,
+    jito_tip_lamports: u64,
+) -> Result<VersionedTransaction, Error> {
+    use solana_sdk::system_instruction;
+
+    let body = build_withdraw_ix_body_with_pow(
+        proof_bytes.as_slice(),
+        &public_104,
+        &recipient_addr_32,
+        recipient_amount,
+        &batch_hash,
+    )?;
+    let withdraw_ix = build_withdraw_instruction_with_pow(
+        program_id,
+        &body,
+        pool_pda,
+        treasury,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        recipient,
+        scramble_registry_program,
+        claim_pda,
+        miner_pda,
+        registry_pda,
+        miner_authority,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -240,12 +503,12 @@ pub async fn simulate(
 // Back-compat wrapper used by SolanaService; extracts fragments and builds a basic transaction.
 pub fn build_withdraw_instruction_legacy(
     program_id: &Pubkey,
-    proof_bytes_bundle: &[u8],
+    proof_bytes: &[u8],
     public_inputs_104: &[u8],
     outputs: &[Output],
     recent_blockhash: Hash,
 ) -> Result<Transaction, Error> {
-    if public_inputs_104.len() != 104 {
+    if public_inputs_104.len() != PUBLIC_INPUTS_LEN {
         return Err(Error::ValidationError(
             "public inputs must be 104 bytes".into(),
         ));
@@ -258,9 +521,11 @@ pub fn build_withdraw_instruction_legacy(
     let out = &outputs[0];
     let recipient = out.to_pubkey()?;
 
-    // Extract 260-byte proof fragment from bundle
-    let groth = cloak_proof_extract::extract_groth16_260(proof_bytes_bundle)
-        .map_err(|_| Error::ValidationError("failed to extract 260-byte proof".into()))?;
+    if proof_bytes.is_empty() {
+        return Err(Error::ValidationError(
+            "proof bytes must be non-empty".into(),
+        ));
+    }
 
     // Derive PDAs using canonical seeds
     let (pool_pda, treasury, roots_ring_pda, nullifier_shard_pda) =
@@ -268,14 +533,14 @@ pub fn build_withdraw_instruction_legacy(
     // Use recipient as fee payer by default (unsigned; caller can replace/sign appropriately)
     let fee_payer = recipient;
 
-    let mut public_104_arr = [0u8; 104];
+    let mut public_104_arr = [0u8; PUBLIC_INPUTS_LEN];
     public_104_arr.copy_from_slice(public_inputs_104);
 
-    let mut recipient_addr_32 = [0u8; 32];
+    let mut recipient_addr_32 = [0u8; RECIPIENT_ADDR_LEN];
     recipient_addr_32.copy_from_slice(recipient.as_ref());
 
     build_withdraw_transaction(
-        groth,
+        proof_bytes.to_vec(),
         public_104_arr,
         recipient_addr_32,
         out.amount,
@@ -298,8 +563,9 @@ mod tests {
 
     #[test]
     fn test_withdraw_body_layout() {
-        let proof = [0xAAu8; 260];
-        let mut public = [0u8; 104];
+        const PROOF_LEN: usize = 1506;
+        let proof = vec![0xAAu8; PROOF_LEN];
+        let mut public = [0u8; PUBLIC_INPUTS_LEN];
         // root 0..32, nf 32..64, outputs_hash 64..96, amount 96..104
         public[0..32].copy_from_slice(&[0x11u8; 32]);
         public[32..64].copy_from_slice(&[0x22u8; 32]);
@@ -307,18 +573,37 @@ mod tests {
         let amt: u64 = 0x0102_0304_0506_0708;
         public[96..104].copy_from_slice(&amt.to_le_bytes());
 
-        let recip = [0x44u8; 32];
+        let recip = [0x44u8; RECIPIENT_ADDR_LEN];
         let out_amt: u64 = 123_456u64;
-        let body = build_withdraw_ix_body(&proof, &public, &recip, out_amt).expect("body");
-        assert_eq!(body.len(), 437);
+        let body =
+            build_withdraw_ix_body(proof.as_slice(), &public, &recip, out_amt).expect("body");
+        let expected_len = PROOF_LEN
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(body.len(), expected_len);
 
-        // Offsets
-        assert_eq!(&body[0..260], &proof);
-        assert_eq!(&body[260..364], &public);
-        assert_eq!(&body[364..396], &public[32..64]); // nf dup
-        assert_eq!(body[396], 1u8); // num outputs
-        assert_eq!(&body[397..429], &recip);
-        assert_eq!(&body[429..437], &out_amt.to_le_bytes());
+        let public_start = PROOF_LEN;
+        let public_end = public_start + PUBLIC_INPUTS_LEN;
+        assert_eq!(&body[..PROOF_LEN], proof.as_slice());
+        assert_eq!(&body[public_start..public_end], &public);
+
+        let dup_start = public_end;
+        let dup_end = dup_start + DUPLICATE_NULLIFIER_LEN;
+        assert_eq!(&body[dup_start..dup_end], &public[32..64]);
+
+        let outputs_idx = dup_end;
+        assert_eq!(body[outputs_idx], 1u8);
+
+        let recip_start = outputs_idx + NUM_OUTPUTS_LEN;
+        let recip_end = recip_start + RECIPIENT_ADDR_LEN;
+        assert_eq!(&body[recip_start..recip_end], &recip);
+
+        let amount_start = recip_end;
+        let amount_end = amount_start + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(&body[amount_start..amount_end], &out_amt.to_le_bytes());
     }
 
     #[test]
@@ -326,10 +611,8 @@ mod tests {
         // Program id and PDAs
         let program_id = Pubkey::new_unique();
 
-        // Minimal fake SP1 bundle: place a u64 LE length=260 followed by 260 nonzero bytes
-        let mut bundle = vec![0u8; 16];
-        bundle.extend_from_slice(&260u64.to_le_bytes());
-        bundle.extend_from_slice(&[0xABu8; 260]);
+        // Minimal fake SP1 proof bundle
+        let bundle = vec![0xABu8; 1506];
 
         // Public inputs 104 bytes (zeros are acceptable for building)
         let public_inputs = vec![0u8; 104];
@@ -372,8 +655,14 @@ mod tests {
         // recipient (we don't assert exact value here) and system program
         assert_eq!(resolve(ci.accounts[5]), system_program::id());
 
-        // Data layout check: first byte is discriminant=2, then 437 bytes body
+        // Data layout check: first byte is discriminant=2, then dynamic body
         assert_eq!(ci.data[0], 2u8);
-        assert_eq!(ci.data.len() - 1, 437);
+        let expected_body_len = bundle.len()
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(ci.data.len() - 1, expected_body_len);
     }
 }

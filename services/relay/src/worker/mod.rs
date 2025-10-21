@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
+use crate::db::repository::JobRepository;
 use crate::AppState;
 
 pub struct Worker {
@@ -40,35 +41,39 @@ impl Worker {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent_jobs));
 
         loop {
-            // Try to dequeue a job
-            match self.state.queue.dequeue(self.poll_interval).await {
-                Ok(Some(job_message)) => {
-                    info!("📦 Dequeued job: {}", job_message.job_id);
+            // Poll database for queued jobs
+            match self.state.job_repo.get_queued_jobs(1).await {
+                Ok(jobs) => {
+                    if let Some(job) = jobs.into_iter().next() {
+                        info!("📦 Found queued job: {}", job.id);
 
-                    // Spawn a task to process the job
-                    let state = self.state.clone();
-                    let semaphore = Arc::clone(&semaphore);
+                        // Spawn a task to process the job
+                        let state = self.state.clone();
+                        let semaphore = Arc::clone(&semaphore);
 
-                    tokio::spawn(async move {
-                        // Acquire semaphore permit
-                        let _permit = semaphore.acquire().await.unwrap();
+                        tokio::spawn(async move {
+                            // Acquire semaphore permit
+                            let _permit = semaphore.acquire().await.unwrap();
 
-                        // Process the job
-                        if let Err(e) = processor::process_job(job_message, state).await {
-                            error!("❌ Failed to process job: {}", e);
-                        }
-                    });
-                }
-                Ok(None) => {
-                    // No jobs available, continue polling
-                    debug!("No jobs in queue, continuing to poll...");
+                            // Process the job
+                            if let Err(e) = processor::process_job_direct(job, state).await {
+                                error!("❌ Failed to process job: {}", e);
+                            }
+                        });
+                    } else {
+                        // No jobs available, continue polling
+                        debug!("No jobs in queue, continuing to poll...");
+                    }
                 }
                 Err(e) => {
-                    error!("❌ Error dequeueing job: {}", e);
-                    // Sleep a bit longer on error to avoid hammering the queue
+                    error!("❌ Error polling for jobs: {}", e);
+                    // Sleep a bit longer on error to avoid hammering the database
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             }
+
+            // Wait before next poll
+            tokio::time::sleep(self.poll_interval).await;
         }
     }
 }

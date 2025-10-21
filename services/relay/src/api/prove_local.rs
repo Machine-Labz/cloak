@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{db::repository::JobRepository, error::Error, queue::JobMessage, AppState};
+use crate::{db::repository::JobRepository, error::Error, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct ProveLocalRequest {
@@ -81,19 +81,13 @@ pub async fn prove_local(
     // Persist proof and public inputs from the artifact (public inputs may be normalized by SP1)
     state
         .job_repo
-        .update_job_proof(job_id, proof.proof_bytes, proof.public_inputs)
-        .await?;
-
-    // Enqueue for submission immediately
-    state
-        .queue
-        .enqueue(JobMessage::new(job_id, job.request_id))
+        .update_job_proof(job_id, proof.proof_bytes.clone(), proof.public_inputs)
         .await?;
 
     info!("Local proof generated for job {}", job_id);
     Ok(Json(ProveLocalResponse {
         job_id,
-        proof_size: job.public_inputs.len(),
+        proof_size: proof.proof_bytes.len(),
         public_len: 104,
         status: "proof_ready".into(),
     }))

@@ -1,7 +1,0 @@
-# Cargo configuration for relay service
-
-[env]
-# Enable SQLx offline mode by default to allow building without a running database
-# The queries are still type-checked, but against cached metadata instead of a live database
-SQLX_OFFLINE = "true"
-

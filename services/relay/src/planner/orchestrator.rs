@@ -9,7 +9,6 @@ use crate::{
     db::models::CreateJob,
     db::repository::{JobRepository, NullifierRepository},
     error::Error,
-    queue::{JobMessage, JobQueue},
     AppState,
 };
 
@@ -96,15 +95,11 @@ pub async fn orchestrate_withdraw(
         })
         .await?;
 
-    // store nullifier + enqueue
+    // store nullifier
     let _ = state
         .nullifier_repo
         .create_nullifier(nf_arr.to_vec(), job.id)
         .await;
-    state
-        .queue
-        .enqueue(JobMessage::new(job.id, request_id))
-        .await?;
 
     info!("Orchestrated withdraw job {} queued", job.id);
     Ok(Json(OrchestrateResponse {

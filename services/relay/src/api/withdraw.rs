@@ -7,11 +7,12 @@ use uuid::Uuid;
 use crate::{
     api::{ApiResponse, WithdrawResponse},
     db::models::CreateJob,
-    db::repository::{JobRepository, NullifierRepository},
+    db::repository::JobRepository,
     error::Error,
-    queue::JobMessage,
+    planner::calculate_fee,
     AppState,
 };
+use cloak_proof_extract::extract_groth16_260_sp1;
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawRequest {
@@ -54,9 +55,23 @@ pub async fn handle_withdraw(
     info!("Processing withdraw request with ID: {}", request_id);
 
     // Decode and validate proof bytes
-    let proof_bytes = base64::engine::general_purpose::STANDARD
+    let proof_bundle = base64::engine::general_purpose::STANDARD
         .decode(&payload.proof_bytes)
         .map_err(|e| Error::ValidationError(format!("Invalid proof base64: {}", e)))?;
+
+    let proof_bytes = match extract_groth16_260_sp1(&proof_bundle) {
+        Ok(bytes) => bytes,
+        Err(_) if proof_bundle.len() == 260 => {
+            let mut arr = [0u8; 260];
+            arr.copy_from_slice(&proof_bundle);
+            arr
+        }
+        Err(_) => {
+            return Err(Error::ValidationError(
+                "Invalid SP1 proof bundle".to_string(),
+            ))
+        }
+    };
 
     // Parse public inputs
     let root_hash = hex::decode(&payload.public_inputs.root)
@@ -66,12 +81,10 @@ pub async fn handle_withdraw(
     let outputs_hash = hex::decode(&payload.public_inputs.outputs_hash)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
 
-    // Check for nullifier double-spend
-    if state.nullifier_repo.exists_nullifier(&nullifier).await? {
-        return Err(Error::ValidationError(
-            "Nullifier already exists (double spend)".to_string(),
-        ));
-    }
+    // Note: We no longer check for nullifier double-spend at queueing time.
+    // The on-chain program will enforce uniqueness when the transaction executes.
+    // The worker stores the nullifier AFTER successful on-chain execution
+    // (see services/relay/src/worker/processor.rs:113-120)
 
     // Encode public inputs for storage (canonical 104-byte format)
     // Format: root(32) || nf(32) || outputs_hash(32) || amount(8) = 104 bytes
@@ -82,31 +95,33 @@ pub async fn handle_withdraw(
     public_inputs_bytes.extend_from_slice(&payload.public_inputs.amount.to_le_bytes());
 
     // Create job in database
+    let effective_fee_bps = if payload.public_inputs.amount == 0 {
+        0
+    } else {
+        let expected_fee = calculate_fee(payload.public_inputs.amount);
+        ((expected_fee.saturating_mul(10_000)) + payload.public_inputs.amount - 1)
+            / payload.public_inputs.amount
+    };
+
     let create_job = CreateJob {
         request_id,
-        proof_bytes,
+        proof_bytes: proof_bytes.to_vec(),
         public_inputs: public_inputs_bytes,
         outputs_json: serde_json::to_value(&payload.outputs).map_err(|e| {
             Error::InternalServerError(format!("Failed to serialize outputs: {}", e))
         })?,
-        fee_bps: payload.policy.fee_bps as i16,
+        fee_bps: effective_fee_bps as i16,
         root_hash,
         nullifier: nullifier.clone(),
         amount: payload.public_inputs.amount as i64,
         outputs_hash,
     };
 
-    let job = state.job_repo.create_job(create_job).await?;
+    state.job_repo.create_job(create_job).await?;
 
-    // Create nullifier record
-    state
-        .nullifier_repo
-        .create_nullifier(nullifier, job.id)
-        .await?;
-
-    // Add to processing queue
-    let job_message = JobMessage::new(job.id, request_id);
-    state.queue.enqueue(job_message).await?;
+    // Note: Nullifier is NOT created here!
+    // It will be created by the worker AFTER the transaction succeeds on-chain
+    // (see services/relay/src/worker/processor.rs:113-120)
 
     info!("Withdraw request queued successfully: {}", request_id);
 
@@ -152,27 +167,45 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
         return Err(Error::ValidationError("Amount cannot be zero".to_string()));
     }
 
-    if request.public_inputs.fee_bps > 10000 {
+    let expected_fee = calculate_fee(request.public_inputs.amount);
+    if expected_fee == 0 {
         return Err(Error::ValidationError(
-            "Fee BPS cannot exceed 10000".to_string(),
+            "Fee calculation resulted in zero; amount may be too small".to_string(),
         ));
     }
 
-    // Check conservation
-    let fee_amount = (request.public_inputs.amount * request.public_inputs.fee_bps as u64) / 10000;
     let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
-
-    if total_output_amount + fee_amount != request.public_inputs.amount {
+    if total_output_amount + expected_fee != request.public_inputs.amount {
         return Err(Error::ValidationError(
             "Conservation check failed: outputs + fee != amount".to_string(),
         ));
     }
 
-    // Check policy consistency
-    if request.policy.fee_bps != request.public_inputs.fee_bps {
+    let expected_fee_bps = if request.public_inputs.amount == 0 {
+        0
+    } else {
+        ((expected_fee.saturating_mul(10_000)) + request.public_inputs.amount - 1)
+            / request.public_inputs.amount
+    };
+
+    if expected_fee_bps > 10_000 {
         return Err(Error::ValidationError(
-            "Fee BPS mismatch between policy and public inputs".to_string(),
+            "Effective fee exceeds protocol cap of 10000 bps".to_string(),
         ));
+    }
+
+    if request.public_inputs.fee_bps != expected_fee_bps as u16 {
+        return Err(Error::ValidationError(format!(
+            "Fee BPS mismatch: expected {} bps, got {} bps",
+            expected_fee_bps, request.public_inputs.fee_bps
+        )));
+    }
+
+    if request.policy.fee_bps != expected_fee_bps as u16 {
+        return Err(Error::ValidationError(format!(
+            "Fee BPS mismatch between policy and public inputs (expected {} bps, got {} bps)",
+            expected_fee_bps, request.policy.fee_bps
+        )));
     }
 
     // Validate hex strings
@@ -224,14 +257,14 @@ mod tests {
         let valid_request = WithdrawRequest {
             outputs: vec![Output {
                 recipient: "11111111111111111111111111111112".to_string(),
-                amount: 990000,
+                amount: 97_000_000,
             }],
-            policy: Policy { fee_bps: 100 },
+            policy: Policy { fee_bps: 300 },
             public_inputs: PublicInputs {
                 root: "0".repeat(64),
                 nf: "1".repeat(64),
-                amount: 1000000,
-                fee_bps: 100,
+                amount: 100_000_000,
+                fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
@@ -244,12 +277,12 @@ mod tests {
     fn test_validate_request_empty_outputs() {
         let invalid_request = WithdrawRequest {
             outputs: vec![],
-            policy: Policy { fee_bps: 100 },
+            policy: Policy { fee_bps: 300 },
             public_inputs: PublicInputs {
                 root: "0".repeat(64),
                 nf: "1".repeat(64),
-                amount: 1000000,
-                fee_bps: 100,
+                amount: 100_000_000,
+                fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
@@ -263,13 +296,13 @@ mod tests {
         let invalid_request = WithdrawRequest {
             outputs: vec![Output {
                 recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000,
+                amount: 97_000_000,
             }],
             policy: Policy { fee_bps: 10001 }, // Too high
             public_inputs: PublicInputs {
                 root: "0".repeat(64),
                 nf: "1".repeat(64),
-                amount: 1000000,
+                amount: 100_000_000,
                 fee_bps: 10001,
                 outputs_hash: "2".repeat(64),
             },
@@ -284,14 +317,14 @@ mod tests {
         let invalid_request = WithdrawRequest {
             outputs: vec![Output {
                 recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000,
+                amount: 97_000_000,
             }],
-            policy: Policy { fee_bps: 100 },
+            policy: Policy { fee_bps: 300 },
             public_inputs: PublicInputs {
                 root: "G".repeat(64), // Invalid hex
                 nf: "1".repeat(64),
-                amount: 1000000,
-                fee_bps: 100,
+                amount: 100_000_000,
+                fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
@@ -305,14 +338,14 @@ mod tests {
         let invalid_request = WithdrawRequest {
             outputs: vec![Output {
                 recipient: "11111111111111111111111111111112".to_string(),
-                amount: 1000000,
+                amount: 97_000_000,
             }],
-            policy: Policy { fee_bps: 100 },
+            policy: Policy { fee_bps: 300 },
             public_inputs: PublicInputs {
                 root: "0".repeat(64),
                 nf: "1".repeat(64),
-                amount: 1000000,
-                fee_bps: 100,
+                amount: 100_000_000,
+                fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: "".to_string(), // Empty base64

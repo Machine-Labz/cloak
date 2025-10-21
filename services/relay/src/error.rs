@@ -12,9 +12,6 @@ pub enum Error {
     #[error("Database error: {0}")]
     DatabaseError(String),
 
-    #[error("Redis error: {0}")]
-    RedisError(String),
-
     #[error("Validation error: {0}")]
     ValidationError(String),
 
@@ -26,9 +23,6 @@ pub enum Error {
 
     #[error("Base64 decode error: {0}")]
     Base64Error(#[from] base64::DecodeError),
-
-    #[error("Redis error: {0}")]
-    RedisClientError(#[from] redis::RedisError),
 }
 
 impl axum::response::IntoResponse for Error {

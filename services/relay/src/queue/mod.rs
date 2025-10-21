@@ -1,5 +1,3 @@
-pub mod redis_queue;
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

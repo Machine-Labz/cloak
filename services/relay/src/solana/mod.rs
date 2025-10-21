@@ -3,6 +3,7 @@ pub mod submit;
 pub mod transaction_builder;
 
 use async_trait::async_trait;
+use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
@@ -12,9 +13,11 @@ use solana_sdk::{
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+use crate::claim_manager::{compute_batch_hash, ClaimFinder};
 use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
@@ -36,6 +39,7 @@ pub struct SolanaService {
     program_id: Pubkey,
     config: SolanaConfig,
     fee_payer: Option<Keypair>,
+    claim_finder: Option<Arc<ClaimFinder>>,
 }
 
 impl SolanaService {
@@ -63,7 +67,16 @@ impl SolanaService {
             program_id,
             config,
             fee_payer,
+            claim_finder: None, // Will be set later
         })
+    }
+
+    /// Set the ClaimFinder (for PoW support)
+    pub fn set_claim_finder(&mut self, claim_finder: Option<Arc<ClaimFinder>>) {
+        if claim_finder.is_some() {
+            info!("SolanaService: PoW ClaimFinder configured");
+        }
+        self.claim_finder = claim_finder;
     }
 
     /// Submit a withdraw transaction to Solana
@@ -129,7 +142,9 @@ impl SolanaService {
         Ok(outputs)
     }
 
-    /// Build withdraw transaction using canonical 437-byte layout and PDAs
+    /// Build withdraw transaction using the canonical shield-pool layout and PDAs
+    /// If PoW is enabled (claim_finder present), will query for wildcard claims
+    /// and use the PoW-enabled transaction builder
     async fn build_withdraw_transaction(
         &self,
         job: &Job,
@@ -147,9 +162,20 @@ impl SolanaService {
         let recipient_amount = outputs[0].amount;
         let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
 
-        // Extract proof fragment (260) and validate public inputs (104)
-        let groth16_260 = cloak_proof_extract::extract_groth16_260(&job.proof_bytes)
-            .map_err(|_| Error::ValidationError("failed to extract 260-byte proof".into()))?;
+        if job.proof_bytes.is_empty() {
+            return Err(Error::ValidationError(
+                "proof bytes must be non-empty".into(),
+            ));
+        }
+        let proof_bytes = job.proof_bytes.clone();
+        if proof_bytes.len() >= 4 {
+            let prefix = hex::encode(&proof_bytes[..4]);
+            info!(
+                proof_prefix = prefix.as_str(),
+                proof_len = proof_bytes.len()
+            );
+        }
+
         if job.public_inputs.len() != 104 {
             return Err(Error::ValidationError(
                 "public inputs must be 104 bytes".into(),
@@ -158,9 +184,42 @@ impl SolanaService {
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
 
-        // Derive Shield Pool PDAs
-        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
-            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+        // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
+            Some(pool_addr),
+            Some(treasury_addr),
+            Some(roots_ring_addr),
+            Some(nullifier_shard_addr),
+        ) = (
+            &self.config.pool_address,
+            &self.config.treasury_address,
+            &self.config.roots_ring_address,
+            &self.config.nullifier_shard_address,
+        ) {
+            // Use configured addresses
+            let pool_pda = Pubkey::from_str(pool_addr)
+                .map_err(|e| Error::ValidationError(format!("Invalid pool address: {}", e)))?;
+            let treasury_pda = Pubkey::from_str(treasury_addr)
+                .map_err(|e| Error::ValidationError(format!("Invalid treasury address: {}", e)))?;
+            let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
+                Error::ValidationError(format!("Invalid roots ring address: {}", e))
+            })?;
+            let nullifier_shard_pda = Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
+                Error::ValidationError(format!("Invalid nullifier shard address: {}", e))
+            })?;
+
+            info!("Using configured account addresses:");
+            info!("  Pool: {}", pool_pda);
+            info!("  Treasury: {}", treasury_pda);
+            info!("  Roots Ring: {}", roots_ring_pda);
+            info!("  Nullifier Shard: {}", nullifier_shard_pda);
+
+            (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+        } else {
+            // Fallback to PDA derivation
+            warn!("Account addresses not configured, deriving PDAs (this may cause errors if accounts don't exist)");
+            transaction_builder::derive_shield_pool_pdas(&self.program_id)
+        };
 
         // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
         let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
@@ -176,21 +235,115 @@ impl SolanaService {
         // Priority fee (micro-lamports per CU) from config
         let priority_micro_lamports: u64 = self.config.priority_micro_lamports;
 
-        let tx = transaction_builder::build_withdraw_transaction(
-            groth16_260,
-            public_104,
-            recipient_addr_32,
-            recipient_amount,
-            self.program_id,
-            pool_pda,
-            roots_ring_pda,
-            nullifier_shard_pda,
-            treasury_pda,
-            recipient_pubkey,
-            fee_payer_pubkey,
-            recent_blockhash,
-            priority_micro_lamports,
-        )?;
+        // Check if PoW is enabled
+        let tx = if let Some(ref claim_finder) = self.claim_finder {
+            // PoW path: find wildcard claim and use PoW transaction builder
+            info!("PoW enabled: searching for available wildcard claim...");
+
+            // Compute batch_hash from job ID
+            let job_id = job.request_id.to_string();
+            let batch_hash = compute_batch_hash(&job_id);
+
+            debug!(
+                "Computed batch_hash for job {}: {:x?}...",
+                job_id,
+                &batch_hash[0..8]
+            );
+
+            // Find available claim
+            match claim_finder.find_claim(&batch_hash).await {
+                Ok(Some(claim)) => {
+                    info!(
+                        "✓ Found wildcard claim: {} (miner: {}, expires at slot: {})",
+                        claim.claim_pda, claim.miner_authority, claim.mined_slot
+                    );
+
+                    // Get scramble registry program ID from config
+                    let scramble_registry_program_id = self
+                        .config
+                        .scramble_registry_program_id
+                        .as_ref()
+                        .and_then(|id| Pubkey::from_str(id).ok())
+                        .ok_or_else(|| {
+                            Error::ValidationError(
+                                "Scramble registry program ID not configured".into(),
+                            )
+                        })?;
+
+                    // Build PoW-enabled transaction
+                    transaction_builder::build_withdraw_transaction_with_pow(
+                        proof_bytes.clone(),
+                        public_104,
+                        recipient_addr_32,
+                        recipient_amount,
+                        batch_hash,
+                        self.program_id,
+                        pool_pda,
+                        roots_ring_pda,
+                        nullifier_shard_pda,
+                        treasury_pda,
+                        recipient_pubkey,
+                        scramble_registry_program_id,
+                        claim.claim_pda,
+                        claim.miner_pda,
+                        claim.registry_pda,
+                        claim.miner_authority,
+                        fee_payer_pubkey,
+                        recent_blockhash,
+                        priority_micro_lamports,
+                    )?
+                }
+                Ok(None) => {
+                    warn!(
+                        "No PoW claims available for job {}. Falling back to legacy mode.",
+                        job_id
+                    );
+
+                    // Fallback to legacy transaction (no PoW, no Jito tip)
+                    transaction_builder::build_withdraw_transaction(
+                        proof_bytes.clone(),
+                        public_104,
+                        recipient_addr_32,
+                        recipient_amount,
+                        self.program_id,
+                        pool_pda,
+                        roots_ring_pda,
+                        nullifier_shard_pda,
+                        treasury_pda,
+                        recipient_pubkey,
+                        fee_payer_pubkey,
+                        recent_blockhash,
+                        priority_micro_lamports,
+                    )?
+                }
+                Err(e) => {
+                    error!("Failed to query for claims: {}", e);
+                    return Err(Error::InternalServerError(format!(
+                        "Claim query failed: {}",
+                        e
+                    )));
+                }
+            }
+        } else {
+            // Legacy path (no PoW)
+            debug!("PoW disabled: using legacy transaction builder");
+
+            transaction_builder::build_withdraw_transaction(
+                proof_bytes.clone(),
+                public_104,
+                recipient_addr_32,
+                recipient_amount,
+                self.program_id,
+                pool_pda,
+                roots_ring_pda,
+                nullifier_shard_pda,
+                treasury_pda,
+                recipient_pubkey,
+                fee_payer_pubkey,
+                recent_blockhash,
+                priority_micro_lamports,
+            )?
+        };
 
         debug!("Built withdraw transaction for job: {}", job.request_id);
         Ok(tx)
@@ -236,15 +389,50 @@ impl SolanaService {
                 let recipient_amount = outputs[0].amount;
                 let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
 
-                let groth16_260 = cloak_proof_extract::extract_groth16_260(&job.proof_bytes)
-                    .map_err(|_| {
-                        Error::ValidationError("failed to extract 260-byte proof".into())
-                    })?;
+                if job.proof_bytes.is_empty() {
+                    return Err(Error::ValidationError(
+                        "proof bytes must be non-empty".into(),
+                    ));
+                }
+                let proof_bytes = job.proof_bytes.clone();
+
                 let mut public_104 = [0u8; 104];
                 public_104.copy_from_slice(&job.public_inputs);
 
-                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
-                    transaction_builder::derive_shield_pool_pdas(&self.program_id);
+                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
+                    Some(pool_addr),
+                    Some(treasury_addr),
+                    Some(roots_ring_addr),
+                    Some(nullifier_shard_addr),
+                ) = (
+                    &self.config.pool_address,
+                    &self.config.treasury_address,
+                    &self.config.roots_ring_address,
+                    &self.config.nullifier_shard_address,
+                ) {
+                    // Use configured addresses
+                    let pool_pda = Pubkey::from_str(pool_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid pool address: {}", e))
+                    })?;
+                    let treasury_pda = Pubkey::from_str(treasury_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid treasury address: {}", e))
+                    })?;
+                    let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid roots ring address: {}", e))
+                    })?;
+                    let nullifier_shard_pda =
+                        Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
+                            Error::ValidationError(format!(
+                                "Invalid nullifier shard address: {}",
+                                e
+                            ))
+                        })?;
+
+                    (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+                } else {
+                    // Fallback to PDA derivation
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id)
+                };
 
                 let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
                     kp.pubkey()
@@ -257,7 +445,7 @@ impl SolanaService {
                 };
 
                 let mut vtx = transaction_builder::build_withdraw_versioned_with_tip(
-                    groth16_260,
+                    proof_bytes,
                     public_104,
                     recipient_addr_32,
                     recipient_amount,
@@ -386,6 +574,9 @@ mod tests {
             jito_tip_lamports: 0,
             max_retries: 3,
             retry_delay_ms: 1000,
+            scramble_registry_program_id: Some(
+                "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
+            ),
         };
 
         // This would need to be updated when we implement the actual service

@@ -178,9 +178,9 @@ impl ValidationService {
     /// Cryptographic validation (proof verification, nullifier format, etc.)
     fn validate_cryptographic_constraints(&self, public_inputs: &PublicInputs, _outputs: &[Output], proof_bytes: &[u8]) -> Result<(), Error> {
         // Validate proof format
-        if proof_bytes.len() != 256 {
+        if proof_bytes.len() != 260 && proof_bytes.len() != 256 {
             return Err(Error::ValidationError(format!(
-                "Invalid proof length: {} (expected: 256)",
+                "Invalid proof length: {} (expected 260 or 256)",
                 proof_bytes.len()
             )));
         }

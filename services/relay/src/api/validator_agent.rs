@@ -7,7 +7,6 @@ use blake3::Hasher;
 use crate::error::Error;
 use crate::{
     db::repository::{JobRepository, NullifierRepository},
-    queue::JobMessage,
     AppState,
 };
 use base64::Engine;
@@ -61,7 +60,7 @@ pub struct JobStatusResponse {
 
 #[derive(Debug, Serialize)]
 pub struct JobArtifacts {
-    pub proof_hex_260: Option<String>,
+    pub proof_hex: Option<String>,
     pub public_bin_hex_104: Option<String>,
     pub tx_bytes_base64: Option<String>,
 }
@@ -182,14 +181,10 @@ pub async fn create_withdraw_job(
         })
         .await?;
 
-    // Record nullifier and enqueue for processing
+    // Record nullifier
     state
         .nullifier_repo
         .create_nullifier(nf.to_vec(), job.id)
-        .await?;
-    state
-        .queue
-        .enqueue(JobMessage::new(job.id, request_id))
         .await?;
 
     let resp = JobResponse {
@@ -215,17 +210,15 @@ pub async fn get_job(
 
     // Build artifacts if available
     let mut artifacts = JobArtifacts {
-        proof_hex_260: None,
+        proof_hex: None,
         public_bin_hex_104: None,
         tx_bytes_base64: None,
     };
     if job.public_inputs.len() == 104 {
         artifacts.public_bin_hex_104 = Some(hex::encode(&job.public_inputs));
     }
-    if job.proof_bytes.len() >= 260 {
-        if let Ok(proof260) = cloak_proof_extract::extract_groth16_260(&job.proof_bytes) {
-            artifacts.proof_hex_260 = Some(hex::encode(proof260));
-        }
+    if !job.proof_bytes.is_empty() {
+        artifacts.proof_hex = Some(hex::encode(&job.proof_bytes));
     }
 
     let resp = JobStatusResponse {

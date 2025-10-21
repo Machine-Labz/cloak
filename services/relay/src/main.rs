@@ -1,9 +1,9 @@
 mod api;
+mod claim_manager;
 mod config;
 mod db;
 mod error;
 mod planner;
-mod queue;
 mod solana;
 mod worker;
 
@@ -19,18 +19,20 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
+use crate::claim_manager::ClaimFinder;
 use crate::config::Config as RelayConfig;
 use crate::db::repository::{PostgresJobRepository, PostgresNullifierRepository};
-use crate::queue::{redis_queue::RedisJobQueue, JobQueue, QueueConfig};
 use crate::solana::SolanaService;
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db_pool: db::DatabasePool,
     pub job_repo: Arc<PostgresJobRepository>,
     pub nullifier_repo: Arc<PostgresNullifierRepository>,
-    pub queue: Arc<dyn JobQueue>,
     pub solana: Arc<SolanaService>,
+    pub claim_finder: Option<Arc<ClaimFinder>>,
 }
 
 impl AppState {
@@ -48,22 +50,43 @@ impl AppState {
         let job_repo = Arc::new(PostgresJobRepository::new(db_pool.clone()));
         let nullifier_repo = Arc::new(PostgresNullifierRepository::new(db_pool.clone()));
 
-        // Redis connection
-        let redis_url = relay_config.redis.url.clone();
-
-        let queue_config = QueueConfig::default();
-        let queue: Arc<dyn JobQueue> =
-            Arc::new(RedisJobQueue::new(&redis_url, queue_config).await?);
-
         // Solana service
-        let solana = Arc::new(SolanaService::new(relay_config.solana.clone()).await?);
+        let mut solana_service = SolanaService::new(relay_config.solana.clone()).await?;
+
+        // Initialize ClaimFinder if PoW is enabled
+        let claim_finder =
+            if let Some(ref registry_id) = relay_config.solana.scramble_registry_program_id {
+                info!(
+                    "Initializing PoW ClaimFinder with registry: {}",
+                    registry_id
+                );
+
+                let registry_program_id = Pubkey::from_str(registry_id)
+                    .map_err(|e| format!("Invalid scramble registry program ID: {}", e))?;
+
+                let finder = Some(Arc::new(ClaimFinder::new(
+                    relay_config.solana.rpc_url.clone(),
+                    registry_program_id,
+                )));
+
+                // Configure solana service with claim finder
+                solana_service.set_claim_finder(finder.clone());
+                info!("✓ PoW ClaimFinder initialized successfully");
+
+                finder
+            } else {
+                info!("PoW disabled - no scramble_registry_program_id configured");
+                None
+            };
+
+        let solana = Arc::new(solana_service);
 
         Ok(Self {
             db_pool,
             job_repo,
             nullifier_repo,
-            queue,
             solana,
+            claim_finder,
         })
     }
 

@@ -3,36 +3,18 @@ use bs58;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-use crate::db::models::JobStatus;
+use crate::db::models::{Job, JobStatus};
 use crate::db::repository::{JobRepository, NullifierRepository};
 use crate::error::Error;
-use crate::queue::JobMessage;
 use crate::AppState;
 
-/// Process a single job from the queue
-pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(), Error> {
-    let job_id = job_message.job_id;
+/// Process a single job directly from database
+pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> {
+    let job_id = job.id;
 
     info!("🔄 Processing job: {}", job_id);
-    info!("   Request ID: {}", job_message.request_id);
-    info!("   Retry count: {}", job_message.retry_count);
-
-    // Fetch the job from database
-    let job = match state.job_repo.get_job_by_id(job_id).await {
-        Ok(Some(job)) => job,
-        Ok(None) => {
-            warn!(
-                "⚠️  Job {} not found in database (stale queue entry), skipping",
-                job_id
-            );
-            // This is likely an old job from a previous run - just skip it
-            return Ok(());
-        }
-        Err(e) => {
-            error!("❌ Failed to fetch job {}: {}", job_id, e);
-            return Err(e);
-        }
-    };
+    info!("   Request ID: {}", job.request_id);
+    info!("   Status: {:?}", job.status);
 
     // Check if job is already completed or failed
     if job.status == JobStatus::Completed {
@@ -67,14 +49,6 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
             "Job {} missing proof bytes; requeueing for later processing",
             job_id
         );
-        let retry_delay = Duration::from_secs(60);
-        if let Err(e) = state
-            .queue
-            .requeue_with_delay(job_message.clone(), retry_delay)
-            .await
-        {
-            error!("Failed to requeue job {}: {}", job_id, e);
-        }
         let _ = state
             .job_repo
             .update_job_status(job_id, JobStatus::Queued)
@@ -150,28 +124,13 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
         Err(e) => {
             error!("❌ Job {} failed: {}", job_id, e);
 
-            // Check if we should retry
-            let max_retries = 3; // TODO: Get from config
-            if job_message.retry_count < max_retries {
-                warn!(
-                    "🔄 Retrying job {} (attempt {}/{})",
-                    job_id,
-                    job_message.retry_count + 1,
-                    max_retries
-                );
+            // Check if we should retry based on error type
+            let should_retry = !e.to_string().contains("MissingAccounts") && // Don't retry account errors
+                !e.to_string().contains("ProofInvalid") && // Don't retry proof errors
+                !e.to_string().contains("DoubleSpend"); // Don't retry double spend errors
 
-                // Requeue with exponential backoff
-                let retry_delay = Duration::from_secs(30 * 2_u64.pow(job_message.retry_count));
-                let mut retry_message = job_message.clone();
-                retry_message.retry_count += 1;
-
-                if let Err(requeue_err) = state
-                    .queue
-                    .requeue_with_delay(retry_message, retry_delay)
-                    .await
-                {
-                    error!("❌ Failed to requeue job {}: {}", job_id, requeue_err);
-                }
+            if should_retry {
+                warn!("🔄 Retrying job {} - Error: {}", job_id, e);
 
                 // Update status to queued (for retry)
                 if let Err(status_err) = state
@@ -185,31 +144,19 @@ pub async fn process_job(job_message: JobMessage, state: AppState) -> Result<(),
                     );
                 }
             } else {
-                error!("💀 Job {} exceeded max retries, marking as failed", job_id);
+                error!("❌ Job {} failed permanently: {}", job_id, e);
 
-                // Mark job as failed
-                if let Err(fail_err) = state
+                // Update job status to failed
+                if let Err(e) = state
                     .job_repo
-                    .update_job_failed(job_id, format!("Max retries exceeded: {}", e))
+                    .update_job_status(job_id, JobStatus::Failed)
                     .await
                 {
-                    error!("❌ Failed to mark job {} as failed: {}", job_id, fail_err);
-                }
-
-                // Move to dead letter queue
-                if let Err(dlq_err) = state
-                    .queue
-                    .dead_letter(job_message, format!("Max retries exceeded: {}", e))
-                    .await
-                {
-                    error!(
-                        "❌ Failed to move job {} to dead letter queue: {}",
-                        job_id, dlq_err
-                    );
+                    error!("❌ Failed to update job {} status to failed: {}", job_id, e);
                 }
             }
 
-            Err(e)
+            Ok(())
         }
     }
 }

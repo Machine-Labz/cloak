@@ -141,6 +141,7 @@ mod tests {
             jito_tip_lamports: 0,
             max_retries: 3,
             retry_delay_ms: 1000,
+            scramble_registry_program_id: None,
         };
 
         let config2 = SolanaConfig {
@@ -154,6 +155,7 @@ mod tests {
             jito_tip_lamports: 0,
             max_retries: 3,
             retry_delay_ms: 1000,
+            scramble_registry_program_id: None,
         };
 
         let config3 = SolanaConfig {
@@ -167,6 +169,7 @@ mod tests {
             jito_tip_lamports: 0,
             max_retries: 3,
             retry_delay_ms: 1000,
+            scramble_registry_program_id: None,
         };
 
         // Test commitment parsing
