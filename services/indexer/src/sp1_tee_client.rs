@@ -1,6 +1,6 @@
 use anyhow::Result;
-use sp1_sdk::{network::FulfillmentStrategy, Prover, ProverClient, SP1Stdin, HashableKey};
 use hex;
+use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -91,10 +91,7 @@ impl Sp1TeeClient {
 
         // Setup the program (this should be cached in production)
         let (pk, vk) = client.setup(ELF);
-        info!(
-            "SP1 verifying key hash: 0x{}",
-            hex::encode(vk.bytes32())
-        );
+        info!("SP1 verifying key hash: 0x{}", hex::encode(vk.bytes32()));
 
         // Prepare the combined input
         let combined_input = format!(

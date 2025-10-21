@@ -184,10 +184,7 @@ pub async fn generate_proof(
                 let proof_hex = hex::encode(canonical_proof);
                 let proof_prefix = hex::encode(&canonical_proof[..4]);
                 let public_inputs_hex = hex::encode(&tee_result.public_inputs);
-                tracing::info!(
-                    canonical_proof_bytes = proof_hex.len() / 2,
-                    proof_prefix
-                );
+                tracing::info!(canonical_proof_bytes = proof_hex.len() / 2, proof_prefix);
 
                 tracing::info!("🎉 TEE proof generation request completed successfully");
                 return (
@@ -267,10 +264,7 @@ pub async fn generate_proof(
             let proof_hex = hex::encode(canonical_proof);
             let proof_prefix = hex::encode(&canonical_proof[..4]);
             let public_inputs_hex = hex::encode(&proof_result.public_inputs);
-            tracing::info!(
-                canonical_proof_bytes = proof_hex.len() / 2,
-                proof_prefix
-            );
+            tracing::info!(canonical_proof_bytes = proof_hex.len() / 2, proof_prefix);
 
             tracing::info!("🎉 Local proof generation request completed successfully");
             (
