@@ -165,6 +165,7 @@ pub fn build_withdraw_instruction_with_pow(
         AccountMeta::new(registry_pda, false),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new(miner_authority, false), // Receives scrambler fee share
+        AccountMeta::new_readonly(program_id, false), // Shield-pool program ID (for CPI signer)
     ];
 
     Instruction {

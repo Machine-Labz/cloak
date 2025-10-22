@@ -30,11 +30,17 @@ pub fn process_consume_claim_instruction(
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
-    // Verify CPI caller is shield-pool program
+    // Verify CPI caller is shield-pool program by checking program ID
     // Note: In production, hardcode shield-pool program ID or pass as registry field
-    if !shield_pool_program.is_signer() {
-        msg!("consume_claim must be called via CPI from shield-pool");
-        return Err(ProgramError::MissingRequiredSignature);
+    use five8_const::decode_32_const;
+    const EXPECTED_SHIELD_POOL: [u8; 32] =
+        decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
+
+    // In a CPI, we just verify the pubkey matches the expected program
+    // We don't need to check executable() because if it wasn't a valid program, the CPI would fail
+    if shield_pool_program.key().as_ref() != &EXPECTED_SHIELD_POOL {
+        msg!("consume_claim must be called from authorized shield-pool program");
+        return Err(ProgramError::IncorrectProgramId);
     }
 
     // Load accounts

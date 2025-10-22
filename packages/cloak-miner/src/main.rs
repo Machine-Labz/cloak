@@ -26,13 +26,14 @@ use cloak_miner::{
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    native_token::LAMPORTS_PER_SOL,
     signature::{read_keypair_file, Keypair, Signer},
     transaction::Transaction,
 };
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 #[derive(Parser)]
@@ -176,6 +177,80 @@ async fn register_miner(
     Ok(())
 }
 
+/// Miner statistics for tracking performance
+#[derive(Debug)]
+struct MinerStats {
+    total_claims_mined: AtomicU64,
+    total_mining_time: AtomicU64, // milliseconds
+    total_hash_attempts: AtomicU64,
+    successful_mining_rounds: AtomicU64,
+    failed_mining_rounds: AtomicU64,
+    start_time: Instant,
+}
+
+impl MinerStats {
+    fn new() -> Self {
+        Self {
+            total_claims_mined: AtomicU64::new(0),
+            total_mining_time: AtomicU64::new(0),
+            total_hash_attempts: AtomicU64::new(0),
+            successful_mining_rounds: AtomicU64::new(0),
+            failed_mining_rounds: AtomicU64::new(0),
+            start_time: Instant::now(),
+        }
+    }
+
+    fn record_successful_mining(&self, mining_time_ms: u64, hash_attempts: u64) {
+        self.total_claims_mined.fetch_add(1, Ordering::Relaxed);
+        self.total_mining_time
+            .fetch_add(mining_time_ms, Ordering::Relaxed);
+        self.total_hash_attempts
+            .fetch_add(hash_attempts, Ordering::Relaxed);
+        self.successful_mining_rounds
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_failed_mining(&self) {
+        self.failed_mining_rounds.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn get_average_hash_rate(&self) -> f64 {
+        let total_time_secs = self.total_mining_time.load(Ordering::Relaxed) as f64 / 1000.0;
+        if total_time_secs > 0.0 {
+            self.total_hash_attempts.load(Ordering::Relaxed) as f64 / total_time_secs
+        } else {
+            0.0
+        }
+    }
+
+    fn get_success_rate(&self) -> f64 {
+        let total = self.successful_mining_rounds.load(Ordering::Relaxed)
+            + self.failed_mining_rounds.load(Ordering::Relaxed);
+        if total > 0 {
+            self.successful_mining_rounds.load(Ordering::Relaxed) as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    fn print_summary(&self) {
+        let uptime = self.start_time.elapsed();
+        let claims_mined = self.total_claims_mined.load(Ordering::Relaxed);
+        let avg_hash_rate = self.get_average_hash_rate();
+        let success_rate = self.get_success_rate();
+
+        println!("Miner Statistics:");
+        println!("  Uptime: {:.1}s", uptime.as_secs_f64());
+        println!("  Claims mined: {}", claims_mined);
+        println!("  Average hash rate: {:.0} H/s", avg_hash_rate);
+        println!("  Success rate: {:.1}%", success_rate);
+        println!(
+            "  Claims per hour: {:.1}",
+            claims_mined as f64 / (uptime.as_secs_f64() / 3600.0)
+        );
+    }
+}
+
 /// Mine claims continuously
 async fn mine_continuously(
     rpc_url: &str,
@@ -185,17 +260,20 @@ async fn mine_continuously(
     interval_secs: u64,
     target_claims: usize,
 ) -> Result<()> {
-    info!("Starting continuous mining...");
-    info!("  Timeout: {}s per attempt", timeout_secs);
-    info!("  Interval: {}s between attempts", interval_secs);
-    info!("  Target claims: {}", target_claims);
-    info!("  Mode: Continuous mining (always mine)");
+    let miner_pubkey = keypair.pubkey();
+
+    println!("Cloak Miner Starting");
+    println!("Miner: {}", miner_pubkey);
+    println!("Timeout: {}s per attempt", timeout_secs);
+    println!("Interval: {}s between attempts", interval_secs);
+    println!("Target claims: {}", target_claims);
+    println!("Mode: Continuous mining\n");
 
     // Set up signal handler for graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
-        warn!("Received shutdown signal, stopping miner...");
+        println!("Received shutdown signal, stopping miner...");
         r.store(false, Ordering::SeqCst);
     })
     .context("Failed to set Ctrl-C handler")?;
@@ -209,8 +287,11 @@ async fn mine_continuously(
     )
     .context("Failed to initialize ClaimManager")?;
 
-    info!("✓ ClaimManager initialized");
-    info!("🔄 Continuous mining mode enabled");
+    println!("ClaimManager initialized");
+    println!("Continuous mining mode enabled\n");
+
+    // Initialize miner statistics
+    let stats = Arc::new(MinerStats::new());
 
     // Fetch registry to display difficulty
     let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
@@ -218,15 +299,24 @@ async fn mine_continuously(
 
     match fetch_registry(&client, &registry_pda) {
         Ok(registry) => {
-            info!(
-                "Current difficulty: {:x?}...",
-                &registry.current_difficulty[0..4]
-            );
-            info!("Reveal window: {} slots", registry.reveal_window);
-            info!("Claim window: {} slots", registry.claim_window);
+            println!("Registry State:");
+            println!("  Difficulty: {:x?}...", &registry.current_difficulty[0..4]);
+            println!("  Reveal window: {} slots", registry.reveal_window);
+            println!("  Claim window: {} slots", registry.claim_window);
         }
         Err(e) => {
             warn!("Could not fetch registry: {}", e);
+        }
+    }
+
+    // Check initial miner balance
+    match client.get_balance(&miner_pubkey) {
+        Ok(balance) => {
+            let sol_balance = balance as f64 / LAMPORTS_PER_SOL as f64;
+            println!("Initial SOL balance: {:.4} SOL\n", sol_balance);
+        }
+        Err(e) => {
+            warn!("Could not fetch balance: {}", e);
         }
     }
 
@@ -235,20 +325,26 @@ async fn mine_continuously(
     // Main mining loop
     while running.load(Ordering::SeqCst) {
         mining_round += 1;
-        info!("=== Mining Round {} ===", mining_round);
+
+        // Print statistics every 10 rounds
+        if mining_round % 10 == 1 {
+            stats.print_summary();
+        }
+
+        println!("=== Mining Round {} ===", mining_round);
 
         // Check current number of active claims
         let current_claims = manager.get_active_claims_count();
-        info!(
+        println!(
             "Current active claims: {}/{}",
             current_claims, target_claims
         );
 
         // If we have enough claims, wait before checking again
         if current_claims >= target_claims {
-            info!("✓ Sufficient claims available, waiting before next check...");
+            println!("Sufficient claims available, waiting before next check...");
             if running.load(Ordering::SeqCst) {
-                info!("Waiting {}s before next check...\n", interval_secs);
+                println!("Waiting {}s before next check...\n", interval_secs);
                 tokio::time::sleep(Duration::from_secs(interval_secs)).await;
             }
             continue;
@@ -256,35 +352,53 @@ async fn mine_continuously(
 
         // Mine new claims to reach target
         let claims_needed = target_claims - current_claims;
-        info!("🔨 Mining {} new claim(s)...", claims_needed);
+        println!("Mining {} new claim(s)...", claims_needed);
 
         for i in 0..claims_needed {
             if !running.load(Ordering::SeqCst) {
                 break;
             }
 
-            let job_id = format!("auto-mine-{}-{}", mining_round, i + 1);
+            // Use wildcard batch_hash ([0; 32]) for continuous mining
+            // This allows the claim to be used by any withdraw request
+            // Force mining new claims by calling mine_and_reveal directly (bypassing cache)
+            let wildcard_batch_hash = [0u8; 32];
+            let mining_start = Instant::now();
 
-            match manager.get_claim_for_job(&job_id).await {
-                Ok(claim_pda) => {
-                    info!("✓ Claim {} mined and revealed: {}", i + 1, claim_pda);
-                    info!("  Miners can now earn fees when this claim is consumed");
+            match manager.mine_and_reveal(wildcard_batch_hash).await {
+                Ok((claim_pda, solution)) => {
+                    let mining_time = mining_start.elapsed();
+                    let mining_time_ms = mining_time.as_millis() as u64;
+
+                    // Record successful mining with actual hash attempts
+                    stats.record_successful_mining(mining_time_ms, solution.attempts);
+
+                    println!("Claim {} mined and revealed: {}", i + 1, claim_pda);
+                    println!("  Mining time: {:.2}s", mining_time.as_secs_f64());
+                    println!("  Hash attempts: {}", solution.attempts);
+                    println!(
+                        "  Hash rate: {:.0} H/s",
+                        solution.attempts as f64 / solution.mining_time.as_secs_f64()
+                    );
+                    println!("  Miners can now earn fees when this claim is consumed");
                 }
                 Err(e) => {
-                    error!("✗ Mining claim {} failed: {}", i + 1, e);
-                    error!("  Continuing with next claim...");
+                    stats.record_failed_mining();
+                    error!("Mining claim {} failed: {}", i + 1, e);
+                    error!("Continuing with next claim...");
                 }
             }
         }
 
         // Wait before next mining round
         if running.load(Ordering::SeqCst) {
-            info!("Waiting {}s before next mining round...\n", interval_secs);
+            println!("Waiting {}s before next mining round...\n", interval_secs);
             tokio::time::sleep(Duration::from_secs(interval_secs)).await;
         }
     }
 
-    info!("Miner stopped gracefully");
+    println!("Miner stopped gracefully");
+    stats.print_summary();
     Ok(())
 }
 

@@ -24,6 +24,15 @@ use super::{
     rpc::{fetch_recent_slot_hash, fetch_registry, get_current_slot},
 };
 
+/// Helper to compute batch hash from job ID (k=1 for MVP)
+fn compute_batch_hash(job_id: &str) -> [u8; 32] {
+    use blake3::Hasher;
+
+    let mut hasher = Hasher::new();
+    hasher.update(job_id.as_bytes());
+    *hasher.finalize().as_bytes()
+}
+
 /// Active claim state
 #[derive(Debug, Clone)]
 pub struct ClaimState {
@@ -71,19 +80,27 @@ impl ClaimManager {
 
     /// Get or mine a claim for a single job
     ///
-    /// Returns the claim PDA that can be consumed.
-    /// Uses wildcard batch_hash ([0; 32]) so claim can be used for any withdraw.
-    pub async fn get_claim_for_job(&mut self, job_id: &str) -> Result<Pubkey> {
-        // Use wildcard batch_hash instead of computing from job_id
-        // This allows the claim to be used for ANY withdraw
-        let batch_hash = [0u8; 32]; // Wildcard
+    /// Returns the claim PDA and mining solution that can be consumed.
+    /// Uses the actual batch_hash computed from the job_id to match relay expectations.
+    pub async fn get_claim_for_job(
+        &mut self,
+        job_id: &str,
+    ) -> Result<(Pubkey, super::engine::MiningSolution)> {
+        // Compute batch_hash from job_id to match what the relay expects
+        let batch_hash = compute_batch_hash(job_id);
 
         tracing::debug!(
-            "Mining wildcard claim for job '{}' (batch_hash will be [0; 32])",
-            job_id
+            "Mining claim for job '{}' with batch_hash: {:x?}...",
+            job_id,
+            &batch_hash[0..8]
         );
 
-        self.get_claim(batch_hash).await
+        // Always mine a new claim for each job to ensure fresh PoW work
+        tracing::info!(
+            "Mining new claim for batch_hash {:x?}...",
+            &batch_hash[0..8]
+        );
+        self.mine_and_reveal(batch_hash).await
     }
 
     /// Get or mine a claim for batch_hash
@@ -92,6 +109,19 @@ impl ClaimManager {
     /// 2. If not, mine and reveal a new one
     /// 3. Return claim PDA
     pub async fn get_claim(&mut self, batch_hash: [u8; 32]) -> Result<Pubkey> {
+        let (claim_pda, _) = self.get_claim_with_solution(batch_hash).await?;
+        Ok(claim_pda)
+    }
+
+    /// Get or mine a claim for batch_hash with solution details
+    ///
+    /// 1. Check if we have a usable claim
+    /// 2. If not, mine and reveal a new one
+    /// 3. Return claim PDA and mining solution
+    pub async fn get_claim_with_solution(
+        &mut self,
+        batch_hash: [u8; 32],
+    ) -> Result<(Pubkey, super::engine::MiningSolution)> {
         // Check if we have a usable claim
         if let Some(state) = self.active_claims.get(&batch_hash.to_vec()) {
             if self.is_claim_usable(state).await? {
@@ -101,7 +131,14 @@ impl ClaimManager {
                     state.consumed_count,
                     state.max_consumes
                 );
-                return Ok(state.pda);
+                // Return a dummy solution for existing claims
+                let dummy_solution = super::engine::MiningSolution {
+                    nonce: 0,
+                    proof_hash: [0; 32],
+                    attempts: 0,
+                    mining_time: std::time::Duration::from_secs(0),
+                };
+                return Ok((state.pda, dummy_solution));
             } else {
                 tracing::info!("Existing claim expired or fully consumed, mining new one");
                 self.active_claims.remove(&batch_hash.to_vec());
@@ -117,7 +154,13 @@ impl ClaimManager {
     }
 
     /// Mine and reveal a new claim
-    async fn mine_and_reveal(&mut self, batch_hash: [u8; 32]) -> Result<Pubkey> {
+    ///
+    /// Forces mining of a fresh claim, bypassing the cache.
+    /// Used in continuous mining mode to create unique claims with different slots.
+    pub async fn mine_and_reveal(
+        &mut self,
+        batch_hash: [u8; 32],
+    ) -> Result<(Pubkey, super::engine::MiningSolution)> {
         // 1. Fetch registry state
         let (registry_pda, _) = derive_registry_pda(&self.program_id);
         let registry = fetch_registry(&self.rpc_client, &registry_pda)?;
@@ -151,12 +194,15 @@ impl ClaimManager {
             .map_err(|e| anyhow!("Mining failed: {}", e))?;
 
         tracing::info!(
-            "Mining SUCCESS: nonce={}, proof_hash={:x?}...",
+            "Mining SUCCESS: nonce={}, attempts={}, time={:.2}s, hash_rate={:.0} H/s",
             solution.nonce,
-            &solution.proof_hash[0..8]
+            solution.attempts,
+            solution.mining_time.as_secs_f64(),
+            solution.attempts as f64 / solution.mining_time.as_secs_f64()
         );
 
-        // 4. Build and submit mine + reveal transactions
+        // 4. Build and submit mine + reveal in a SINGLE transaction
+        // This avoids reveal window expiry issues caused by delays between separate transactions
         let max_consumes = 1u16; // For now, k=1 (single job per claim)
 
         let (mine_ix, reveal_ix) = build_mine_and_reveal_instructions(
@@ -178,29 +224,18 @@ impl ClaimManager {
             slot,
         );
 
-        // Submit mine_claim transaction
-        tracing::info!("Submitting mine_claim transaction...");
-        let mine_tx = Transaction::new_signed_with_payer(
-            &[mine_ix],
+        // Submit BOTH mine and reveal in a single transaction
+        // This ensures reveal happens immediately after mine, avoiding reveal window expiry
+        tracing::info!("Submitting mine+reveal transaction (combined)...");
+        let combined_tx = Transaction::new_signed_with_payer(
+            &[mine_ix, reveal_ix],
             Some(&self.miner_keypair.pubkey()),
             &[&self.miner_keypair],
             self.rpc_client.get_latest_blockhash()?,
         );
 
-        let mine_sig = self.rpc_client.send_and_confirm_transaction(&mine_tx)?;
-        tracing::info!("Mine transaction confirmed: {}", mine_sig);
-
-        // Submit reveal_claim transaction
-        tracing::info!("Submitting reveal_claim transaction...");
-        let reveal_tx = Transaction::new_signed_with_payer(
-            &[reveal_ix],
-            Some(&self.miner_keypair.pubkey()),
-            &[&self.miner_keypair],
-            self.rpc_client.get_latest_blockhash()?,
-        );
-
-        let reveal_sig = self.rpc_client.send_and_confirm_transaction(&reveal_tx)?;
-        tracing::info!("Reveal transaction confirmed: {}", reveal_sig);
+        let sig = self.rpc_client.send_and_confirm_transaction(&combined_tx)?;
+        tracing::info!("Mine+reveal transaction confirmed: {}", sig);
 
         // 5. Get current slot and calculate expiry
         let current_slot = get_current_slot(&self.rpc_client)?;
@@ -224,7 +259,7 @@ impl ClaimManager {
             expires_at_slot
         );
 
-        Ok(claim_pda)
+        Ok((claim_pda, solution))
     }
 
     /// Check if claim is still usable

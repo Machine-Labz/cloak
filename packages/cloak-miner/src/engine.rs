@@ -20,6 +20,10 @@ pub struct MiningSolution {
     pub nonce: u128,
     /// BLAKE3 hash of preimage (proof_hash)
     pub proof_hash: [u8; 32],
+    /// Number of hash attempts made
+    pub attempts: u64,
+    /// Time taken to find solution
+    pub mining_time: std::time::Duration,
 }
 
 /// Mining engine for finding valid PoW nonces
@@ -130,30 +134,35 @@ impl MiningEngine {
 
             if self.check_difficulty(&hash) {
                 let elapsed = start_time.elapsed();
+                let hash_rate = attempts as f64 / elapsed.as_secs_f64();
+
                 tracing::info!(
                     "Mining SUCCESS: nonce={}, attempts={}, time={:.2}s, hash_rate={:.0} H/s",
                     nonce,
                     attempts,
                     elapsed.as_secs_f64(),
-                    attempts as f64 / elapsed.as_secs_f64()
+                    hash_rate
                 );
 
                 return Ok(MiningSolution {
                     nonce,
                     proof_hash: hash,
+                    attempts,
+                    mining_time: elapsed,
                 });
             }
 
             attempts += 1;
 
-            // Log progress every 1M attempts
+            // Log progress every 1M attempts with better formatting
             if attempts % 1_000_000 == 0 {
                 let elapsed = start_time.elapsed();
-                tracing::debug!(
-                    "Mining progress: attempts={}, time={:.2}s, hash_rate={:.0} H/s",
-                    attempts,
+                let hash_rate = attempts as f64 / elapsed.as_secs_f64();
+                tracing::info!(
+                    "Mining progress: {}M attempts, {:.2}s, {:.0} H/s",
+                    attempts / 1_000_000,
                     elapsed.as_secs_f64(),
-                    attempts as f64 / elapsed.as_secs_f64()
+                    hash_rate
                 );
             }
 
@@ -177,10 +186,12 @@ impl MiningEngine {
         for nonce in 0u128.. {
             // Check timeout
             if start_time.elapsed() > timeout {
+                let hash_rate = attempts as f64 / timeout.as_secs_f64();
                 return Err(anyhow!(
-                    "Mining timeout after {:.2}s ({} attempts)",
+                    "Mining timeout after {:.2}s ({} attempts, {:.0} H/s)",
                     timeout.as_secs_f64(),
-                    attempts
+                    attempts,
+                    hash_rate
                 ));
             }
 
@@ -188,20 +199,37 @@ impl MiningEngine {
 
             if self.check_difficulty(&hash) {
                 let elapsed = start_time.elapsed();
+                let hash_rate = attempts as f64 / elapsed.as_secs_f64();
+
                 tracing::info!(
-                    "Mining SUCCESS: nonce={}, attempts={}, time={:.2}s",
+                    "Mining SUCCESS: nonce={}, attempts={}, time={:.2}s, hash_rate={:.0} H/s",
                     nonce,
                     attempts,
-                    elapsed.as_secs_f64()
+                    elapsed.as_secs_f64(),
+                    hash_rate
                 );
 
                 return Ok(MiningSolution {
                     nonce,
                     proof_hash: hash,
+                    attempts,
+                    mining_time: elapsed,
                 });
             }
 
             attempts += 1;
+
+            // Log progress every 1M attempts
+            if attempts % 1_000_000 == 0 {
+                let elapsed = start_time.elapsed();
+                let hash_rate = attempts as f64 / elapsed.as_secs_f64();
+                tracing::info!(
+                    "Mining progress: {}M attempts, {:.2}s, {:.0} H/s",
+                    attempts / 1_000_000,
+                    elapsed.as_secs_f64(),
+                    hash_rate
+                );
+            }
         }
 
         Err(anyhow!("Mining failed unexpectedly"))

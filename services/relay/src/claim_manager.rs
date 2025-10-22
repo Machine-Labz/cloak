@@ -78,6 +78,7 @@ impl ClaimFinder {
 
         // Query all accounts owned by the registry program
         // In production, you'd want to filter by discriminator and use memcmp filters
+        info!("🔍 [DEBUG] Querying accounts for registry program: {}", self.registry_program_id);
         let accounts = self
             .rpc_client
             .get_program_accounts(&self.registry_program_id)
@@ -105,67 +106,98 @@ impl ClaimFinder {
             .await
             .map_err(|e| Error::InternalServerError(format!("Failed to get slot: {}", e)))?;
 
-        // Derive registry PDA
+        // Derive registry PDA (must match miner's derivation: b"registry")
         let (registry_pda, _) =
-            Pubkey::find_program_address(&[b"scramble_registry"], &self.registry_program_id);
+            Pubkey::find_program_address(&[b"registry"], &self.registry_program_id);
+
+        // Verify registry account ONCE (same for all claims)
+        if let Err(e) = self.verify_registry_account(&registry_pda).await {
+            warn!("Registry account verification failed: {}", e);
+            return Ok(None);
+        }
+
+        // Cache for verified miner accounts to avoid redundant RPC calls
+        let _verified_miners: std::collections::HashSet<Pubkey> = std::collections::HashSet::new();
 
         // Filter for usable claims
+        let mut size_filtered = 0;
+        let mut parse_failed = 0;
+        let mut batch_mismatch = 0;
+        let mut wildcard_found = 0;
+        let mut not_revealed = 0;
+        let mut expired = 0;
+        let mut fully_consumed = 0;
+        let mut account_verification_failed = 0;
+
         for (pubkey, account) in &accounts {
+            debug!("🔍 [DEBUG] Found account: {} (size: {} bytes)", pubkey, account.data.len());
+            
             // Skip if too small to be a claim
             if account.data.len() < 256 {
+                size_filtered += 1;
                 continue;
             }
 
             // Check discriminator (first 8 bytes should match "claim")
             // For now, we'll just check if it looks like a claim by checking size
             if account.data.len() != 256 {
+                size_filtered += 1;
                 continue;
             }
 
             // Parse claim account
-            if let Ok(claim) = parse_claim_account(&account) {
-                // Check if batch_hash matches (or if claim is wildcard)
-                let is_wildcard = claim.batch_hash == [0u8; 32];
+            match parse_claim_account(&account) {
+                Ok(claim) => {
+                    debug!("🔍 [DEBUG] Successfully parsed claim {}: status={}, batch_hash={:x?}, consumed={}/{}", 
+                           pubkey, claim.status, &claim.batch_hash[0..8], claim.consumed_count, claim.max_consumes);
+                    
+                    // Check if batch_hash matches (or if claim is wildcard)
+                    let is_wildcard = claim.batch_hash == [0u8; 32];
 
-                if !is_wildcard && claim.batch_hash != *batch_hash {
-                    debug!("Claim {} batch_hash mismatch (not wildcard)", pubkey);
-                    continue;
-                }
+                    if !is_wildcard && claim.batch_hash != *batch_hash {
+                        debug!("Claim {} batch_hash mismatch (not wildcard): {:x?}", pubkey, &claim.batch_hash[0..8]);
+                        batch_mismatch += 1;
+                        continue;
+                    }
 
-                if is_wildcard {
-                    debug!(
-                        "Found wildcard claim {} (can be used for any batch)",
-                        pubkey
-                    );
-                }
+                    if is_wildcard {
+                        wildcard_found += 1;
+                        info!(
+                            "🎯 Found wildcard claim {} (status: {}, consumed: {}/{}, expires: {}, current_slot: {})",
+                            pubkey, claim.status, claim.consumed_count, claim.max_consumes, claim.expires_at_slot, current_slot
+                        );
+                    }
 
-                // Check if revealed
-                if claim.status != 1 {
-                    // 1 = Revealed
-                    debug!(
-                        "⏭️  Claim {} not revealed (status: {})",
-                        pubkey, claim.status
-                    );
-                    continue;
-                }
+                    // Check if revealed
+                    if claim.status != 1 {
+                        // 1 = Revealed
+                        debug!(
+                            "⏭️  Claim {} not revealed (status: {})",
+                            pubkey, claim.status
+                        );
+                        not_revealed += 1;
+                        continue;
+                    }
 
-                // Check if expired
-                if current_slot > claim.expires_at_slot {
-                    debug!(
-                        "⏰ Claim {} expired (expires: {}, current: {})",
-                        pubkey, claim.expires_at_slot, current_slot
-                    );
-                    continue;
-                }
+                    // Check if expired
+                    if current_slot > claim.expires_at_slot {
+                        debug!(
+                            "⏰ Claim {} expired (expires: {}, current: {})",
+                            pubkey, claim.expires_at_slot, current_slot
+                        );
+                        expired += 1;
+                        continue;
+                    }
 
-                // Check if fully consumed
-                if claim.consumed_count >= claim.max_consumes {
-                    debug!(
-                        "💯 Claim {} fully consumed ({}/{})",
-                        pubkey, claim.consumed_count, claim.max_consumes
-                    );
-                    continue;
-                }
+                    // Check if fully consumed
+                    if claim.consumed_count >= claim.max_consumes {
+                        debug!(
+                            "💯 Claim {} fully consumed ({}/{})",
+                            pubkey, claim.consumed_count, claim.max_consumes
+                        );
+                        fully_consumed += 1;
+                        continue;
+                    }
 
                 // Found a usable claim!
                 let miner_authority = claim.miner_authority;
@@ -176,26 +208,169 @@ impl ClaimFinder {
                     &self.registry_program_id,
                 );
 
-                let total_duration = start_time.elapsed();
-                info!(
-                    "✅ [METRICS] Found available claim: {} (consumed {}/{}, expires at slot {}, search took {:?})",
-                    pubkey, claim.consumed_count, claim.max_consumes, claim.expires_at_slot, total_duration
-                );
+                    // Verify that the miner and registry accounts exist and have correct data size
+                    // This prevents "invalid account data for instruction" errors
+                    if let Err(e) = self.verify_accounts_exist(&miner_pda, &registry_pda).await {
+                        debug!(
+                            "⚠️  Claim {} has invalid miner/registry accounts: {}",
+                            pubkey, e
+                        );
+                        account_verification_failed += 1;
+                        continue;
+                    }
 
-                return Ok(Some(AvailableClaim {
-                    claim_pda: *pubkey,
-                    miner_pda,
-                    miner_authority,
-                    mined_slot: claim.slot,
-                    registry_pda,
-                }));
+                    let total_duration = start_time.elapsed();
+                    info!(
+                        "✅ [METRICS] Found available claim: {} (consumed {}/{}, expires at slot {}, search took {:?})",
+                        pubkey, claim.consumed_count, claim.max_consumes, claim.expires_at_slot, total_duration
+                    );
+
+                    return Ok(Some(AvailableClaim {
+                        claim_pda: *pubkey,
+                        miner_pda,
+                        miner_authority,
+                        mined_slot: claim.slot,
+                        registry_pda,
+                    }));
+                }
+                Err(e) => {
+                    debug!("❌ [DEBUG] Failed to parse claim account {}: {}", pubkey, e);
+                    parse_failed += 1;
+                }
             }
         }
 
         let total_duration = start_time.elapsed();
-        warn!("❌ [METRICS] No available claims found for batch_hash: {:?} (searched {} accounts in {:?})", 
-              hex::encode(&batch_hash[0..8]), accounts.len(), total_duration);
+        warn!(
+            "❌ [METRICS] No available claims found for batch_hash: {:?} (searched {} accounts in {:?})\n   \
+             Filter breakdown: size_filtered={}, parse_failed={}, batch_mismatch={}, wildcard_found={}, \
+             not_revealed={}, expired={}, fully_consumed={}, account_verification_failed={}",
+            hex::encode(&batch_hash[0..8]),
+            accounts.len(),
+            total_duration,
+            size_filtered,
+            parse_failed,
+            batch_mismatch,
+            wildcard_found,
+            not_revealed,
+            expired,
+            fully_consumed,
+            account_verification_failed
+        );
         Ok(None)
+    }
+
+    /// Verify that the registry account exists and has the correct data size
+    /// This prevents "invalid account data for instruction" errors when consuming claims
+    async fn verify_registry_account(&self, registry_pda: &Pubkey) -> Result<(), Error> {
+        use tokio::time::{timeout, Duration};
+
+        // Check registry account with timeout
+        match timeout(
+            Duration::from_secs(5),
+            self.rpc_client.get_account(registry_pda),
+        )
+        .await
+        {
+            Ok(Ok(account)) => {
+                // Registry account should be exactly 180 bytes
+                if account.data.len() != 188 {
+                    return Err(Error::ValidationError(format!(
+                        "Registry account {} has invalid data size: {} bytes (expected 180)",
+                        registry_pda,
+                        account.data.len()
+                    )));
+                }
+            }
+            Ok(Err(e)) => {
+                return Err(Error::ValidationError(format!(
+                    "Registry account {} does not exist or failed to fetch: {}",
+                    registry_pda, e
+                )));
+            }
+            Err(_) => {
+                return Err(Error::ValidationError(format!(
+                    "Registry account {} fetch timed out after 5s",
+                    registry_pda
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Verify that the miner and registry accounts exist and have the correct data size
+    /// This prevents "invalid account data for instruction" errors when consuming claims
+    async fn verify_accounts_exist(
+        &self,
+        miner_pda: &Pubkey,
+        registry_pda: &Pubkey,
+    ) -> Result<(), Error> {
+        use tokio::time::{timeout, Duration};
+
+        // Check miner account with timeout
+        match timeout(
+            Duration::from_secs(5),
+            self.rpc_client.get_account(miner_pda),
+        )
+        .await
+        {
+            Ok(Ok(account)) => {
+                // Miner account should be exactly 56 bytes
+                if account.data.len() != 56 {
+                    return Err(Error::ValidationError(format!(
+                        "Miner account {} has invalid data size: {} bytes (expected 56)",
+                        miner_pda,
+                        account.data.len()
+                    )));
+                }
+            }
+            Ok(Err(e)) => {
+                return Err(Error::ValidationError(format!(
+                    "Miner account {} does not exist or failed to fetch: {}",
+                    miner_pda, e
+                )));
+            }
+            Err(_) => {
+                return Err(Error::ValidationError(format!(
+                    "Miner account {} fetch timed out after 5s",
+                    miner_pda
+                )));
+            }
+        }
+
+        // Check registry account with timeout
+        match timeout(
+            Duration::from_secs(5),
+            self.rpc_client.get_account(registry_pda),
+        )
+        .await
+        {
+            Ok(Ok(account)) => {
+                // Registry account should be exactly 180 bytes
+                if account.data.len() != 188 {
+                    return Err(Error::ValidationError(format!(
+                        "Registry account {} has invalid data size: {} bytes (expected 180)",
+                        registry_pda,
+                        account.data.len()
+                    )));
+                }
+            }
+            Ok(Err(e)) => {
+                return Err(Error::ValidationError(format!(
+                    "Registry account {} does not exist or failed to fetch: {}",
+                    registry_pda, e
+                )));
+            }
+            Err(_) => {
+                return Err(Error::ValidationError(format!(
+                    "Registry account {} fetch timed out after 5s",
+                    registry_pda
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -213,20 +388,19 @@ struct ParsedClaim {
 
 /// Parse a claim account from raw bytes
 ///
-/// Claim layout (256 bytes total):
-/// - discriminator: 8 bytes
-/// - miner_authority: 32 bytes (offset 8)
-/// - batch_hash: 32 bytes (offset 40)
-/// - slot: 8 bytes (offset 72)
-/// - slot_hash: 32 bytes (offset 80)
-/// - nonce: 16 bytes (offset 112)
-/// - proof_hash: 32 bytes (offset 128)
-/// - mined_at_slot: 8 bytes (offset 160)
-/// - revealed_at_slot: 8 bytes (offset 168)
-/// - consumed_count: 2 bytes (offset 176)
-/// - max_consumes: 2 bytes (offset 178)
-/// - expires_at_slot: 8 bytes (offset 180)
-/// - status: 1 byte (offset 188)
+/// Claim layout (256 bytes total) - NO DISCRIMINATOR:
+/// - miner_authority: 32 bytes (offset 0)
+/// - batch_hash: 32 bytes (offset 32)
+/// - slot: 8 bytes (offset 64)
+/// - slot_hash: 32 bytes (offset 72)
+/// - nonce: 16 bytes (offset 104)
+/// - proof_hash: 32 bytes (offset 120)
+/// - mined_at_slot: 8 bytes (offset 152)
+/// - revealed_at_slot: 8 bytes (offset 160)
+/// - consumed_count: 2 bytes (offset 168)
+/// - max_consumes: 2 bytes (offset 170)
+/// - expires_at_slot: 8 bytes (offset 172)
+/// - status: 1 byte (offset 180)
 fn parse_claim_account(account: &Account) -> Result<ParsedClaim, Error> {
     if account.data.len() < 256 {
         return Err(Error::ValidationError("Account too small".into()));
@@ -236,18 +410,18 @@ fn parse_claim_account(account: &Account) -> Result<ParsedClaim, Error> {
 
     // Extract fields using unsafe pointer arithmetic (same as on-chain)
     unsafe {
-        let miner_authority = Pubkey::new_from_array(*(data.as_ptr().add(8) as *const [u8; 32]));
+        let miner_authority = Pubkey::new_from_array(*(data.as_ptr() as *const [u8; 32]));
 
-        let batch_hash: [u8; 32] = *(data.as_ptr().add(40) as *const [u8; 32]);
+        let batch_hash: [u8; 32] = *(data.as_ptr().add(32) as *const [u8; 32]);
 
-        let slot = u64::from_le_bytes(*(data.as_ptr().add(72) as *const [u8; 8]));
+        let slot = u64::from_le_bytes(*(data.as_ptr().add(64) as *const [u8; 8]));
 
-        let consumed_count = u16::from_le_bytes([data[176], data[177]]);
-        let max_consumes = u16::from_le_bytes([data[178], data[179]]);
+        let consumed_count = u16::from_le_bytes([data[168], data[169]]);
+        let max_consumes = u16::from_le_bytes([data[170], data[171]]);
 
-        let expires_at_slot = u64::from_le_bytes(*(data.as_ptr().add(180) as *const [u8; 8]));
+        let expires_at_slot = u64::from_le_bytes(*(data.as_ptr().add(172) as *const [u8; 8]));
 
-        let status = data[188];
+        let status = data[180];
 
         Ok(ParsedClaim {
             miner_authority,

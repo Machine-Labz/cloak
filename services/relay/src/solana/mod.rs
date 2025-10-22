@@ -237,10 +237,10 @@ impl SolanaService {
 
         // Check if PoW is enabled
         let tx = if let Some(ref claim_finder) = self.claim_finder {
-            // PoW path: find wildcard claim and use PoW transaction builder
-            info!("PoW enabled: searching for available wildcard claim...");
+            // PoW path: find specific claim and use PoW transaction builder
+            info!("PoW enabled: searching for available claim...");
 
-            // Compute batch_hash from job ID
+            // Compute batch_hash from job ID to match what the miner creates
             let job_id = job.request_id.to_string();
             let batch_hash = compute_batch_hash(&job_id);
 
@@ -254,7 +254,7 @@ impl SolanaService {
             match claim_finder.find_claim(&batch_hash).await {
                 Ok(Some(claim)) => {
                     info!(
-                        "✓ Found wildcard claim: {} (miner: {}, expires at slot: {})",
+                        "✓ Found claim: {} (miner: {}, expires at slot: {})",
                         claim.claim_pda, claim.miner_authority, claim.mined_slot
                     );
 
@@ -294,27 +294,17 @@ impl SolanaService {
                     )?
                 }
                 Ok(None) => {
+                    // PoW mode is enabled but no claims are available yet
+                    // Return a retryable error so the worker will requeue the job
+                    // and try again when miners have produced claims
                     warn!(
-                        "No PoW claims available for job {}. Falling back to legacy mode.",
-                        job_id
+                        "No PoW claims available for job {}. Will retry until miners provide claims.",
+                        job.request_id
                     );
-
-                    // Fallback to legacy transaction (no PoW, no Jito tip)
-                    transaction_builder::build_withdraw_transaction(
-                        proof_bytes.clone(),
-                        public_104,
-                        recipient_addr_32,
-                        recipient_amount,
-                        self.program_id,
-                        pool_pda,
-                        roots_ring_pda,
-                        nullifier_shard_pda,
-                        treasury_pda,
-                        recipient_pubkey,
-                        fee_payer_pubkey,
-                        recent_blockhash,
-                        priority_micro_lamports,
-                    )?
+                    return Err(Error::InternalServerError(
+                        "No PoW claims available yet - waiting for miners to produce claims"
+                            .to_string(),
+                    ));
                 }
                 Err(e) => {
                     error!("Failed to query for claims: {}", e);

@@ -5,9 +5,9 @@ use crate::constants::{
 use crate::error::ShieldPoolError;
 use crate::ID;
 use core::convert::TryInto;
+use pinocchio::cpi::invoke_signed;
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, program::invoke, pubkey::Pubkey,
-    ProgramResult,
+    account_info::AccountInfo, instruction::AccountMeta, msg, pubkey::Pubkey, ProgramResult,
 };
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
@@ -128,10 +128,10 @@ fn parse_withdraw_data<'a>(
 }
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    let is_pow_mode = accounts.len() >= 12;
+    let is_pow_mode = accounts.len() >= 13;
 
     if is_pow_mode {
-        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, miner_authority_account, ..] =
+        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, miner_authority_account, shield_pool_program_info, ..] =
             accounts
         else {
             return Err(ShieldPoolError::MissingAccounts.into());
@@ -149,6 +149,7 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
             registry_pda_info,
             clock_sysvar_info,
             miner_authority_account,
+            shield_pool_program_info,
             data,
         )
     } else {
@@ -181,9 +182,20 @@ fn process_withdraw_pow_mode(
     registry_pda_info: &AccountInfo,
     clock_sysvar_info: &AccountInfo,
     miner_authority_account: &AccountInfo,
+    shield_pool_program_info: &AccountInfo,
     data: &[u8],
 ) -> ProgramResult {
+    // Get shield-pool program ID (this program)
     let program_id = Pubkey::from(ID);
+
+    // Verify shield_pool_program_info matches expected program ID and is executable
+    if shield_pool_program_info.key() != &program_id {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+    if !shield_pool_program_info.executable() {
+        msg!("Shield pool program account is not executable!");
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
     if pool_info.owner() != &program_id {
         return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
     }
@@ -261,24 +273,31 @@ fn process_withdraw_pow_mode(
         .batch_hash
         .ok_or(ShieldPoolError::InvalidInstructionData)?;
 
-    let miner_data = miner_pda_info.try_borrow_data()?;
-    if miner_data.len() < 40 {
-        return Err(ShieldPoolError::InvalidMinerAccount.into());
-    }
-    let miner_authority: [u8; 32] = miner_data[8..40]
-        .try_into()
-        .map_err(|_| ShieldPoolError::InvalidMinerAccount)?;
+    // Read miner authority and drop borrow before CPI
+    let miner_authority: [u8; 32] = {
+        let miner_data = miner_pda_info.try_borrow_data()?;
+        if miner_data.len() < 32 {
+            return Err(ShieldPoolError::InvalidMinerAccount.into());
+        }
+        // Miner account layout: [authority: 32][total_mined: 8][total_consumed: 8][registered_at_slot: 8]
+        // No discriminator - authority is at offset 0
+        miner_data[0..32]
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidMinerAccount)?
+    }; // miner_data is dropped here
 
     let mut consume_ix_data = [0u8; 65];
     consume_ix_data[0] = 4; // consume_claim discriminant
     consume_ix_data[1..33].copy_from_slice(&miner_authority);
     consume_ix_data[33..65].copy_from_slice(&batch_hash);
 
+    // For CPI: Solana runtime automatically grants signer privilege to the calling program
+    // The 4th account is shield-pool program - runtime will make it signer in CPI context
     let account_metas = [
         AccountMeta::writable(claim_pda_info.key()),
         AccountMeta::writable(miner_pda_info.key()),
         AccountMeta::writable(registry_pda_info.key()),
-        AccountMeta::readonly_signer(pool_info.key()),
+        AccountMeta::readonly(shield_pool_program_info.key()), // Shield-pool program - will be signer in CPI
         AccountMeta::readonly(clock_sysvar_info.key()),
     ];
 
@@ -288,15 +307,17 @@ fn process_withdraw_pow_mode(
         data: &consume_ix_data,
     };
 
-    invoke(
+    // Use invoke_signed to grant signer privilege to the calling program (shield-pool)
+    invoke_signed(
         &consume_ix,
         &[
             claim_pda_info,
             miner_pda_info,
             registry_pda_info,
-            pool_info,
+            shield_pool_program_info,
             clock_sysvar_info,
         ],
+        &[],
     )?;
 
     let registry_data = registry_pda_info.try_borrow_data()?;
