@@ -5,7 +5,7 @@ use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::Subscriber;
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::{format::FmtSpan, time::SystemTime};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -41,7 +41,7 @@ async fn cloudwatch_log_sender(
     {
         // Only log if it's not an "already exists" error
         if !e.to_string().contains("ResourceAlreadyExistsException") {
-            eprintln!("Warning: Could not create log group '{}': {:?}", log_group_name, e);
+            tracing::info!("Log group '{}' already exists", log_group_name);
         }
     }
 
@@ -55,7 +55,7 @@ async fn cloudwatch_log_sender(
     {
         // Only log if it's not an "already exists" error
         if !e.to_string().contains("ResourceAlreadyExistsException") {
-            eprintln!("Warning: Could not create log stream '{}': {:?}", log_stream_name, e);
+            tracing::info!("Log stream '{}' already exists", log_stream_name);
         }
     }
 
@@ -73,15 +73,30 @@ async fn cloudwatch_log_sender(
 
         // Send in batches of 10 or after accumulation
         if batch.len() >= 10 {
-            if let Err(e) = send_batch(&client, &log_group_name, &log_stream_name, &mut batch, &mut sequence_token).await {
-                eprintln!("Failed to send logs to CloudWatch: {}", e);
+            if let Err(e) = send_batch(
+                &client,
+                &log_group_name,
+                &log_stream_name,
+                &mut batch,
+                &mut sequence_token,
+            )
+            .await
+            {
+                tracing::error!("Failed to send logs to CloudWatch: {}", e);
             }
         }
     }
 
     // Send remaining logs
     if !batch.is_empty() {
-        let _ = send_batch(&client, &log_group_name, &log_stream_name, &mut batch, &mut sequence_token).await;
+        let _ = send_batch(
+            &client,
+            &log_group_name,
+            &log_stream_name,
+            &mut batch,
+            &mut sequence_token,
+        )
+        .await;
     }
 }
 
@@ -134,7 +149,11 @@ impl<S> Layer<S> for CloudWatchLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         // Format the event as a string
         let mut message = String::new();
 
@@ -199,12 +218,20 @@ async fn verify_cloudwatch_connectivity(
             eprintln!("   Full error: {:#?}", e);
             eprintln!();
             eprintln!("   Common causes:");
-            eprintln!("   1. Invalid AWS credentials (check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)");
-            eprintln!("   2. Incorrect AWS region (current region: set in config, log group: {})", log_group_name);
+            eprintln!(
+                "   1. Invalid AWS credentials (check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)"
+            );
+            eprintln!(
+                "   2. Incorrect AWS region (current region: set in config, log group: {})",
+                log_group_name
+            );
             eprintln!("   3. Missing IAM permissions: logs:DescribeLogGroups, logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents");
             eprintln!("   4. Network connectivity issues");
             eprintln!("   5. AWS service temporarily unavailable");
-            Err(anyhow::anyhow!("CloudWatch connectivity check failed: {:?}", e))
+            Err(anyhow::anyhow!(
+                "CloudWatch connectivity check failed: {:?}",
+                e
+            ))
         }
     }
 }
@@ -243,25 +270,36 @@ pub async fn init_logging_with_cloudwatch(
     // Verify CloudWatch connectivity
     eprintln!("🔍 Verifying CloudWatch connectivity...");
     match verify_cloudwatch_connectivity(&cloudwatch_client, log_group_name).await {
-        Ok(true) => eprintln!("✅ CloudWatch connected successfully - log group '{}' exists", log_group_name),
+        Ok(true) => eprintln!(
+            "✅ CloudWatch connected successfully - log group '{}' exists",
+            log_group_name
+        ),
         Ok(false) => eprintln!("✅ CloudWatch connected - log group will be auto-created"),
         Err(e) => {
-            eprintln!("⚠️  CloudWatch connectivity check failed, continuing with console-only logging");
+            eprintln!(
+                "⚠️  CloudWatch connectivity check failed, continuing with console-only logging"
+            );
             eprintln!("   Error: {}", e);
-            // Fall back to console-only logging
+            // Fall back to console-only logging, excluding AWS SDK debug logs
             let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
                 format!(
                     "{},indexer={},cloak_indexer={},sqlx=warn",
                     log_level, log_level, log_level
                 )
             });
-            let env_filter = EnvFilter::new(rust_log);
+            let env_filter = EnvFilter::new(rust_log)
+                .add_directive("aws_smithy_runtime=warn".parse().unwrap())
+                .add_directive("aws_sdk_cloudwatchlogs=warn".parse().unwrap())
+                .add_directive("aws_config=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper_util=warn".parse().unwrap());
             tracing_subscriber::registry()
                 .with(env_filter)
                 .with(
                     tracing_subscriber::fmt::layer()
-                        .with_span_events(FmtSpan::CLOSE)
-                        .json(),
+                        .with_timer(SystemTime::default())
+                        .with_span_events(FmtSpan::CLOSE),
                 )
                 .init();
             return Ok(());
@@ -279,7 +317,7 @@ pub async fn init_logging_with_cloudwatch(
         cloudwatch_log_sender(client_clone, group_clone, stream_clone, rx).await;
     });
 
-    // Create env filter with log level and common directives
+    // Create env filter with log level and common directives, excluding AWS SDK debug logs
     let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
         format!(
             "{},indexer={},cloak_indexer={},sqlx=warn",
@@ -287,15 +325,21 @@ pub async fn init_logging_with_cloudwatch(
         )
     });
 
-    let env_filter = EnvFilter::new(rust_log);
+    let env_filter = EnvFilter::new(rust_log)
+        .add_directive("aws_smithy_runtime=warn".parse().unwrap())
+        .add_directive("aws_sdk_cloudwatchlogs=warn".parse().unwrap())
+        .add_directive("aws_config=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper_util=warn".parse().unwrap());
 
     // Initialize subscriber with both console logging and CloudWatch layer
     tracing_subscriber::registry()
         .with(env_filter)
         .with(
             tracing_subscriber::fmt::layer()
-                .with_span_events(FmtSpan::CLOSE)
-                .json(),
+                .with_timer(SystemTime::default())
+                .with_span_events(FmtSpan::CLOSE),
         )
         .with(CloudWatchLayer::new(tx))
         .init();

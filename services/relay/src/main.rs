@@ -116,7 +116,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let aws_secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
             .expect("AWS_SECRET_ACCESS_KEY must be set when CLOUDWATCH_ENABLED=true");
         let aws_region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-        let log_group = std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
+        let log_group =
+            std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
 
         // Initialize CloudWatch logging
         cloudwatch::init_logging_with_cloudwatch(

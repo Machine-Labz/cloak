@@ -12,12 +12,15 @@ pub async fn init_logging(config: &Config) -> anyhow::Result<()> {
 
     if cloudwatch_enabled {
         // Get CloudWatch configuration from environment
-        let aws_access_key_id = std::env::var("AWS_ACCESS_KEY_ID")
-            .map_err(|_| anyhow::anyhow!("AWS_ACCESS_KEY_ID must be set when CLOUDWATCH_ENABLED=true"))?;
-        let aws_secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
-            .map_err(|_| anyhow::anyhow!("AWS_SECRET_ACCESS_KEY must be set when CLOUDWATCH_ENABLED=true"))?;
+        let aws_access_key_id = std::env::var("AWS_ACCESS_KEY_ID").map_err(|_| {
+            anyhow::anyhow!("AWS_ACCESS_KEY_ID must be set when CLOUDWATCH_ENABLED=true")
+        })?;
+        let aws_secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY").map_err(|_| {
+            anyhow::anyhow!("AWS_SECRET_ACCESS_KEY must be set when CLOUDWATCH_ENABLED=true")
+        })?;
         let aws_region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-        let log_group = std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
+        let log_group =
+            std::env::var("CLOUDWATCH_LOG_GROUP").unwrap_or_else(|_| "Cloak".to_string());
 
         // Initialize CloudWatch logging
         crate::cloudwatch::init_logging_with_cloudwatch(
