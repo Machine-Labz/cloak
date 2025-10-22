@@ -19,12 +19,51 @@ test-ledger/
 
 # Environment files
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
 
-# Keypairs (keep examples but ignore actual keys)
+# Keypairs and sensitive files
 *-keypair.json
-!*-keypair.json.example
-c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json
+*.json
+!package.json
+!package-lock.json
+!yarn.lock
+!pnpm-lock.yaml
+!tsconfig.json
+!tsconfig.*.json
+!babel.config.js
+!docusaurus.config.ts
+!sidebars.ts
+!compose.yml
+!Cargo.toml
+!Cargo.lock
+!justfile
+!LICENSE
+!README.md
+!*.md
+!*.mdx
+!*.sh
+!*.sql
+!*.css
+!*.ts
+!*.tsx
+!*.js
+!*.jsx
+!*.rs
+!*.toml
+!*.yaml
+!*.yml
+!*.svg
+!*.png
+!*.jpg
+!*.jpeg
+!*.gif
+!*.ico
+!*.woff
+!*.woff2
+!*.ttf
+!*.eot
 
 # Logs
 *.log
@@ -59,6 +98,3 @@ Thumbs.db
 
 # Context
 .context/
-# Solana keypair files
-*-keypair.json
-scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111.json
