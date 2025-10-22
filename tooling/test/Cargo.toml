@@ -38,6 +38,9 @@ bs58 = "0.5"
 anyhow = "1.0"
 ctrlc = "3.4"
 rand = "0.8"
-sp1-sdk.workspace = true
+sp1-sdk = { workspace = true, features = ["network"] }
 shield-pool= { path = "../../programs/shield-pool" }
 dotenvy = "0.15"
+cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
+bincode = "1"
+zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }

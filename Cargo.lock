@@ -13034,8 +13034,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "bincode",
  "blake3",
  "bs58 0.5.1",
+ "cloak-proof-extract",
  "ctrlc",
  "dotenvy",
  "hex",
@@ -13049,6 +13051,7 @@ dependencies = [
  "solana-sdk",
  "sp1-sdk",
  "tokio",
+ "zk-guest-sp1-host",
 ]
 
 [[package]]
