@@ -1,8 +1,6 @@
 use crate::artifacts::ArtifactManager;
 use crate::database::PostgresTreeStorage;
 use crate::merkle::{MerkleTree, TreeStorage};
-use crate::server::rate_limiter::RateLimiter;
-use crate::sp1_tee_client::Sp1TeeClient;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -21,8 +19,6 @@ pub struct AppState {
     pub merkle_tree: Arc<Mutex<MerkleTree>>,
     pub artifact_manager: ArtifactManager,
     pub config: crate::config::Config,
-    pub rate_limiter: Arc<RateLimiter>,
-    pub tee_client: Option<Arc<Sp1TeeClient>>,
 }
 
 // Request types
