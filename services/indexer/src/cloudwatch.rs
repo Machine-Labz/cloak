@@ -4,10 +4,13 @@ use aws_sdk_cloudwatchlogs::types::InputLogEvent;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tracing::Subscriber;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 /// Get the machine ID to use as log stream name
 fn get_machine_id() -> String {
@@ -29,13 +32,32 @@ async fn cloudwatch_log_sender(
     log_stream_name: String,
     mut rx: mpsc::UnboundedReceiver<String>,
 ) {
+    // Try to create log group first (ignore error if it already exists)
+    if let Err(e) = client
+        .create_log_group()
+        .log_group_name(&log_group_name)
+        .send()
+        .await
+    {
+        // Only log if it's not an "already exists" error
+        if !e.to_string().contains("ResourceAlreadyExistsException") {
+            eprintln!("Warning: Could not create log group '{}': {:?}", log_group_name, e);
+        }
+    }
+
     // Try to create log stream (ignore error if it already exists)
-    let _ = client
+    if let Err(e) = client
         .create_log_stream()
         .log_group_name(&log_group_name)
         .log_stream_name(&log_stream_name)
         .send()
-        .await;
+        .await
+    {
+        // Only log if it's not an "already exists" error
+        if !e.to_string().contains("ResourceAlreadyExistsException") {
+            eprintln!("Warning: Could not create log stream '{}': {:?}", log_stream_name, e);
+        }
+    }
 
     let mut sequence_token: Option<String> = None;
     let mut batch = Vec::new();
@@ -97,6 +119,96 @@ async fn send_batch(
     }
 }
 
+/// Custom tracing layer that sends logs to CloudWatch
+struct CloudWatchLayer {
+    tx: mpsc::UnboundedSender<String>,
+}
+
+impl CloudWatchLayer {
+    fn new(tx: mpsc::UnboundedSender<String>) -> Self {
+        Self { tx }
+    }
+}
+
+impl<S> Layer<S> for CloudWatchLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        // Format the event as a string
+        let mut message = String::new();
+
+        // Extract level
+        let level = event.metadata().level();
+        message.push_str(&format!("[{}] ", level));
+
+        // Extract target
+        let target = event.metadata().target();
+        message.push_str(&format!("{}: ", target));
+
+        // Extract fields using a visitor
+        struct MessageVisitor<'a>(&'a mut String);
+
+        impl<'a> tracing::field::Visit for MessageVisitor<'a> {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    self.0.push_str(&format!("{:?}", value));
+                } else {
+                    self.0.push_str(&format!(" {}={:?}", field.name(), value));
+                }
+            }
+        }
+
+        let mut visitor = MessageVisitor(&mut message);
+        event.record(&mut visitor);
+
+        // Send to CloudWatch (ignore send errors as we don't want logging to fail the app)
+        let _ = self.tx.send(message);
+    }
+}
+
+/// Verify CloudWatch connectivity by attempting to describe the log group
+async fn verify_cloudwatch_connectivity(
+    client: &CloudWatchLogsClient,
+    log_group_name: &str,
+) -> Result<bool> {
+    match client
+        .describe_log_groups()
+        .log_group_name_prefix(log_group_name)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let group_exists = response
+                .log_groups()
+                .iter()
+                .any(|g| g.log_group_name() == Some(log_group_name));
+
+            if group_exists {
+                Ok(true)
+            } else {
+                eprintln!(
+                    "⚠️  CloudWatch log group '{}' does not exist. It will be created automatically when first log is sent.",
+                    log_group_name
+                );
+                Ok(false)
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to connect to CloudWatch");
+            eprintln!("   Full error: {:#?}", e);
+            eprintln!();
+            eprintln!("   Common causes:");
+            eprintln!("   1. Invalid AWS credentials (check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)");
+            eprintln!("   2. Incorrect AWS region (current region: set in config, log group: {})", log_group_name);
+            eprintln!("   3. Missing IAM permissions: logs:DescribeLogGroups, logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents");
+            eprintln!("   4. Network connectivity issues");
+            eprintln!("   5. AWS service temporarily unavailable");
+            Err(anyhow::anyhow!("CloudWatch connectivity check failed: {:?}", e))
+        }
+    }
+}
+
 /// Initialize logging with CloudWatch integration
 pub async fn init_logging_with_cloudwatch(
     aws_access_key_id: &str,
@@ -128,8 +240,36 @@ pub async fn init_logging_with_cloudwatch(
     // Create CloudWatch Logs client
     let cloudwatch_client = Arc::new(CloudWatchLogsClient::new(&config));
 
+    // Verify CloudWatch connectivity
+    eprintln!("🔍 Verifying CloudWatch connectivity...");
+    match verify_cloudwatch_connectivity(&cloudwatch_client, log_group_name).await {
+        Ok(true) => eprintln!("✅ CloudWatch connected successfully - log group '{}' exists", log_group_name),
+        Ok(false) => eprintln!("✅ CloudWatch connected - log group will be auto-created"),
+        Err(e) => {
+            eprintln!("⚠️  CloudWatch connectivity check failed, continuing with console-only logging");
+            eprintln!("   Error: {}", e);
+            // Fall back to console-only logging
+            let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
+                format!(
+                    "{},indexer={},cloak_indexer={},sqlx=warn",
+                    log_level, log_level, log_level
+                )
+            });
+            let env_filter = EnvFilter::new(rust_log);
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_span_events(FmtSpan::CLOSE)
+                        .json(),
+                )
+                .init();
+            return Ok(());
+        }
+    }
+
     // Create channel for sending logs
-    let (_tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded_channel();
 
     // Spawn background task to send logs
     let client_clone = cloudwatch_client.clone();
@@ -149,9 +289,7 @@ pub async fn init_logging_with_cloudwatch(
 
     let env_filter = EnvFilter::new(rust_log);
 
-    // Initialize subscriber with console logging in JSON format
-    // Note: For now, we're just logging to console. A full CloudWatch layer implementation
-    // would require a custom tracing_subscriber::Layer implementation.
+    // Initialize subscriber with both console logging and CloudWatch layer
     tracing_subscriber::registry()
         .with(env_filter)
         .with(
@@ -159,12 +297,14 @@ pub async fn init_logging_with_cloudwatch(
                 .with_span_events(FmtSpan::CLOSE)
                 .json(),
         )
+        .with(CloudWatchLayer::new(tx))
         .init();
 
     tracing::info!(
         stream = %log_stream_name,
         group = %log_group_name,
-        "CloudWatch logging configured (console + background sender)"
+        region = %aws_region,
+        "CloudWatch logging initialized successfully"
     );
 
     Ok(())

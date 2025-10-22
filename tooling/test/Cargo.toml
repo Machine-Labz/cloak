@@ -40,3 +40,4 @@ ctrlc = "3.4"
 rand = "0.8"
 sp1-sdk.workspace = true
 shield-pool= { path = "../../programs/shield-pool" }
+dotenvy = "0.15"

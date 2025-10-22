@@ -47,6 +47,8 @@ struct ProveResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
+
     let start_time = std::time::Instant::now();
 
     println!("🔐 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW WITH /PROVE ENDPOINT TEST");
@@ -109,21 +111,37 @@ async fn main() -> Result<()> {
     let accounts = if config.is_testnet() {
         println!("\n✅ Using existing program accounts on testnet...");
         use test_complete_flow_rust::shared::get_pda_addresses;
-        let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
+        let (default_pool, default_commitments, default_roots, default_nullifier, default_treasury) =
             get_pda_addresses(&program_id);
 
-        println!("   - Pool PDA: {}", pool_pda);
-        println!("   - Commitments PDA: {}", commitments_pda);
-        println!("   - Roots Ring PDA: {}", roots_ring_pda);
-        println!("   - Nullifier Shard PDA: {}", nullifier_shard_pda);
-        println!("   - Treasury PDA: {}", treasury_pda);
+        let pool = env_pubkey("RELAY__SOLANA__POOL_ADDRESS").unwrap_or(default_pool);
+        let commitments = env_pubkey("RELAY__SOLANA__COMMITMENTS_ADDRESS")
+            .unwrap_or(default_commitments);
+        let roots_ring = env_pubkey("RELAY__SOLANA__ROOTS_RING_ADDRESS").unwrap_or(default_roots);
+        let nullifier_shard = env_pubkey("RELAY__SOLANA__NULLIFIER_SHARD_ADDRESS")
+            .unwrap_or(default_nullifier);
+        let treasury = env_pubkey("RELAY__SOLANA__TREASURY_ADDRESS").unwrap_or(default_treasury);
+
+        fn describe(label: &str, value: &Pubkey, default: &Pubkey) {
+            if value == default {
+                println!("   - {} (derived PDA): {}", label, value);
+            } else {
+                println!("   - {} (env override): {}", label, value);
+            }
+        }
+
+        describe("Pool", &pool, &default_pool);
+        describe("Commitments log", &commitments, &default_commitments);
+        describe("Roots ring", &roots_ring, &default_roots);
+        describe("Nullifier shard", &nullifier_shard, &default_nullifier);
+        describe("Treasury", &treasury, &default_treasury);
 
         ProgramAccounts {
-            pool: pool_pda,
-            commitments: commitments_pda,
-            roots_ring: roots_ring_pda,
-            nullifier_shard: nullifier_shard_pda,
-            treasury: treasury_pda,
+            pool,
+            commitments,
+            roots_ring,
+            nullifier_shard,
+            treasury,
         }
     } else {
         println!("\n📋 Step 1: Creating Program Accounts...");
@@ -841,6 +859,12 @@ struct ProgramAccounts {
     roots_ring: Pubkey,
     nullifier_shard: Pubkey,
     treasury: Pubkey,
+}
+
+fn env_pubkey(var: &str) -> Option<Pubkey> {
+    std::env::var(var)
+        .ok()
+        .and_then(|value| Pubkey::from_str(value.trim()).ok())
 }
 
 fn deploy_program(_client: &RpcClient) -> Result<Pubkey> {
