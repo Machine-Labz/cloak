@@ -1,0 +1,3 @@
+[submodule "services/web"]
+	path = services/web
+	url = https://github.com/Cloak-Labz/web.git
