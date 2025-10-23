@@ -43,19 +43,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Proof-of-Work & Miner',
+      label: 'Wildcard Mining',
       items: [
         'pow/overview',
-        'pow-architecture',
-        'pow-scrambler-gate',
-        'pow-implementation-status',
-        'POW_ARCHITECTURE_FIXED',
-        'POW_DOC_UPDATES_SUMMARY',
         'POW_QUICK_REFERENCE',
-        'POW_WILDCARD_IMPLEMENTATION',
-        'POW_REFACTOR_SUMMARY',
         'POW_INTEGRATION_GUIDE',
-        'POW_INTEGRATION_COMPLETE',
       ],
     },
     {
@@ -63,7 +55,6 @@ const sidebars: SidebarsConfig = {
       label: 'On-Chain Programs',
       items: [
         'onchain/shield-pool',
-        'onchain/shield-pool-upstream',
         'onchain/scramble-registry',
       ],
     },
@@ -107,12 +98,12 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Roadmap & Status',
+      label: 'Project Status',
       items: [
         'roadmap',
-        'CHANGELOG',
         'overview/status',
         'COMPLETE_FLOW_STATUS',
+        'CHANGELOG',
       ],
     },
   ],

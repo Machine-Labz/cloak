@@ -69,5 +69,3 @@ The app listens on `http://localhost:3000`. Wallet adapter requires running in a
 - Use the admin console after deploying programs to create PDAs via wallet instructions.
 - The note manager assumes BLAKE3 hashing and little-endian amount encoding; align with the SP1 circuit.
 - For production, replace placeholder encryption with audited note encryption (the current implementation is demonstrative).
-
-Refer to [`docs/nonzk/frontend.md`](../nonzk/frontend.md) for legacy frontend notes and historical context.

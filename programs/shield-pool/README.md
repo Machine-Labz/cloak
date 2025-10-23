@@ -13,7 +13,7 @@ This program implements the on-chain component of Cloak's privacy protocol, hand
 ## Program ID
 
 ```
-99999999999999999999999999999999999999999999 (placeholder)
+c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp
 ```
 
 ## Instructions
@@ -53,7 +53,24 @@ This program implements the on-chain component of Cloak's privacy protocol, hand
 - Stores root at `roots[head] = new_root`
 - Logs `pushed_root:{hex}`
 
-### 3. Withdraw (`0x03`)
+### 3. Initialize (`0x03`)
+
+**Purpose**: Initialize the shield pool program with required accounts.
+
+**Accounts**: `[Pool (writable), RootsRing (writable), Treasury (writable), Admin]`
+
+**Data Layout**:
+```
+[tag: u8 = 0x03]
+```
+
+**Effects**:
+- Initializes the Pool account
+- Initializes the RootsRing account with empty ring buffer
+- Sets up the Treasury account
+- Logs `initialized` event
+
+### 4. Withdraw (`0x04`)
 
 **Purpose**: Verify SP1 proof and execute private withdrawal.
 
@@ -61,7 +78,7 @@ This program implements the on-chain component of Cloak's privacy protocol, hand
 
 **Data Layout**:
 ```
-[tag: u8 = 0x03]
+[tag: u8 = 0x04]
 [sp1_proof: 256 bytes]
 [sp1_public_inputs: 64 bytes]
 [public_root: 32 bytes]
@@ -183,7 +200,7 @@ let push_root_ix = Instruction {
 
 // 2. Execute withdraw with SP1 proof
 let withdraw_data = [
-    &[0x03],                    // tag
+    &[0x04],                    // tag
     sp1_proof.as_ref(),         // 256 bytes
     sp1_public_inputs.as_ref(), // 64 bytes
     root.as_ref(),              // 32 bytes

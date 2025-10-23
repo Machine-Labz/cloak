@@ -12,7 +12,7 @@ This quickstart guides you through building the core binaries, starting the serv
 - **Rust** 1.75+ with WASM32 target for Solana BPF builds (`rustup target add bpfel-unknown-unknown`).
 - **Solana CLI** 2.3.1 (matches the workspace lock file).
 - **Node.js** 18+ (for the web app and Docusaurus site).
-- **PostgreSQL** 14+ (Docker Compose recipe available).
+- **PostgreSQL** 14+ and **Redis** 7+ (Docker Compose recipe available).
 - **Succinct SP1 toolchain** configured (`sp1up` / `prover-client`).
 
 Optional but recommended:
@@ -55,13 +55,13 @@ cargo build -p relay -p indexer
 
 > `cargo build-sbf` requires the Solana LLVM toolchain. See the official Solana docs if the toolchain is missing.
 
-## 3. Start Database (Docker)
+## 3. Start Databases (Docker)
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 ```
 
-This starts Postgres on `localhost:5432` using the credentials defined in the shared `.env` at the repository root.
+This starts Postgres on `localhost:5432` and Redis on `localhost:6379` using the credentials from `services/relay/config.toml` and `services/indexer/.env`.
 
 ## 4. Launch Services
 
@@ -69,7 +69,7 @@ This starts Postgres on `localhost:5432` using the credentials defined in the sh
 
 ```bash
 cd services/indexer
-# Configuration lives in the shared repository root .env (see services/indexer/env.example for reference).
+cp env.example .env
 cargo run
 ```
 
@@ -81,7 +81,7 @@ cp config.toml.example config.toml  # if you use template configuration
 cargo run
 ```
 
-> The relay automatically creates job tables and initialises the PoW `ClaimFinder` when `SCRAMBLE_REGISTRY_PROGRAM_ID` is set in `config.solana`.
+> The relay automatically creates job tables, connects to Redis, and initialises the PoW `ClaimFinder` when `SCRAMBLE_REGISTRY_PROGRAM_ID` is set in `config.solana`.
 
 ### Web App
 

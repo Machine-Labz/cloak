@@ -5,12 +5,13 @@ description: Contract for validator-side automation to create withdraw jobs, fet
 
 # Validator Agent API
 
-The validator agent API is a structured interface for automation workflows (validators, operators, or scripts) to interact with the relay. It mirrors the OpenAPI spec in `docs/api/validator-agent.yaml`.
+The validator agent API is a structured interface for automation workflows (validators, operators, or scripts) to interact with the relay.
 
-Base URL examples:
+**Implementation Status:** ✅ Implemented in `services/relay/src/api/validator_agent.rs`
 
-- Production: `https://validator.example.com`
-- Local development: `http://localhost:3003`
+**Base URL:** `http://<host>:3002` (same as main relay API)
+
+**Note:** This is an alternative interface to the standard withdraw API, designed for programmatic access and validator integrations.
 
 ## POST `/jobs/withdraw`
 
@@ -87,4 +88,4 @@ Submits a signed Solana transaction (base64) for broadcast.
 - **`fee_caps`** – Optional guardrails on priority and total fees (string-encoded u64).
 - **`payer_hints.use_jito`** – Toggle for Jito bundle submission.
 
-Refer to [`validator-agent.yaml`](./validator-agent.yaml) for exhaustive schema definitions, rate-limit headers, and error models.
+All request and response schemas follow standard JSON encoding with hex/base64 representations for binary data. Rate limits and error codes are documented in the endpoint descriptions above.

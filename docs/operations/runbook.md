@@ -1,142 +1,910 @@
 ---
-title: Validator Runbook
-description: Operational handbook for running Cloak relay/scrambler infrastructure in production.
+title: Operations Runbook
+description: Comprehensive operational handbook for running Cloak infrastructure in production, including deployment, monitoring, troubleshooting, and maintenance procedures.
 ---
 
-# Cloak Validators — Runbook
+# Cloak Operations Runbook
 
-This runbook describes how to provision, operate, monitor, and troubleshoot a Cloak Validator/Scrambler node (Relay + optional Prover). It assumes you run the Rust services in this repo: Indexer (optional), Relay (API + worker + queue), and an SP1 prover pipeline (local or remote).
+This comprehensive runbook provides detailed operational procedures for running Cloak's privacy-preserving infrastructure in production. It covers deployment, monitoring, troubleshooting, and maintenance for all system components including indexer, relay, miners, and on-chain programs.
 
-## 1) Provisioning & Sizing
+## Table of Contents
 
-Profiles below assume devnet/mainnet priorities and the default SLOs. Start with the Scrambler (no in-house proving) profile and scale up.
+1. [System Overview](#system-overview)
+2. [Deployment Architecture](#deployment-architecture)
+3. [Infrastructure Provisioning](#infrastructure-provisioning)
+4. [Service Configuration](#service-configuration)
+5. [Monitoring & Alerting](#monitoring--alerting)
+6. [Operational Procedures](#operational-procedures)
+7. [Troubleshooting Guide](#troubleshooting-guide)
+8. [Maintenance Procedures](#maintenance-procedures)
+9. [Security Operations](#security-operations)
+10. [Performance Optimization](#performance-optimization)
 
-### A. Scrambler-Only (no in-house proving)
-- CPU: 2–4 vCPU
-- RAM: 8–16 GB
-- Disk: 50–100 GB (logs + Postgres + OS)
-- Postgres: 1–2 vCPU, 2–4 GB RAM, 20+ GB SSD
-  - Pool size: 10–20 connections; WAL on SSD
-- Outbound bandwidth: ≥50 Mbps sustained, low jitter
-- RPC access: 1–2 dedicated RPC endpoints (confirmed/finalized), rate limit ≥ 50 rps burst
-- Jito (optional): 1–2 bundle relays; ensure low latency path
+## System Overview
 
-### B. Prover + Scrambler (bundled)
-- CPU: 8–16 vCPU (dedicated prover threads)
-- RAM: 32–64 GB (SP1 memory during proving)
-- Disk: 100–200 GB (proof artifacts + logs)
-- Postgres: 2–4 vCPU, 8 GB RAM, 50+ GB SSD
-  - Enable auto-vacuum; tune shared_buffers (25% RAM)
-- Outbound bandwidth: ≥100 Mbps; ensure consistent egress for Jito
-- GPU: not required for current SP1 pipeline (CPU proving). If moved to GPU/cloud prover, right-size accordingly.
+### Core Components
 
-### C. OS & System
-- OS: Linux x86_64 LTS (Ubuntu 22.04+, Debian 12+, or equivalent)
-- Time sync: Chrony/ntpd
-- Filesystems: ext4/xfs on SSD; noatime recommended
-- Limits: increase file descriptors (e.g., `nofile` 262144)
+**On-Chain Programs:**
+- **Shield Pool** - Core privacy protocol with ZK proof verification
+- **Scramble Registry** - PoW claim management and miner coordination
 
-### D. Dependencies
-- Postgres 14+
-- Solana RPC(s) (confirmed and finalized)
-- Optional Jito bundle relay access
-- Indexer URL (if using a shared indexer) and artifacts route
+**Off-Chain Services:**
+- **Indexer Service** - Merkle tree maintenance and note discovery
+- **Relay Service** - Withdrawal processing and PoW integration
+- **Web Application** - User interface and admin tooling
 
-## 2) SLOs (Targets)
-- Proof generation p95: ≤ 120 seconds (single-withdraw) 
-- Broadcast success rate: ≥ 95% (over rolling 1h window)
-- Confirmation time: ≤ 2 blocks (p95) with appropriate priority fees
-- Queue latency (queued→processing): ≤ 5 seconds (p95)
+**Mining Infrastructure:**
+- **Cloak Miner** - Standalone PoW mining client
+- **Mining Pools** - Distributed mining coordination
 
-## 3) Configuration Hints
-- Priority fees: start with 500–3_000 micro-lamports/CU; auto-bump on failures
-- Compute budget: 1,000,000 CU per withdraw (builder sets this)
-- Jitter: set `RELAY_JITTER_BLOCK_MS` (default 400 ms) to spread submissions
-- Database:
-  - Postgres pool: 10–20 connections, statement timeout 10–30s
+### Service Dependencies
 
-## 4) Alerting (Symptoms, Signals, Thresholds)
+```text
+┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│   Clients   │    │   Services   │    │   Blockchain    │
+│             │    │              │    │                 │
+│ • Web App   │◄──►│ • Indexer    │◄──►│ • Solana RPC    │
+│ • CLI Tools │    │ • Relay      │    │ • Programs      │
+│ • APIs      │    │ • Workers    │    │ • Events        │
+└─────────────┘    └──────────────┘    └─────────────────┘
+       │                   │                   │
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│   Storage   │    │   Queue      │    │   Monitoring    │
+│             │    │              │    │                 │
+│ • PostgreSQL│    │ • Redis      │    │ • Prometheus     │
+│ • Merkle    │    │ • Jobs       │    │ • Grafana       │
+│ • Encrypted │    │ • Claims     │    │ • Alerts        │
+└─────────────┘    └──────────────┘    └─────────────────┘
+```
 
-- Proof queue backlog (critical for Prover role)
-  - Signal: `jobs.queued > 100` for 5 minutes or `queued/throughput > 10x baseline`
-  - Action: add prover workers; scale CPU/RAM; check SP1 artifacts cache; verify RPC rate limits
-- RPC send/confirm errors
-  - Signal: `rpc.send.error_rate > 5%` or `confirm.timeout.count > 0` per 5 minutes
-  - Action: failover RPC endpoint; increase priority fee; re-simulate a sample; inspect recent Solana health
-- Jito rejection rate (if enabled)
-  - Signal: `jito.bundle.reject_rate > 10%`
-  - Action: raise tip; try alternate relay; ensure bundle format; check clock drift
-- Nullifier collisions (should be zero)
-  - Signal: `nullifier.duplicate.count > 0`
-  - Action: immediately halt related job source; verify Merkle proofs & note selection; inspect on-chain shard
-- InvalidOutputsHash
-  - Signal: `outputs_hash.mismatch.count > 0`
-  - Action: verify endianness (u64 LE); outputs order; recipient pubkey bytes
+## Deployment Architecture
 
-## 5) Dashboards (KPIs)
+### Production Environment
 
-- Job pipeline
-  - Queued / Running / Done / Failed (time series + current counts)
-  - Queue latency (queued→processing), processing duration
-- Prover
-  - Proof p50/p95 latency; total SP1 cycles; success/failure counts
-  - Artifact sizes (proof 260B fragment confirm; public inputs 104B)
-- Chain & Submit
-  - CU per tx; priority fee; tips (Jito) spent per tx
-  - Broadcast success rate; confirmation blocks; simulate units_consumed
-- Economics
-  - Fees collected; revenue share per role (treasury/prover/scrambler/LP)
-  - Net margin after tips & RPC costs
+**High Availability Setup:**
+```yaml
+# Production deployment architecture
+production:
+  indexer:
+    replicas: 3
+    load_balancer: true
+    database: postgres_cluster
+    monitoring: prometheus
+    
+  relay:
+    replicas: 5
+    workers: 10
+    queue: redis_cluster
+    database: postgres_cluster
+    
+  miners:
+    instances: 20
+    pool_coordination: redis_cluster
+    monitoring: prometheus
+    
+  storage:
+    postgres:
+      primary: 1
+      replicas: 2
+      backup: s3
+      
+    redis:
+      cluster: 6_nodes
+      persistence: rdb
+      
+  monitoring:
+    prometheus: 2_replicas
+    grafana: 2_replicas
+    alertmanager: 1_replica
+```
 
-## 6) Operations Playbooks
+### Development Environment
 
-### A. Root Drift
-- Symptoms: on-chain `Root not found in RootsRing`; relay retries; proof mismatch.
-- Immediate actions:
-  1) Refresh latest root from Indexer (`GET /api/v1/merkle/root`)
-  2) Ensure admin pushed root to program (AdminPushRoot path)
-  3) Regenerate proof with accepted root from ring window
-- Preventative: reduce root window lag; automate AdminPushRoot on indexer root updates
+**Local Development:**
+```yaml
+# docker-compose.yml for local development
+version: '3.8'
+services:
+  indexer:
+    build: ./services/indexer
+    ports: ["3001:3001"]
+    environment:
+      - DATABASE_URL=postgresql://cloak:password@postgres:5432/indexer
+      - RPC_URL=https://api.devnet.solana.com
+    depends_on: [postgres]
+    
+  relay:
+    build: ./services/relay
+    ports: ["3002:3002"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://cloak:password@postgres:5432/relay
+      - RPC_URL=https://api.devnet.solana.com
+    depends_on: [redis, postgres]
+    
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=cloak
+      - POSTGRES_USER=cloak
+      - POSTGRES_PASSWORD=password
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    
+  redis:
+    image: redis:7-alpine
+    volumes: ["redis_data:/data"]
+    
+  prometheus:
+    image: prom/prometheus
+    ports: ["9090:9090"]
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml"]
+    
+  grafana:
+    image: grafana/grafana
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+```
 
-### B. Insufficient Pool Lamports
-- Symptoms: on-chain `InsufficientLamports`; repeated failed withdrawals
-- Immediate actions:
-  1) Query pool balance; compare against planned amount
-  2) Backoff and requeue; prefer smaller notes/amount buckets
-  3) Replenish pool PDA (LP deposit) or throttle jobs
-- Preventative: alert when `pool_balance < P95(amount)` within last 5 minutes
+## Infrastructure Provisioning
 
-### C. Repeated InvalidOutputsHash
-- Symptoms: `InvalidOutputsHash` from on-chain; simulation matches but runtime fails
-- Immediate actions:
-  1) Verify outputs hashing: BLAKE3(address:32 || amount:u64 LE) exactly
-  2) Ensure recipient address bytes are 32 raw pubkey bytes (not base58 string)
-  3) Confirm `public.inputs[64..96] == blake3(output)` and amount LE at `[96..104]`
-- Preventative: preflight check in Relay before submission; job-reject on mismatch
+### Hardware Requirements
 
-## 7) Runbooks & Procedures
+**Indexer Service:**
+```yaml
+indexer_production:
+  cpu: 8-16 vCPU
+  memory: 32-64 GB RAM
+  storage: 500 GB SSD
+  network: 1 Gbps
+  
+indexer_development:
+  cpu: 2-4 vCPU
+  memory: 8-16 GB RAM
+  storage: 100 GB SSD
+  network: 100 Mbps
+```
 
-### Routine maintenance
-- Rotate RPC endpoints (weekly) and validate health/latency
-- Vacuum/analyze Postgres weekly; ensure sufficient disk
-- Trim logs, archive prover artifacts if stored
+**Relay Service:**
+```yaml
+relay_production:
+  cpu: 16-32 vCPU
+  memory: 64-128 GB RAM
+  storage: 200 GB SSD
+  network: 1 Gbps
+  
+relay_development:
+  cpu: 4-8 vCPU
+  memory: 16-32 GB RAM
+  storage: 50 GB SSD
+  network: 100 Mbps
+```
 
-### Incident triage checklist
-- Is the backlog rising? (queued, running)
-- Are RPC errors spiking? (send/confirm)
-- Are Jito rejects rising? (if enabled)
-- Are nullifier duplicates observed? (must be zero)
-- Is the pool balance healthy relative to current workload?
+**Mining Infrastructure:**
+```yaml
+miner_production:
+  cpu: 32-64 vCPU (high frequency)
+  memory: 64-128 GB RAM
+  storage: 100 GB SSD
+  network: 1 Gbps
+  
+miner_development:
+  cpu: 8-16 vCPU
+  memory: 16-32 GB RAM
+  storage: 50 GB SSD
+  network: 100 Mbps
+```
 
-## 8) References
-- ZK contract & encoding: docs/zk/encoding.md, docs/zk/circuit-withdraw.md
-- On-chain program: programs/shield-pool
-- Prover: packages/zk-guest-sp1
-- Relay: services/relay
+### Cloud Provider Configurations
 
----
+**AWS Configuration:**
+```yaml
+aws_production:
+  indexer:
+    instance_type: c5.2xlarge
+    ebs_volume: gp3-500gb
+    vpc: private_subnet
+    security_groups: [cloak-indexer-sg]
+    
+  relay:
+    instance_type: c5.4xlarge
+    ebs_volume: gp3-200gb
+    vpc: private_subnet
+    security_groups: [cloak-relay-sg]
+    
+  miners:
+    instance_type: c5.8xlarge
+    ebs_volume: gp3-100gb
+    vpc: private_subnet
+    security_groups: [cloak-miner-sg]
+    
+  database:
+    rds_instance: db.r5.2xlarge
+    storage: 1000gb-gp3
+    multi_az: true
+    backup_retention: 7_days
+    
+  cache:
+    elasticache_redis: r6g.2xlarge
+    cluster_mode: enabled
+    nodes: 6
+```
 
-Appendix: Quick Checks
-- Confirm 104B public inputs ordering on a job before submit.
-- Simulate a built tx and log `units_consumed`.
-- Verify fee math: `fee = 2_500_000 + (amount*5)/1000` and `recipient = amount - fee`.
+**GCP Configuration:**
+```yaml
+gcp_production:
+  indexer:
+    machine_type: c2-standard-8
+    disk_type: ssd-persistent
+    disk_size: 500gb
+    network: private_vpc
+    
+  relay:
+    machine_type: c2-standard-16
+    disk_type: ssd-persistent
+    disk_size: 200gb
+    network: private_vpc
+    
+  miners:
+    machine_type: c2-standard-32
+    disk_type: ssd-persistent
+    disk_size: 100gb
+    network: private_vpc
+    
+  database:
+    cloud_sql: db-n1-standard-8
+    storage: 1000gb-ssd
+    high_availability: true
+    backup_enabled: true
+    
+  cache:
+    memorystore_redis: 8gb-standard
+    tier: standard
+    nodes: 6
+```
+
+## Service Configuration
+
+### Indexer Configuration
+
+**Environment Variables:**
+```bash
+# Core configuration
+INDEXER_PORT=3001
+INDEXER_HOST=0.0.0.0
+INDEXER_LOG_LEVEL=info
+
+# Database configuration
+DATABASE_URL=postgresql://user:pass@localhost:5432/indexer
+DATABASE_POOL_SIZE=20
+DATABASE_TIMEOUT=30s
+
+# Solana configuration
+RPC_URL=https://api.mainnet-beta.solana.com
+RPC_TIMEOUT=30s
+RPC_RETRIES=3
+
+# Merkle tree configuration
+MERKLE_TREE_DEPTH=32
+MERKLE_BATCH_SIZE=1000
+MERKLE_CACHE_SIZE=10000
+
+# Performance tuning
+WORKER_THREADS=8
+ASYNC_RUNTIME_THREADS=16
+```
+
+**Configuration File:**
+```toml
+# config/indexer.toml
+[server]
+port = 3001
+host = "0.0.0.0"
+workers = 8
+
+[database]
+url = "postgresql://user:pass@localhost:5432/indexer"
+pool_size = 20
+timeout = "30s"
+max_lifetime = "3600s"
+
+[solana]
+rpc_url = "https://api.mainnet-beta.solana.com"
+timeout = "30s"
+retries = 3
+rate_limit = 100
+
+[merkle]
+depth = 32
+batch_size = 1000
+cache_size = 10000
+update_interval = "1s"
+
+[logging]
+level = "info"
+format = "json"
+```
+
+### Relay Configuration
+
+**Environment Variables:**
+```bash
+# Core configuration
+RELAY_PORT=3002
+RELAY_HOST=0.0.0.0
+RELAY_LOG_LEVEL=info
+
+# Database configuration
+DATABASE_URL=postgresql://user:pass@localhost:5432/relay
+DATABASE_POOL_SIZE=30
+DATABASE_TIMEOUT=30s
+
+# Redis configuration
+REDIS_URL=redis://localhost:6379
+REDIS_POOL_SIZE=20
+REDIS_TIMEOUT=5s
+
+# Solana configuration
+RPC_URL=https://api.mainnet-beta.solana.com
+RPC_TIMEOUT=30s
+RPC_RETRIES=3
+
+# Worker configuration
+WORKER_COUNT=10
+WORKER_TIMEOUT=300s
+WORKER_RETRIES=3
+
+# PoW configuration
+POW_ENABLED=true
+POW_CLAIM_CACHE_TTL=300s
+POW_CLAIM_SEARCH_TIMEOUT=10s
+
+# Transaction configuration
+PRIORITY_FEE_MICROLAMPORTS=1000
+COMPUTE_BUDGET_CU=1000000
+JITO_ENABLED=true
+JITO_TIP_LAMPORTS=10000
+```
+
+**Configuration File:**
+```toml
+# config/relay.toml
+[server]
+port = 3002
+host = "0.0.0.0"
+workers = 10
+
+[database]
+url = "postgresql://user:pass@localhost:5432/relay"
+pool_size = 30
+timeout = "30s"
+
+[redis]
+url = "redis://localhost:6379"
+pool_size = 20
+timeout = "5s"
+
+[solana]
+rpc_url = "https://api.mainnet-beta.solana.com"
+timeout = "30s"
+retries = 3
+
+[workers]
+count = 10
+timeout = "300s"
+retries = 3
+backoff_multiplier = 2.0
+
+[pow]
+enabled = true
+claim_cache_ttl = "300s"
+search_timeout = "10s"
+
+[transaction]
+priority_fee_microlamports = 1000
+compute_budget_cu = 1000000
+jito_enabled = true
+jito_tip_lamports = 10000
+```
+
+### Miner Configuration
+
+**Environment Variables:**
+```bash
+# Core configuration
+MINER_LOG_LEVEL=info
+MINER_KEYPAIR_PATH=/etc/cloak/miner-keypair.json
+
+# Solana configuration
+RPC_URL=https://api.mainnet-beta.solana.com
+RPC_TIMEOUT=30s
+
+# Mining configuration
+MINING_MODE=wildcard
+MINING_DIFFICULTY=1000000
+MINING_THREADS=16
+MINING_BATCH_SIZE=1000000
+
+# Registry configuration
+REGISTRY_PROGRAM_ID=scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111
+MINER_PDA_SEED=miner
+
+# Performance configuration
+HASHRATE_REPORT_INTERVAL=60s
+STATS_UPDATE_INTERVAL=10s
+```
+
+**Configuration File:**
+```toml
+# config/miner.toml
+[miner]
+keypair_path = "/etc/cloak/miner-keypair.json"
+log_level = "info"
+
+[solana]
+rpc_url = "https://api.mainnet-beta.solana.com"
+timeout = "30s"
+
+[mining]
+mode = "wildcard"
+difficulty = 1000000
+threads = 16
+batch_size = 1000000
+
+[registry]
+program_id = "scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111"
+miner_pda_seed = "miner"
+
+[performance]
+hashrate_report_interval = "60s"
+stats_update_interval = "10s"
+```
+
+## Monitoring & Alerting
+
+### Metrics Collection
+
+**Prometheus Configuration:**
+```yaml
+# prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "cloak_alerts.yml"
+
+scrape_configs:
+  - job_name: 'cloak-indexer'
+    static_configs:
+      - targets: ['indexer:3001']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    
+  - job_name: 'cloak-relay'
+    static_configs:
+      - targets: ['relay:3002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    
+  - job_name: 'cloak-miners'
+    static_configs:
+      - targets: ['miner1:8080', 'miner2:8080', 'miner3:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+```
+
+**Key Metrics:**
+```rust
+// Indexer metrics
+lazy_static! {
+    static ref DEPOSITS_TOTAL: Counter = Counter::new("deposits_total", "Total deposits processed").unwrap();
+    static ref MERKLE_UPDATES_TOTAL: Counter = Counter::new("merkle_updates_total", "Total Merkle tree updates").unwrap();
+    static ref PROOF_REQUESTS_TOTAL: Counter = Counter::new("proof_requests_total", "Total proof requests").unwrap();
+    static ref PROOF_GENERATION_TIME: Histogram = Histogram::new("proof_generation_seconds", "Proof generation time").unwrap();
+    static ref DATABASE_CONNECTIONS: Gauge = Gauge::new("database_connections_active", "Active database connections").unwrap();
+}
+
+// Relay metrics
+lazy_static! {
+    static ref WITHDRAWALS_TOTAL: Counter = Counter::new("withdrawals_total", "Total withdrawals processed").unwrap();
+    static ref JOBS_QUEUED: Gauge = Gauge::new("jobs_queued", "Jobs in queue").unwrap();
+    static ref JOBS_PROCESSING: Gauge = Gauge::new("jobs_processing", "Jobs being processed").unwrap();
+    static ref JOBS_COMPLETED: Counter = Counter::new("jobs_completed_total", "Jobs completed").unwrap();
+    static ref JOBS_FAILED: Counter = Counter::new("jobs_failed_total", "Jobs failed").unwrap();
+    static ref POW_CLAIMS_FOUND: Counter = Counter::new("pow_claims_found_total", "PoW claims found").unwrap();
+    static ref POW_CLAIMS_CONSUMED: Counter = Counter::new("pow_claims_consumed_total", "PoW claims consumed").unwrap();
+    static ref TRANSACTION_SUCCESS_RATE: Gauge = Gauge::new("transaction_success_rate", "Transaction success rate").unwrap();
+}
+
+// Miner metrics
+lazy_static! {
+    static ref MINING_HASHRATE: Gauge = Gauge::new("mining_hashrate", "Current mining hashrate").unwrap();
+    static ref CLAIMS_MINED_TOTAL: Counter = Counter::new("claims_mined_total", "Total claims mined").unwrap();
+    static ref CLAIMS_REVEALED_TOTAL: Counter = Counter::new("claims_revealed_total", "Total claims revealed").unwrap();
+    static ref CLAIMS_CONSUMED_TOTAL: Counter = Counter::new("claims_consumed_total", "Total claims consumed").unwrap();
+    static ref MINING_DIFFICULTY: Gauge = Gauge::new("mining_difficulty", "Current mining difficulty").unwrap();
+}
+```
+
+### Alerting Rules
+
+**Alert Configuration:**
+```yaml
+# cloak_alerts.yml
+groups:
+  - name: cloak_critical
+    rules:
+      - alert: HighJobQueueBacklog
+        expr: jobs_queued > 100
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High job queue backlog"
+          description: "Job queue has {{ $value }} jobs queued for more than 5 minutes"
+          
+      - alert: LowTransactionSuccessRate
+        expr: transaction_success_rate < 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low transaction success rate"
+          description: "Transaction success rate is {{ $value }}% for more than 5 minutes"
+          
+      - alert: DatabaseConnectionFailure
+        expr: database_connections_active == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failure"
+          description: "No active database connections for more than 1 minute"
+          
+      - alert: HighProofGenerationTime
+        expr: histogram_quantile(0.95, proof_generation_seconds) > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High proof generation time"
+          description: "95th percentile proof generation time is {{ $value }}s"
+          
+      - alert: NoPoWClaimsAvailable
+        expr: pow_claims_found_total == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No PoW claims available"
+          description: "No PoW claims found for more than 10 minutes"
+          
+      - alert: LowMiningHashrate
+        expr: mining_hashrate < 1000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low mining hashrate"
+          description: "Mining hashrate is {{ $value }} H/s for more than 5 minutes"
+```
+
+### Dashboard Configuration
+
+**Grafana Dashboard:**
+```json
+{
+  "dashboard": {
+    "title": "Cloak Operations Dashboard",
+    "panels": [
+      {
+        "title": "Job Queue Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "jobs_queued",
+            "legendFormat": "Queued"
+          },
+          {
+            "expr": "jobs_processing",
+            "legendFormat": "Processing"
+          }
+        ]
+      },
+      {
+        "title": "Transaction Success Rate",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "transaction_success_rate",
+            "legendFormat": "Success Rate"
+          }
+        ]
+      },
+      {
+        "title": "Proof Generation Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, proof_generation_seconds)",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, proof_generation_seconds)",
+            "legendFormat": "p95"
+          }
+        ]
+      },
+      {
+        "title": "Mining Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "mining_hashrate",
+            "legendFormat": "Hashrate (H/s)"
+          },
+          {
+            "expr": "mining_difficulty",
+            "legendFormat": "Difficulty"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Operational Procedures
+
+### Service Startup Procedures
+
+**Indexer Service:**
+```bash
+#!/bin/bash
+# scripts/start-indexer.sh
+
+# 1. Check prerequisites
+echo "Checking prerequisites..."
+if ! command -v postgres &> /dev/null; then
+    echo "PostgreSQL not found. Please install PostgreSQL 14+"
+    exit 1
+fi
+
+if ! command -v solana &> /dev/null; then
+    echo "Solana CLI not found. Please install Solana CLI"
+    exit 1
+fi
+
+# 2. Verify database connection
+echo "Verifying database connection..."
+psql $DATABASE_URL -c "SELECT 1;" || {
+    echo "Database connection failed"
+    exit 1
+}
+
+# 3. Run database migrations
+echo "Running database migrations..."
+sqlx migrate run --database-url $DATABASE_URL
+
+# 4. Verify Solana RPC connection
+echo "Verifying Solana RPC connection..."
+solana cluster-version --url $RPC_URL || {
+    echo "Solana RPC connection failed"
+    exit 1
+}
+
+# 5. Start indexer service
+echo "Starting indexer service..."
+cargo run --bin indexer --release
+```
+
+**Relay Service:**
+```bash
+#!/bin/bash
+# scripts/start-relay.sh
+
+# 1. Check prerequisites
+echo "Checking prerequisites..."
+if ! command -v redis-server &> /dev/null; then
+    echo "Redis not found. Please install Redis 6+"
+    exit 1
+fi
+
+# 2. Verify Redis connection
+echo "Verifying Redis connection..."
+redis-cli -u $REDIS_URL ping || {
+    echo "Redis connection failed"
+    exit 1
+}
+
+# 3. Verify database connection
+echo "Verifying database connection..."
+psql $DATABASE_URL -c "SELECT 1;" || {
+    echo "Database connection failed"
+    exit 1
+}
+
+# 4. Start relay service
+echo "Starting relay service..."
+cargo run --bin relay --release
+```
+
+**Miner Service:**
+```bash
+#!/bin/bash
+# scripts/start-miner.sh
+
+# 1. Check prerequisites
+echo "Checking prerequisites..."
+if [ ! -f "$MINER_KEYPAIR_PATH" ]; then
+    echo "Miner keypair not found at $MINER_KEYPAIR_PATH"
+    exit 1
+fi
+
+# 2. Verify Solana RPC connection
+echo "Verifying Solana RPC connection..."
+solana cluster-version --url $RPC_URL || {
+    echo "Solana RPC connection failed"
+    exit 1
+}
+
+# 3. Register miner if not already registered
+echo "Checking miner registration..."
+cloak-miner status --keypair $MINER_KEYPAIR_PATH --rpc-url $RPC_URL || {
+    echo "Registering miner..."
+    cloak-miner register --keypair $MINER_KEYPAIR_PATH --rpc-url $RPC_URL
+}
+
+# 4. Start mining
+echo "Starting mining..."
+cloak-miner mine --mode wildcard --keypair $MINER_KEYPAIR_PATH --rpc-url $RPC_URL
+```
+
+### Health Check Procedures
+
+**Service Health Checks:**
+```bash
+#!/bin/bash
+# scripts/health-check.sh
+
+# Indexer health check
+check_indexer() {
+    local response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/v1/health)
+    if [ "$response" = "200" ]; then
+        echo "✅ Indexer is healthy"
+        return 0
+    else
+        echo "❌ Indexer health check failed (HTTP $response)"
+        return 1
+    fi
+}
+
+# Relay health check
+check_relay() {
+    local response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3002/health)
+    if [ "$response" = "200" ]; then
+        echo "✅ Relay is healthy"
+        return 0
+    else
+        echo "❌ Relay health check failed (HTTP $response)"
+        return 1
+    fi
+}
+
+# Database health check
+check_database() {
+    psql $DATABASE_URL -c "SELECT 1;" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✅ Database is healthy"
+        return 0
+    else
+        echo "❌ Database health check failed"
+        return 1
+    fi
+}
+
+# Redis health check
+check_redis() {
+    redis-cli -u $REDIS_URL ping > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✅ Redis is healthy"
+        return 0
+    else
+        echo "❌ Redis health check failed"
+        return 1
+    fi
+}
+
+# Solana RPC health check
+check_solana() {
+    solana cluster-version --url $RPC_URL > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✅ Solana RPC is healthy"
+        return 0
+    else
+        echo "❌ Solana RPC health check failed"
+        return 1
+    fi
+}
+
+# Run all health checks
+echo "Running health checks..."
+check_indexer
+check_relay
+check_database
+check_redis
+check_solana
+```
+
+### Backup Procedures
+
+**Database Backup:**
+```bash
+#!/bin/bash
+# scripts/backup-database.sh
+
+BACKUP_DIR="/backups/postgres"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/cloak_backup_$DATE.sql"
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Create database backup
+echo "Creating database backup..."
+pg_dump $DATABASE_URL > $BACKUP_FILE
+
+# Compress backup
+echo "Compressing backup..."
+gzip $BACKUP_FILE
+
+# Upload to S3 (if configured)
+if [ ! -z "$S3_BACKUP_BUCKET" ]; then
+    echo "Uploading backup to S3..."
+    aws s3 cp "$BACKUP_FILE.gz" "s3://$S3_BACKUP_BUCKET/"
+fi
+
+# Cleanup old backups (keep last 7 days)
+echo "Cleaning up old backups..."
+find $BACKUP_DIR -name "cloak_backup_*.sql.gz" -mtime +7 -delete
+
+echo "Backup completed: $BACKUP_FILE.gz"
+```
+
+**Configuration Backup:**
+```bash
+#!/bin/bash
+# scripts/backup-config.sh
+
+CONFIG_DIR="/etc/cloak"
+BACKUP_DIR="/backups/config"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Backup configuration files
+echo "Backing up configuration files..."
+tar -czf "$BACKUP_DIR/cloak_config_$DATE.tar.gz" -C $CONFIG_DIR .
+
+# Upload to S3 (if configured)
+if [ ! -z "$S3_BACKUP_BUCKET" ]; then
+    echo "Uploading config backup to S3..."
+    aws s3 cp "$BACKUP_DIR/cloak_config_$DATE.tar.gz" "s3://$S3_BACKUP_BUCKET/"
+fi
+
+echo "Configuration backup completed: $BACKUP_DIR/cloak_config_$DATE.tar.gz"
+```

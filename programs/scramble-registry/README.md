@@ -1,34 +1,27 @@
----
-title: Scramble Registry Program
-description: On-chain Solana program for proof-of-work mining and claim management
----
+# Scramble Registry - Cloak PoW Program
 
-# Scramble Registry Program
-
-The Scramble Registry is the proof-of-work (PoW) component of the Cloak protocol, managing a decentralized mining system where miners earn fees by providing wildcard claims for withdrawals.
+A Pinocchio-based Solana program that manages proof-of-work (PoW) claims for the Cloak protocol's scrambler gate system. This program enables miners to earn fees by providing wildcard claims that can be consumed during withdrawals.
 
 ## Overview
 
-The Scramble Registry implements a mining system inspired by [Ore](https://ore.supply/) that enables:
+The Scramble Registry implements a decentralized mining system inspired by [Ore](https://ore.supply/), where:
+- **Miners** continuously mine PoW solutions using BLAKE3
+- **Claims** go through a lifecycle: Mine → Reveal → Consume
+- **Wildcard claims** can be used for any withdrawal batch
+- **Difficulty** adjusts automatically based on mining activity
+- **Fees** are distributed to miners when their claims are consumed
 
-- **Decentralized Mining**: Miners compete to solve BLAKE3-based PoW puzzles
-- **Claim Lifecycle**: Mine → Reveal → Consume workflow
-- **Wildcard Claims**: Universal claims usable for any withdrawal batch
-- **Automatic Difficulty**: Self-adjusting difficulty based on mining activity
-- **Fee Distribution**: Miners earn fees when claims are consumed
+## Program ID
 
-## Program Details
-
-- **Program ID**: `EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6`
-- **Framework**: Pinocchio (efficient Solana program framework)
-- **PoW Algorithm**: BLAKE3-256 with difficulty targeting
-- **Integration**: CPI calls from shield-pool program
+```
+EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6
+```
 
 ## Instructions
 
-### Initialize Registry (`0x00`)
+### 1. Initialize Registry (`0x00`)
 
-Initialize the scramble registry with mining parameters.
+**Purpose**: Initialize the scramble registry with mining parameters.
 
 **Accounts**: `[Registry (writable), Admin]`
 
@@ -50,9 +43,9 @@ Initialize the scramble registry with mining parameters.
 - Sets admin authority
 - Logs `registry_initialized` event
 
-### Register Miner (`0x01`)
+### 2. Register Miner (`0x01`)
 
-Register a new miner to participate in PoW mining.
+**Purpose**: Register a new miner to participate in PoW mining.
 
 **Accounts**: `[Miner (writable), Registry, MinerAuthority, ClockSysvar]`
 
@@ -66,9 +59,9 @@ Register a new miner to participate in PoW mining.
 - Records registration slot
 - Logs `miner_registered` event
 
-### Mine Claim (`0x02`)
+### 3. Mine Claim (`0x02`)
 
-Submit a mined PoW solution to create a claim.
+**Purpose**: Submit a mined PoW solution to create a claim.
 
 **Accounts**: `[Claim (writable), Miner (writable), Registry (writable), MinerAuthority, SlotHashesSysvar, ClockSysvar, System]`
 
@@ -83,17 +76,18 @@ Submit a mined PoW solution to create a claim.
 [max_consumes: 2 bytes LE]
 ```
 
-**Verification Steps**:
+**Effects**:
 1. **PoW Verification**: Validates BLAKE3 proof against difficulty
 2. **Slot Validation**: Ensures slot_hash matches SlotHashes sysvar
 3. **Difficulty Check**: Verifies solution meets current difficulty
 4. **Account Creation**: Creates claim account with mined status
 5. **Miner Update**: Increments miner's total_mined counter
 6. **Registry Update**: Records solution and updates difficulty
+7. **Event**: Logs `claim_mined` with claim details
 
-### Reveal Claim (`0x03`)
+### 4. Reveal Claim (`0x03`)
 
-Reveal a mined claim to make it available for consumption.
+**Purpose**: Reveal a mined claim to make it available for consumption.
 
 **Accounts**: `[Claim (writable), Registry, MinerAuthority, ClockSysvar]`
 
@@ -108,10 +102,11 @@ Reveal a mined claim to make it available for consumption.
 3. **Authority Check**: Verifies miner authority
 4. **Status Update**: Changes status to Revealed
 5. **Expiry Set**: Sets expiration slot based on claim_window
+6. **Event**: Logs `claim_revealed` event
 
-### Consume Claim (`0x04`)
+### 5. Consume Claim (`0x04`)
 
-Consume a revealed claim (called by shield-pool program).
+**Purpose**: Consume a revealed claim (called by shield-pool program).
 
 **Accounts**: `[Claim (writable), Miner (writable), Registry (writable), ShieldPoolProgram, ClockSysvar]`
 
@@ -129,12 +124,12 @@ Consume a revealed claim (called by shield-pool program).
 4. **Batch Validation**: Validates batch_hash (or wildcard)
 5. **Consumption**: Increments consumed_count
 6. **Miner Update**: Increments miner's total_consumed counter
+7. **Status Update**: Sets to Consumed if fully consumed
+8. **Event**: Logs `claim_consumed` event
 
-## Account Structures
+## Account Layouts
 
 ### ScrambleRegistry (188 bytes)
-
-Central registry managing mining parameters and statistics.
 
 ```
 Offset | Size | Field
@@ -154,9 +149,12 @@ Offset | Size | Field
 180    | 8    | active_claims: u64
 ```
 
-### Miner (56 bytes)
+**Registry Management**:
+- **Difficulty Adjustment**: Automatic retargeting based on solution frequency
+- **Parameter Control**: Admin can update mining parameters
+- **Statistics**: Tracks total and active claims
 
-Per-miner account tracking mining activity.
+### Miner (56 bytes)
 
 ```
 Offset | Size | Field
@@ -167,9 +165,12 @@ Offset | Size | Field
 48     | 8    | registered_at_slot: u64
 ```
 
-### Claim (256 bytes)
+**Miner Tracking**:
+- **Authority**: Pubkey that can mine and reveal claims
+- **Statistics**: Tracks mining and consumption activity
+- **Registration**: Records when miner joined
 
-Individual claim with lifecycle management.
+### Claim (256 bytes)
 
 ```
 Offset | Size | Field
@@ -189,21 +190,12 @@ Offset | Size | Field
 181    | 75   | _reserved: [u8; 75]
 ```
 
-## Claim Lifecycle
-
-### Status Progression
-
-1. **Mined**: PoW solution submitted, waiting for reveal
-2. **Revealed**: Available for consumption, has expiration
-3. **Active**: Being consumed (consumed_count < max_consumes)
-4. **Consumed**: Fully consumed (consumed_count == max_consumes)
-5. **Expired**: Past expiration slot
-
-### Wildcard Claims
-
-- **Batch Hash**: `[0; 32]` indicates wildcard
-- **Usage**: Can be consumed for any withdrawal batch
-- **Value**: Higher utility, potentially higher fees
+**Claim Lifecycle**:
+- **Mined**: PoW solution submitted, waiting for reveal
+- **Revealed**: Available for consumption, has expiration
+- **Active**: Being consumed (consumed_count < max_consumes)
+- **Consumed**: Fully consumed (consumed_count == max_consumes)
+- **Expired**: Past expiration slot
 
 ## PoW Algorithm
 
@@ -218,9 +210,15 @@ Offset | Size | Field
 ### Difficulty Adjustment
 
 - **Target Interval**: Aim for 1 solution per `target_interval_slots`
-- **Retarget Frequency**: Adjust every 1000 slots
+- **Retarget Frequency**: Adjust every `DEFAULT_RETARGET_INTERVAL` slots
 - **Clamp**: ±20% maximum change per adjustment
 - **Bounds**: Between `min_difficulty` and `max_difficulty`
+
+### Wildcard Claims
+
+- **Batch Hash**: `[0; 32]` indicates wildcard
+- **Usage**: Can be consumed for any withdrawal batch
+- **Value**: Higher utility, potentially higher fees
 
 ## Error Codes
 
@@ -253,6 +251,25 @@ Offset | Size | Field
 | 0x18 | BatchHashMismatch | Batch hash mismatch |
 | 0x19 | InvalidTag | Unknown instruction tag |
 
+## Constants
+
+```rust
+// Domain tags for BLAKE3 hashing
+DOMAIN: "CLOAK:SCRAMBLE:v1"
+JOB_DOMAIN: "CLOAK:JOB:v1"
+BATCH_DOMAIN: "CLOAK:BATCH:v1"
+
+// Mining parameters
+MAX_FEE_SHARE_BPS: 5000  // 50%
+MAX_BATCH_SIZE: 20
+DEFAULT_RETARGET_INTERVAL: 1000 slots
+DEFAULT_TARGET_INTERVAL: 100 slots
+
+// Difficulty adjustment
+DIFFICULTY_CLAMP_MIN: 0.8  // -20%
+DIFFICULTY_CLAMP_MAX: 1.2  // +20%
+```
+
 ## Integration with Shield Pool
 
 The scramble registry integrates with the shield-pool program through CPI calls:
@@ -263,10 +280,34 @@ The scramble registry integrates with the shield-pool program through CPI calls:
 4. **Validation**: Registry validates and consumes claim
 5. **Fee Distribution**: Miner earns fees from withdrawal
 
+## Build & Test
+
+### Build Program
+```bash
+cargo build-sbf
+```
+
+### Run Tests
+```bash
+cargo test
+```
+
+### Unit Tests
+- `test_instruction_parsing`: Instruction data parsing
+- `test_pow_verification`: BLAKE3 PoW validation
+- `test_claim_lifecycle`: Mine → Reveal → Consume flow
+- `test_difficulty_adjustment`: Automatic difficulty retargeting
+- `test_wildcard_claims`: Wildcard claim functionality
+
+### Integration Tests
+- `test_miner_registration`: End-to-end miner setup
+- `test_mining_workflow`: Complete mining process
+- `test_claim_consumption`: Shield-pool integration
+
 ## Usage Example
 
 ```rust
-// Initialize registry
+// 1. Initialize registry
 let init_ix = Instruction {
     program_id: SCRAMBLE_REGISTRY_PROGRAM_ID,
     accounts: vec![
@@ -286,7 +327,7 @@ let init_ix = Instruction {
     ].concat(),
 };
 
-// Register miner
+// 2. Register miner
 let register_ix = Instruction {
     program_id: SCRAMBLE_REGISTRY_PROGRAM_ID,
     accounts: vec![
@@ -298,7 +339,7 @@ let register_ix = Instruction {
     data: vec![0x01], // tag
 };
 
-// Mine claim
+// 3. Mine claim
 let mine_data = [
     &[0x02], // tag
     &slot.to_le_bytes(),
@@ -323,7 +364,7 @@ let mine_ix = Instruction {
     data: mine_data,
 };
 
-// Reveal claim
+// 4. Reveal claim
 let reveal_ix = Instruction {
     program_id: SCRAMBLE_REGISTRY_PROGRAM_ID,
     accounts: vec![
@@ -335,7 +376,7 @@ let reveal_ix = Instruction {
     data: vec![0x03], // tag
 };
 
-// Consume claim (from shield-pool)
+// 5. Consume claim (from shield-pool)
 let consume_data = [
     &[0x04], // tag
     expected_miner_authority.as_ref(),
@@ -355,7 +396,7 @@ let consume_ix = Instruction {
 };
 ```
 
-## Security Features
+## Security Notes
 
 - **PoW Verification**: BLAKE3 hash must meet difficulty target
 - **Slot Validation**: Slot hash must match SlotHashes sysvar
@@ -365,14 +406,6 @@ let consume_ix = Instruction {
 - **Double-Spend**: Claims can only be consumed up to max_consumes
 - **Difficulty Bounds**: Difficulty clamped to prevent manipulation
 
-## Mining Economics
-
-- **Mining Cost**: CPU cycles for BLAKE3 hashing
-- **Revenue**: Fees from consumed claims
-- **Competition**: Difficulty adjusts to maintain target interval
-- **Efficiency**: Miners optimize for hash rate vs. electricity cost
-- **Sustainability**: Economic incentives align with protocol needs
-
 ## Dependencies
 
 - **pinocchio**: Efficient Solana program framework
@@ -381,21 +414,14 @@ let consume_ix = Instruction {
 - **pinocchio-system**: System program integration
 - **pinocchio-token**: Token program integration
 
-## Testing
+## Deployment
 
-```bash
-# Build program
-cargo build-sbf
+The program compiles to BPF bytecode for Solana deployment. The registry must be initialized before miners can register and start mining. All accounts are created dynamically as needed during the mining process.
 
-# Run tests
-cargo test
+## Mining Economics
 
-# Unit tests include:
-# - Instruction data parsing
-# - BLAKE3 PoW validation
-# - Claim lifecycle (Mine → Reveal → Consume)
-# - Difficulty adjustment
-# - Wildcard claim functionality
-# - Miner registration
-# - Shield-pool integration
-```
+- **Mining Cost**: CPU cycles for BLAKE3 hashing
+- **Revenue**: Fees from consumed claims
+- **Competition**: Difficulty adjusts to maintain target interval
+- **Efficiency**: Miners optimize for hash rate vs. electricity cost
+- **Sustainability**: Economic incentives align with protocol needs

@@ -5,7 +5,7 @@ description: Summary of languages, frameworks, and external dependencies powerin
 
 # Technology Stack
 
-Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-preserving withdrawals. For a deep dive see [`TECH_STACK.md`](../TECH_STACK.md); this page highlights the essentials.
+Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-preserving withdrawals. This page provides a comprehensive overview of the technical stack and implementation details.
 
 ## Languages & Frameworks
 
@@ -27,12 +27,12 @@ Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-pre
 ## Off-Chain Services
 
 - **Indexer** – Rust + Axum + SQLx + PostgreSQL + Tokio.
-- **Relay** – Rust + Axum + PostgreSQL + Jito integration.
+- **Relay** – Rust + Axum + Redis + PostgreSQL + Jito integration.
 - **Web App** – Next.js 14, Tailwind CSS, shadcn/ui, wallet adapter.
 
 ## Tooling & DevOps
 
-- **Docker Compose** – Local Postgres.
+- **Docker Compose** – Local Postgres and Redis.
 - **just** – Task runner for workspace commands.
 - **solana-cli** – Program deployment & key management.
 - **cargo-watch**, **sqlx-cli** – Optional developer utilities.
