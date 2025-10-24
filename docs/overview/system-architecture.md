@@ -10,27 +10,27 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 ## High-Level Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────────────────────┐
 │                                CLOAK PROTOCOL                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐  │
-│  │   Clients   │    │   Services   │    │  On-Chain       │    │   Miners    │  │
-│  │             │    │              │    │  Programs       │    │             │  │
-│  │ • Web App   │◄──►│ • Indexer    │◄──►│ • Shield Pool   │◄──►│ • PoW       │  │
-│  │ • CLI Tools │    │ • Relay      │    │ • Scramble      │    │ • Wildcard  │  │
-│  │ • APIs      │    │ • Workers    │    │   Registry      │    │ • Claims    │  │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘  │
+├────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐ │
+│  │   Clients   │    │   Services   │    │  On-Chain       │    │   Miners    │ │
+│  │             │    │              │    │  Programs       │    │             │ │
+│  │ • Web App   │◄──►│ • Indexer    │◄──►│ • Shield Pool   │◄──►│ • PoW       │ │
+│  │ • CLI Tools │    │ • Relay      │    │ • Scramble      │    │ • Wildcard  │ │
+│  │ • APIs      │    │ • Workers    │    │   Registry      │    │ • Claims    │ │
+│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘ │
 │         │                   │                   │                   │          │
 │         │                   │                   │                   │          │
 │         ▼                   ▼                   ▼                   ▼          │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐  │
-│  │ ZK Tooling  │    │   Storage    │    │   Solana        │    │   Mining    │  │
-│  │             │    │              │    │   Blockchain    │    │   Pool      │  │
-│  │ • SP1 Guest │    │ • PostgreSQL │    │ • Transactions  │    │ • BLAKE3    │  │
-│  │ • SP1 Host  │    │ • Redis      │    │ • Accounts      │    │ • Difficulty│  │
-│  │ • Proofs    │    │ • Merkle     │    │ • Events        │    │ • Nonces    │  │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────────┘
+│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐ │
+│  │ ZK Tooling  │    │   Storage    │    │   Solana        │    │   Mining    │ │
+│  │             │    │              │    │   Blockchain    │    │   Pool      │ │
+│  │ • SP1 Guest │    │ • PostgreSQL │    │ • Transactions  │    │ • BLAKE3    │ │
+│  │ • SP1 Host  │    │ • Redis      │    │ • Accounts      │    │ • Difficulty│ │
+│  │ • Proofs    │    │ • Merkle     │    │ • Events        │    │ • Nonces    │ │
+│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘ │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Domains
@@ -98,10 +98,10 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 
 ### Deposit Flow
 ```text
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌──────────────┐
-│   Client    │    │   Indexer    │    │  Shield Pool    │    │   Merkle     │
-│             │    │   Service    │    │    Program      │    │    Tree      │
-└─────────────┘    └──────────────┘    └─────────────────┘    └──────────────┘
+┌─────────────┐     ┌─────────────┐     ┌───────────────┐    ┌────────────┐
+│    Client   │     │   Indexer   │     │  Shield Pool  │    │   Merkle   │
+│             │     │   Service   │     │    Program    │    │    Tree    │
+└─────────────┘     └─────────────┘     └───────────────┘    └────────────┘
        │                   │                   │                   │
        │ 1. Generate       │                   │                   │
        │    commitment     │                   │                   │
@@ -213,32 +213,32 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 
 | Program | Purpose | Key Features | Account Structure |
 |---------|---------|--------------|-------------------|
-| **Shield Pool** | Core privacy protocol | • ZK proof verification<br>• Nullifier management<br>• Merkle root validation<br>• Fund distribution | • Pool PDA (funds)<br>• Roots ring buffer<br>• Nullifier shards<br>• Treasury account |
-| **Scramble Registry** | PoW claim management | • Miner registration<br>• Claim lifecycle<br>• Wildcard validation<br>• Consumption tracking | • Miner accounts<br>• Claim accounts<br>• Registry state<br>• Authority accounts |
+| **Shield Pool** | Core privacy protocol | • ZK proof verification<br/>• Nullifier management<br/>• Merkle root validation<br/>• Fund distribution | • Pool PDA (funds)<br/>• Roots ring buffer<br/>• Nullifier shards<br/>• Treasury account |
+| **Scramble Registry** | PoW claim management | • Miner registration<br/>• Claim lifecycle<br/>• Wildcard validation<br/>• Consumption tracking | • Miner accounts<br/>• Claim accounts<br/>• Registry state<br/>• Authority accounts |
 
 ### Off-Chain Services
 
 | Service | Technology Stack | Responsibilities | Data Stores |
 |---------|------------------|------------------|-------------|
-| **Indexer** | Rust + Axum + SQLx + PostgreSQL | • Merkle tree maintenance<br>• Event ingestion<br>• Note discovery API<br>• Proof serving | • PostgreSQL (tree nodes)<br>• Encrypted outputs<br>• Merkle proofs<br>• Service state |
-| **Relay** | Rust + Axum + Redis + PostgreSQL | • Withdrawal processing<br>• Job queue management<br>• PoW claim discovery<br>• Transaction submission | • Redis (job queue)<br>• PostgreSQL (job state)<br>• Claim cache<br>• Transaction logs |
-| **Web App** | Next.js + Tailwind + shadcn/ui | • User interface<br>• Wallet integration<br>• Note management<br>• Admin tooling | • Browser storage<br>• Session state<br>• User preferences<br>• Transaction history |
+| **Indexer** | Rust + Axum + SQLx + PostgreSQL | • Merkle tree maintenance<br/>• Event ingestion<br/>• Note discovery API<br/>• Proof serving | • PostgreSQL (tree nodes)<br/>• Encrypted outputs<br/>• Merkle proofs<br/>• Service state |
+| **Relay** | Rust + Axum + Redis + PostgreSQL | • Withdrawal processing<br/>• Job queue management<br/>• PoW claim discovery<br/>• Transaction submission | • Redis (job queue)<br/>• PostgreSQL (job state)<br/>• Claim cache<br/>• Transaction logs |
+| **Web App** | Next.js + Tailwind + shadcn/ui | • User interface<br/>• Wallet integration<br/>• Note management<br/>• Admin tooling | • Browser storage<br/>• Session state<br/>• User preferences<br/>• Transaction history |
 
 ### ZK Tooling
 
 | Package | Purpose | Input/Output | Integration |
 |---------|---------|-------------|-------------|
-| **zk-guest-sp1** | SP1 circuit implementation | • Witness data<br>• Public inputs | • Guest circuit (RISC-V)<br>• Host CLI<br>• Proof generation |
-| **vkey-generator** | Verification key extraction | • Guest ELF binary | • VKey hash output<br>• Program integration<br>• CI/CD automation |
-| **cloak-proof-extract** | Proof parsing utilities | • SP1 proof bundle | • Groth16 extraction<br>• Public input parsing<br>• no_std compatibility |
+| **zk-guest-sp1** | SP1 circuit implementation | • Witness data<br/>• Public inputs | • Guest circuit (RISC-V)<br/>• Host CLI<br/>• Proof generation |
+| **vkey-generator** | Verification key extraction | • Guest ELF binary | • VKey hash output<br/>• Program integration<br/>• CI/CD automation |
+| **cloak-proof-extract** | Proof parsing utilities | • SP1 proof bundle | • Groth16 extraction<br/>• Public input parsing<br/>• no_std compatibility |
 
 ### Mining Infrastructure
 
 | Component | Purpose | Technology | Key Features |
 |-----------|---------|------------|--------------|
-| **cloak-miner** | Standalone PoW client | Rust + BLAKE3 | • Wildcard mining<br>• Difficulty adjustment<br>• Claim submission<br>• Performance metrics |
-| **Mining Pool** | Distributed mining | BLAKE3 + Redis | • Load balancing<br>• Hashrate aggregation<br>• Claim distribution<br>• Pool statistics |
-| **Claim Registry** | On-chain storage | Solana accounts | • Claim lifecycle<br>• Consumption limits<br>• Expiration handling<br>• Miner rewards |
+| **cloak-miner** | Standalone PoW client | Rust + BLAKE3 | • Wildcard mining<br/>• Difficulty adjustment<br/>• Claim submission<br/>• Performance metrics |
+| **Mining Pool** | Distributed mining | BLAKE3 + Redis | • Load balancing<br/>• Hashrate aggregation<br/>• Claim distribution<br/>• Pool statistics |
+| **Claim Registry** | On-chain storage | Solana accounts | • Claim lifecycle<br/>• Consumption limits<br/>• Expiration handling<br/>• Miner rewards |
 
 ## Data Storage Architecture
 
@@ -433,9 +433,9 @@ pub struct JwtAuth {
 
 | Operation | Target Performance | Bottlenecks | Optimization Strategies |
 |-----------|-------------------|-------------|------------------------|
-| **Deposits** | 1000+ TPS | • Solana network<br>• Event processing | • Batch processing<br>• Async ingestion<br>• Connection pooling |
-| **Withdrawals** | 100+ TPS | • ZK proof generation<br>• PoW claim discovery | • Parallel proving<br>• Claim caching<br>• Worker scaling |
-| **Mining** | 10M+ H/s | • CPU performance<br>• Memory bandwidth | • Multi-threading<br>• SIMD optimization<br>• Hardware acceleration |
+| **Deposits** | 1000+ TPS | • Solana network<br/>• Event processing | • Batch processing<br/>• Async ingestion<br/>• Connection pooling |
+| **Withdrawals** | 100+ TPS | • ZK proof generation<br/>• PoW claim discovery | • Parallel proving<br/>• Claim caching<br/>• Worker scaling |
+| **Mining** | 10M+ H/s | • CPU performance<br/>• Memory bandwidth | • Multi-threading<br/>• SIMD optimization<br/>• Hardware acceleration |
 
 ### Scalability Considerations
 

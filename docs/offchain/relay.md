@@ -45,8 +45,8 @@ The relay follows a **queue-based worker architecture** with distinct layers:
                 │
                 ▼
          ┌─────────────┐
-         │    Redis    │  - Job queue
-         │    Queue    │  - Retry logic
+         │    Queue    │  - Job queue
+         │             │  - Retry logic
          └──────┬──────┘  - Backoff
                 │
                 ▼
@@ -105,7 +105,7 @@ services/relay/src/
 ├── planner/
 │   └── orchestrator.rs          - Multi-step withdraw orchestration
 ├── queue/
-│   └── mod.rs                   - Redis queue implementation
+│   └── mod.rs                   - Queue implementation
 ├── worker/
 │   ├── mod.rs                   - Worker main logic
 │   └── processor.rs             - Job processing implementation
@@ -173,7 +173,7 @@ Background task that processes jobs from the queue.
 - Runs in separate Tokio task
 
 **Processing Flow:**
-1. Poll Redis queue for next job
+1. Poll queue for next job
 2. Fetch job details from PostgreSQL
 3. Find available PoW claim (if enabled)
 4. Build Solana transaction with all accounts
@@ -221,9 +221,6 @@ host = "0.0.0.0"
 [database]
 url = "postgres://postgres:postgres@localhost:5432/relay"
 
-[redis]
-url = "redis://localhost:6379"
-
 [solana]
 rpc_url = "http://127.0.0.1:8899"
 program_id = "<shield-pool-program-id>"
@@ -243,7 +240,7 @@ Enable detailed logging with `RUST_LOG=info,tower_http=info`.
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/` | Service metadata and version |
-| `GET` | `/health` | Health check (DB + Redis connectivity) |
+| `GET` | `/health` | Health check (DB connectivity) |
 
 **Example Response (`/`):**
 ```json
@@ -384,7 +381,7 @@ Advanced API for validator operations and external integrations.
           ▼
     ┌──────────┐
     │  Queued  │ ◄──┐
-    │ (Redis)  │    │ Retry
+    │          │  Retry
     └─────┬────┘    │
           │         │
           ▼         │

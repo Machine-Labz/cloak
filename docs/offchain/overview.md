@@ -40,10 +40,10 @@ Cloak's off-chain infrastructure consists of two primary services that coordinat
             │  - scramble-registry  │
             └───────────────────────┘
 
-    ┌──────────────┐    ┌──────────────┐
-    │  PostgreSQL  │    │    Redis     │
-    │   (State)    │    │   (Queue)    │
-    └──────────────┘    └──────────────┘
+    ┌──────────────┐
+    │  PostgreSQL  │
+    │   (State)    │
+    └──────────────┘
 ```
 
 ## Services
@@ -79,7 +79,7 @@ Cloak's off-chain infrastructure consists of two primary services that coordinat
 **Key Responsibilities:**
 - Accept withdraw requests via HTTP API
 - Validate proofs and public inputs
-- Queue jobs with retry logic (Redis)
+- Queue jobs with retry logic
 - Find available PoW claims from miners
 - Build and submit Solana transactions
 - Track job state and nullifiers
@@ -88,7 +88,6 @@ Cloak's off-chain infrastructure consists of two primary services that coordinat
 **Technology:**
 - Rust/Axum web framework
 - PostgreSQL for jobs and nullifiers
-- Redis for job queue with backoff
 - Solana RPC client
 - Optional Jito bundle integration
 - Optional CloudWatch integration
@@ -156,14 +155,6 @@ The relay interacts with Solana via RPC:
 - `nullifiers` - Pre-commit nullifier tracking
 - Schema: `services/relay/migrations/001_init.sql`
 
-### Redis
-
-**Relay Queue:**
-- Job queue with priorities
-- Exponential backoff for retries
-- Dead-letter handling
-- Poll interval: 1 second (default)
-
 ## Deployment
 
 ### Docker Compose
@@ -193,7 +184,6 @@ Both services use environment variables for configuration:
 
 **Relay:**
 - Database URL (PostgreSQL)
-- Redis URL
 - Solana RPC URL
 - Program IDs (shield-pool, scramble-registry)
 - Optional Jito bundle endpoint
@@ -206,7 +196,6 @@ See individual service documentation for complete configuration details.
 ```
 Relay depends on:
   ├── PostgreSQL (jobs, nullifiers)
-  ├── Redis (job queue)
   ├── Indexer (Merkle proofs, artifacts)
   ├── Solana RPC (transaction submission)
   ├── Scramble Registry (PoW claims)
@@ -233,7 +222,6 @@ curl http://localhost:3002/health
 Health checks verify:
 - HTTP server is running
 - Database connectivity (relay only)
-- Redis connectivity (relay only)
 
 ## Observability
 

@@ -765,7 +765,7 @@ cargo prove build
 **Guest Program:**
 - Stack: ~512 KB
 - Heap: ~2 MB (for Merkle path and intermediate hashes)
-- Total: <3 MB in zkVM
+- Total: &lt;3 MB in zkVM
 
 ## Testing
 

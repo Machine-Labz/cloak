@@ -47,7 +47,7 @@ Returns service metadata, version, and available endpoints.
 
 ### GET `/health`
 
-Health check endpoint verifying database and Redis connectivity.
+Health check endpoint verifying database andconnectivity.
 
 **Success Response (200 OK):**
 ```json
@@ -55,7 +55,6 @@ Health check endpoint verifying database and Redis connectivity.
   "status": "healthy",
   "timestamp": "2024-01-01T12:00:00.000Z",
   "database": "connected",
-  "redis": "connected",
   "worker": "running"
 }
 ```
@@ -177,7 +176,7 @@ Submit a withdraw request with SP1 proof for processing.
 **Notes:**
 - The nullifier is NOT checked for duplicates at submission time
 - Duplicate checking happens on-chain during transaction execution
-- Jobs are queued in Redis for background processing
+- Jobs are queued background processing
 - Use `GET /status/:request_id` to track job progress
 
 **Reference:** `services/relay/src/api/withdraw.rs`
@@ -254,7 +253,7 @@ GET /status/550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Status Values:**
-- `queued` - Job is waiting in Redis queue
+- `queued` - Job is waiting inqueue
 - `processing` - Worker is currently processing the job
 - `completed` - Transaction confirmed on-chain successfully
 - `failed` - Job failed (see `error` field for details)
@@ -406,7 +405,7 @@ All error responses follow a consistent format:
 - `413 Payload Too Large` - Request body exceeds size limits
 - `429 Too Many Requests` - Rate limit exceeded
 - `500 Internal Server Error` - Server-side errors
-- `503 Service Unavailable` - Service temporarily unavailable (DB/Redis down)
+- `503 Service Unavailable` - Service temporarily unavailable (DB down)
 
 **Error Codes Reference:**
 
@@ -437,7 +436,7 @@ See `services/relay/src/error.rs` for detailed error types:
 **Server Errors (`500`):**
 - `InternalServerError` - Generic server error
 - `DatabaseError` - Database operation failed
-- `QueueError` - Redis queue operation failed
+- `QueueError` - Queue operation failed
 
 ## Rate Limiting
 
