@@ -1,3 +1,4 @@
+use crate::server::final_handlers::AppState;
 use axum::{
     extract::{ConnectInfo, State},
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -7,18 +8,16 @@ use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Instant};
 use zk_guest_sp1_host::generate_proof as sp1_generate_proof;
-use crate::server::final_handlers::AppState;
 
 /// Helper function to create deprecation headers
 fn create_deprecation_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "Deprecation",
-        HeaderValue::from_static("true"),
-    );
+    headers.insert("Deprecation", HeaderValue::from_static("true"));
     headers.insert(
         "Link",
-        HeaderValue::from_static("<https://docs.cloak.network/architecture/proving>; rel=\"deprecation\""),
+        HeaderValue::from_static(
+            "<https://docs.cloak.network/architecture/proving>; rel=\"deprecation\"",
+        ),
     );
     headers
 }
@@ -47,7 +46,7 @@ pub struct ProveResponse {
 /// POST /api/v1/prove
 ///
 /// **⚠️ DEPRECATED ENDPOINT** - This endpoint is deprecated and will be removed in a future version.
-/// 
+///
 /// Generates an SP1 ZK proof for withdraw transaction
 ///
 /// This endpoint accepts private inputs, public inputs, and outputs,
@@ -56,8 +55,8 @@ pub struct ProveResponse {
 ///
 /// ⚠️ PRIVACY WARNING: This endpoint receives private inputs on the backend.
 /// For production use, implementing client-side proof generation is optimal.
-/// 
-/// **Migration Path**: Generate SP1 proofs in the client or wallet. Upload the SP1Stdin 
+///
+/// **Migration Path**: Generate SP1 proofs in the client or wallet. Upload the SP1Stdin
 /// to the TEE proving service and submit the resulting proof to the relay.
 pub async fn generate_proof(
     ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
@@ -67,7 +66,7 @@ pub async fn generate_proof(
     // Log deprecation warning
     tracing::warn!("⚠️ DEPRECATED: /api/v1/prove endpoint called. This endpoint is deprecated and will be removed in a future version.");
     tracing::warn!("📋 Migration: Generate SP1 proofs client-side and submit to relay. See: https://docs.cloak.network/architecture/proving");
-    
+
     tracing::info!("🔐 Received proof generation request");
     tracing::info!(
         client_ip = client_addr.ip().to_string(),
@@ -100,7 +99,8 @@ pub async fn generate_proof(
                 wallet_address: None,
                 error: Some(format!("Invalid private_inputs JSON: {}", e)),
             }),
-        ).into_response();
+        )
+            .into_response();
     }
     if let Err(e) = serde_json::from_str::<serde_json::Value>(&request.public_inputs) {
         tracing::error!("❌ Invalid public_inputs JSON: {}", e);
@@ -118,7 +118,8 @@ pub async fn generate_proof(
                 wallet_address: None,
                 error: Some(format!("Invalid public_inputs JSON: {}", e)),
             }),
-        ).into_response();
+        )
+            .into_response();
     }
     if let Err(e) = serde_json::from_str::<serde_json::Value>(&request.outputs) {
         tracing::error!("❌ Invalid outputs JSON: {}", e);
@@ -136,7 +137,8 @@ pub async fn generate_proof(
                 wallet_address: None,
                 error: Some(format!("Invalid outputs JSON: {}", e)),
             }),
-        ).into_response();
+        )
+            .into_response();
     }
     tracing::info!("✅ Input validation passed");
 
@@ -182,7 +184,7 @@ pub async fn generate_proof(
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(ProveResponse {
-        success: false,
+                                success: false,
                                 proof: None,
                                 public_inputs: None,
                                 generation_time_ms: tee_result.generation_time_ms,
@@ -193,10 +195,11 @@ pub async fn generate_proof(
                                 wallet_address: Some(tee_client.wallet_address().to_string()),
                                 error: Some(
                                     "Failed to extract canonical Groth16 proof from SP1 bundle"
-            .to_string(),
+                                        .to_string(),
                                 ),
                             }),
-                        ).into_response();
+                        )
+                            .into_response();
                     }
                 };
 
@@ -222,12 +225,13 @@ pub async fn generate_proof(
                         wallet_address: Some(tee_client.wallet_address().to_string()),
                         error: None,
                     }),
-                ).into_response();
-                
+                )
+                    .into_response();
+
                 // Add deprecation headers
                 let headers = response.headers_mut();
                 headers.extend(create_deprecation_headers());
-                
+
                 return response;
             }
             Err(e) => {
@@ -283,7 +287,8 @@ pub async fn generate_proof(
                                     .to_string(),
                             ),
                         }),
-                    ).into_response();
+                    )
+                        .into_response();
                 }
             };
 
@@ -309,12 +314,13 @@ pub async fn generate_proof(
                     wallet_address: None,
                     error: None,
                 }),
-            ).into_response();
-            
+            )
+                .into_response();
+
             // Add deprecation headers
             let headers = response.headers_mut();
             headers.extend(create_deprecation_headers());
-            
+
             response
         }
         Err(e) => {
@@ -333,7 +339,8 @@ pub async fn generate_proof(
                     wallet_address: None,
                     error: Some(format!("SP1 proof generation failed: {}", e)),
                 }),
-            ).into_response()
+            )
+                .into_response()
         }
     }
 }

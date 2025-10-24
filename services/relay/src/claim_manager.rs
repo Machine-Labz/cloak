@@ -78,7 +78,10 @@ impl ClaimFinder {
 
         // Query all accounts owned by the registry program
         // In production, you'd want to filter by discriminator and use memcmp filters
-        info!("🔍 [DEBUG] Querying accounts for registry program: {}", self.registry_program_id);
+        info!(
+            "🔍 [DEBUG] Querying accounts for registry program: {}",
+            self.registry_program_id
+        );
         let accounts = self
             .rpc_client
             .get_program_accounts(&self.registry_program_id)
@@ -130,8 +133,12 @@ impl ClaimFinder {
         let mut account_verification_failed = 0;
 
         for (pubkey, account) in &accounts {
-            debug!("🔍 [DEBUG] Found account: {} (size: {} bytes)", pubkey, account.data.len());
-            
+            debug!(
+                "🔍 [DEBUG] Found account: {} (size: {} bytes)",
+                pubkey,
+                account.data.len()
+            );
+
             // Skip if too small to be a claim
             if account.data.len() < 256 {
                 size_filtered += 1;
@@ -150,12 +157,16 @@ impl ClaimFinder {
                 Ok(claim) => {
                     debug!("🔍 [DEBUG] Successfully parsed claim {}: status={}, batch_hash={:x?}, consumed={}/{}", 
                            pubkey, claim.status, &claim.batch_hash[0..8], claim.consumed_count, claim.max_consumes);
-                    
+
                     // Check if batch_hash matches (or if claim is wildcard)
                     let is_wildcard = claim.batch_hash == [0u8; 32];
 
                     if !is_wildcard && claim.batch_hash != *batch_hash {
-                        debug!("Claim {} batch_hash mismatch (not wildcard): {:x?}", pubkey, &claim.batch_hash[0..8]);
+                        debug!(
+                            "Claim {} batch_hash mismatch (not wildcard): {:x?}",
+                            pubkey,
+                            &claim.batch_hash[0..8]
+                        );
                         batch_mismatch += 1;
                         continue;
                     }
@@ -199,14 +210,14 @@ impl ClaimFinder {
                         continue;
                     }
 
-                // Found a usable claim!
-                let miner_authority = claim.miner_authority;
+                    // Found a usable claim!
+                    let miner_authority = claim.miner_authority;
 
-                // Derive miner PDA
-                let (miner_pda, _) = Pubkey::find_program_address(
-                    &[b"miner", miner_authority.as_ref()],
-                    &self.registry_program_id,
-                );
+                    // Derive miner PDA
+                    let (miner_pda, _) = Pubkey::find_program_address(
+                        &[b"miner", miner_authority.as_ref()],
+                        &self.registry_program_id,
+                    );
 
                     // Verify that the miner and registry accounts exist and have correct data size
                     // This prevents "invalid account data for instruction" errors
