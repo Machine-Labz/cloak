@@ -442,13 +442,13 @@ Job inserted into PostgreSQL with:
 
 #### 3. Queueing Phase
 
-Job enqueued in Redis:
+Job enqueued in database:
 - Key: `cloak:jobs:queue`
 - Value: Job ID (UUID)
 - Initial delay: 0 seconds
 - Priority: FIFO (first-in-first-out)
 
-Redis queue provides:
+Database queue provides:
 - Atomic pop operations
 - Exponential backoff on retry
 - Dead-letter queue for failed jobs
@@ -556,7 +556,7 @@ CREATE INDEX idx_jobs_created_at ON jobs(created_at);
 ```
 
 **Status Values:**
-- `queued` - Waiting in Redis queue
+- `queued` - Waiting in database queue
 - `processing` - Being processed by worker
 - `completed` - Transaction confirmed
 - `failed` - Fatal error occurred
@@ -646,7 +646,6 @@ Logged with `[METRICS]` prefix:
 ### Prerequisites
 
 - PostgreSQL 16+ (local or Docker)
-- Redis 7+ (local or Docker)
 - Rust toolchain
 - Solana RPC endpoint (localnet/devnet/mainnet)
 - Shield-pool and scramble-registry programs deployed
@@ -684,9 +683,6 @@ host = "0.0.0.0"
 [database]
 url = "postgres://cloak:password@localhost:5434/cloak_relay"
 
-[redis]
-url = "redis://localhost:6379"
-
 [solana]
 rpc_url = "http://127.0.0.1:8899"
 program_id = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp"
@@ -701,7 +697,6 @@ enabled = true
 
 ```bash
 DATABASE_URL=postgres://cloak:password@localhost:5434/cloak_relay
-REDIS_URL=redis://localhost:6379
 SOLANA_RPC_URL=http://127.0.0.1:8899
 SHIELD_POOL_PROGRAM_ID=c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp
 SCRAMBLE_REGISTRY_PROGRAM_ID=EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6
@@ -848,21 +843,6 @@ FROM jobs
 WHERE status = 'completed' AND completed_at > NOW() - INTERVAL '1 hour';
 ```
 
-### Redis Monitoring
-
-Monitor Redis queue:
-
-```bash
-# Queue length
-redis-cli LLEN cloak:jobs:queue
-
-# Inspect job
-redis-cli LINDEX cloak:jobs:queue 0
-
-# Monitor commands
-redis-cli MONITOR
-```
-
 ## Production Considerations
 
 ### Security
@@ -879,12 +859,6 @@ redis-cli MONITOR
 - Restrict network access (firewall rules)
 - Regular backups with encryption
 
-**Redis Security:**
-- Require authentication (`requirepass`)
-- Bind to localhost or private network only
-- Enable TLS for connections
-- Disable dangerous commands (`FLUSHALL`, `CONFIG`)
-
 **Solana RPC:**
 - Use dedicated RPC nodes (not public endpoints)
 - Implement retry logic for reliability
@@ -899,11 +873,11 @@ redis-cli MONITOR
 - Vacuum and analyze regularly
 - Consider read replicas for high load
 
-**Redis Optimization:**
-- Tune `maxmemory` and eviction policies
-- Use persistent storage (AOF or RDB)
-- Monitor memory usage
-- Consider Redis Cluster for scalability
+**Database Optimization:**
+- Tune connection pool settings
+- Use read replicas for high load
+- Monitor query performance
+- Consider database clustering for scalability
 
 **Worker Tuning:**
 - Adjust concurrent job limit based on CPU cores
@@ -920,9 +894,9 @@ redis-cli MONITOR
 ### Scaling
 
 **Horizontal Scaling:**
-- Multiple worker instances (all polling same Redis queue)
+- Multiple worker instances (all polling same database queue)
 - Load balancer for HTTP API
-- Shared PostgreSQL and Redis (single source of truth)
+- Shared PostgreSQL (single source of truth)
 - Stateless workers (no local state)
 
 **Vertical Scaling:**
@@ -938,7 +912,7 @@ redis-cli MONITOR
 - Partitioning large tables by date
 
 **Queue Scaling:**
-- Redis Cluster for distributed queue
+- Database clustering for distributed queue
 - Multiple queue priorities
 - Separate queues for different job types
 - Dead-letter queue monitoring
@@ -953,7 +927,7 @@ redis-cli MONITOR
 
 **Data Redundancy:**
 - PostgreSQL streaming replication
-- Redis Sentinel for automatic failover
+- Database clustering for automatic failover
 - Regular database backups
 - Point-in-time recovery capability
 
@@ -992,7 +966,7 @@ No claims available for batch_hash: 0000...
 
 **Causes:**
 - Worker not running
-- Redis connection lost
+- Database connection lost
 - Worker crashed
 
 **Solutions:**
@@ -1000,8 +974,8 @@ No claims available for batch_hash: 0000...
 # Check worker is running
 ps aux | grep relay
 
-# Check Redis connection
-redis-cli PING
+# Check database connection
+psql $DATABASE_URL -c "SELECT 1;"
 
 # Restart relay service
 systemctl restart relay
@@ -1050,25 +1024,25 @@ Error: Failed to connect to database
 - Check firewall rules
 - Verify database exists
 
-### Redis Connection Errors
+### Database Connection Errors
 
 **Symptom:**
 ```
-Error: Redis connection refused
+Error: Database connection refused
 ```
 
 **Solutions:**
-- Verify Redis is running: `redis-cli PING`
-- Check Redis URL in `config.toml`
-- Verify Redis authentication
+- Verify database is running: `psql $DATABASE_URL -c "SELECT 1;"`
+- Check database URL in `config.toml`
+- Verify database authentication
 - Check network connectivity
-- Restart Redis if needed
+- Restart database if needed
 
 ### High Memory Usage
 
 **Causes:**
 - Large job backlog in database
-- Redis queue overflow
+- Database queue overflow
 - Memory leak (rare)
 - Too many concurrent workers
 
@@ -1090,7 +1064,7 @@ cargo test -p relay test_name
 # Run with output
 cargo test -p relay -- --nocapture
 
-# Integration tests (requires PostgreSQL + Redis)
+# Integration tests (requires PostgreSQL)
 cargo test -p relay --test '*' -- --ignored
 
 # Test with miner integration
@@ -1100,7 +1074,7 @@ cargo test -p relay --test miner_integration
 **Test Fixtures:**
 - Mock RPC client
 - In-memory database (SQLite)
-- Mock Redis (or test instance)
+- Mock database (or test instance)
 - Test keypairs and proofs
 
 **Reference:** `services/relay/tests/`

@@ -587,7 +587,7 @@ queued → processing → completed
 ```
 
 **States:**
-- `queued` - Job in Redis queue, not started
+- `queued` - Job in database queue, not started
 - `processing` - Worker actively building/submitting transaction
 - `completed` - Transaction confirmed on-chain
 - `failed` - Error occurred (proof invalid, no claims, tx failed)

@@ -66,7 +66,7 @@ This comprehensive runbook provides detailed operational procedures for running 
 ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
 │   Storage   │    │   Queue      │    │   Monitoring    │
 │             │    │              │    │                 │
-│ • PostgreSQL│    │ • Redis      │    │ • Prometheus     │
+│ • PostgreSQL│    │ • Database   │    │ • Prometheus     │
 │ • Merkle    │    │ • Jobs       │    │ • Grafana       │
 │ • Encrypted │    │ • Claims     │    │ • Alerts        │
 └─────────────┘    └──────────────┘    └─────────────────┘
@@ -89,12 +89,12 @@ production:
   relay:
     replicas: 5
     workers: 10
-    queue: redis_cluster
+    queue: database_cluster
     database: postgres_cluster
     
   miners:
     instances: 20
-    pool_coordination: redis_cluster
+    pool_coordination: database_cluster
     monitoring: prometheus
     
   storage:
@@ -103,9 +103,9 @@ production:
       replicas: 2
       backup: s3
       
-    redis:
+    database:
       cluster: 6_nodes
-      persistence: rdb
+      persistence: wal
       
   monitoring:
     prometheus: 2_replicas
@@ -143,10 +143,6 @@ services:
       - POSTGRES_USER=cloak
       - POSTGRES_PASSWORD=password
     volumes: ["postgres_data:/var/lib/postgresql/data"]
-    
-  redis:
-    image: redis:7-alpine
-    volumes: ["redis_data:/data"]
     
   prometheus:
     image: prom/prometheus
@@ -239,7 +235,7 @@ aws_production:
     backup_retention: 7_days
     
   cache:
-    elasticache_redis: r6g.2xlarge
+    elasticache_database: r6g.2xlarge
     cluster_mode: enabled
     nodes: 6
 ```
@@ -272,7 +268,7 @@ gcp_production:
     backup_enabled: true
     
   cache:
-    memorystore_redis: 8gb-standard
+    memorystore_database: 8gb-standard
     tier: standard
     nodes: 6
 ```
@@ -353,11 +349,6 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/relay
 DATABASE_POOL_SIZE=30
 DATABASE_TIMEOUT=30s
 
-# Redis configuration
-REDIS_URL=redis://localhost:6379
-REDIS_POOL_SIZE=20
-REDIS_TIMEOUT=5s
-
 # Solana configuration
 RPC_URL=https://api.mainnet-beta.solana.com
 RPC_TIMEOUT=30s
@@ -392,11 +383,6 @@ workers = 10
 url = "postgresql://user:pass@localhost:5432/relay"
 pool_size = 30
 timeout = "30s"
-
-[redis]
-url = "redis://localhost:6379"
-pool_size = 20
-timeout = "5s"
 
 [solana]
 rpc_url = "https://api.mainnet-beta.solana.com"
@@ -510,11 +496,6 @@ scrape_configs:
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres-exporter:9187']
-    scrape_interval: 30s
-    
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
     scrape_interval: 30s
 ```
 
@@ -730,26 +711,19 @@ cargo run --bin indexer --release
 
 # 1. Check prerequisites
 echo "Checking prerequisites..."
-if ! command -v redis-server &> /dev/null; then
-    echo "Redis not found. Please install Redis 6+"
+if ! command -v psql &> /dev/null; then
+    echo "PostgreSQL client not found. Please install PostgreSQL client"
     exit 1
 fi
 
-# 2. Verify Redis connection
-echo "Verifying Redis connection..."
-redis-cli -u $REDIS_URL ping || {
-    echo "Redis connection failed"
-    exit 1
-}
-
-# 3. Verify database connection
+# 2. Verify database connection
 echo "Verifying database connection..."
 psql $DATABASE_URL -c "SELECT 1;" || {
     echo "Database connection failed"
     exit 1
 }
 
-# 4. Start relay service
+# 3. Start relay service
 echo "Starting relay service..."
 cargo run --bin relay --release
 ```
@@ -828,18 +802,6 @@ check_database() {
     fi
 }
 
-# Redis health check
-check_redis() {
-    redis-cli -u $REDIS_URL ping > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        echo "✅ Redis is healthy"
-        return 0
-    else
-        echo "❌ Redis health check failed"
-        return 1
-    fi
-}
-
 # Solana RPC health check
 check_solana() {
     solana cluster-version --url $RPC_URL > /dev/null 2>&1
@@ -857,7 +819,6 @@ echo "Running health checks..."
 check_indexer
 check_relay
 check_database
-check_redis
 check_solana
 ```
 

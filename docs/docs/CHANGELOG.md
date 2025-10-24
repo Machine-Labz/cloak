@@ -747,6 +747,34 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ### 📚 Documentation
 
+- restructure runbook and update service configuration details ([7b17f90](https://github.com/Machine-Labz/cloak/commit/7b17f90193b45f8fb01619a6ca616a0d23af3be8))
+  <details>
+  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+27</span> / <span className="text-red-500">-15</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/operations/runbook.md` | <span className="text-green-500">+24</span> / <span className="text-red-500">-12</span> |
+  | `docs/overview/introduction.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/overview/quickstart.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/overview/system-architecture.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+
+  </details>
+- update documentation structure and improve relay service details ([1050aaf](https://github.com/Machine-Labz/cloak/commit/1050aaf81246f92efed6f224e49414de6e088314))
+  <details>
+  <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+125</span> / <span className="text-red-500">-122</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/api/relay.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-6</span> |
+  | `docs/docusaurus.config.ts` | <span className="text-green-500">+18</span> / <span className="text-red-500">-2</span> |
+  | `docs/offchain/overview.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-17</span> |
+  | `docs/offchain/relay.md` | <span className="text-green-500">+6</span> / <span className="text-red-500">-9</span> |
+  | `docs/overview/system-architecture.md` | <span className="text-green-500">+35</span> / <span className="text-red-500">-35</span> |
+  | `docs/packages/zk-guest-sp1.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/src/pages/index.js` | <span className="text-green-500">+55</span> / <span className="text-red-500">-0</span> |
+  | `docs/src/pages/index.mdx` | <span className="text-green-500">+0</span> / <span className="text-red-500">-52</span> |
+
+  </details>
 - update README files ([59faa58](https://github.com/Machine-Labz/cloak/commit/59faa5882e0909bd87cf711b767fd5224d1cb0da))
   <details>
   <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+11</span> / <span className="text-red-500">-31</span></summary>

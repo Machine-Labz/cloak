@@ -12,7 +12,7 @@ This quickstart guides you through building the core binaries, starting the serv
 - **Rust** 1.75+ with WASM32 target for Solana BPF builds (`rustup target add bpfel-unknown-unknown`).
 - **Solana CLI** 2.3.1 (matches the workspace lock file).
 - **Node.js** 18+ (for the web app and Docusaurus site).
-- **PostgreSQL** 14+ and **Redis** 7+ (Docker Compose recipe available).
+- **PostgreSQL** 14+ (Docker Compose recipe available).
 - **Succinct SP1 toolchain** configured (`sp1up` / `prover-client`).
 
 Optional but recommended:
@@ -58,10 +58,10 @@ cargo build -p relay -p indexer
 ## 3. Start Databases (Docker)
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres
 ```
 
-This starts Postgres on `localhost:5432` and Redis on `localhost:6379` using the credentials from `services/relay/config.toml` and `services/indexer/.env`.
+This starts Postgres on `localhost:5432` using the credentials from `services/relay/config.toml` and `services/indexer/.env`.
 
 ## 4. Launch Services
 

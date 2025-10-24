@@ -850,10 +850,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
           
-      redis:
-        image: redis:7
+      postgres:
+        image: postgres:15
         options: >-
-          --health-cmd "redis-cli ping"
+          --health-cmd "pg_isready -U cloak"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

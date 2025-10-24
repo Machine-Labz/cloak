@@ -27,12 +27,12 @@ Cloak blends Rust, Pinocchio, SP1, and modern web tooling to deliver privacy-pre
 ## Off-Chain Services
 
 - **Indexer** – Rust + Axum + SQLx + PostgreSQL + Tokio.
-- **Relay** – Rust + Axum + Redis + PostgreSQL + Jito integration.
+- **Relay** – Rust + Axum + PostgreSQL + Jito integration.
 - **Web App** – Next.js 14, Tailwind CSS, shadcn/ui, wallet adapter.
 
 ## Tooling & DevOps
 
-- **Docker Compose** – Local Postgres and Redis.
+- **Docker Compose** – Local Postgres.
 - **just** – Task runner for workspace commands.
 - **solana-cli** – Program deployment & key management.
 - **cargo-watch**, **sqlx-cli** – Optional developer utilities.

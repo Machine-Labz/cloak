@@ -151,7 +151,7 @@ pub struct DepositInstruction {
 5. **Job Submission** - Submit withdraw request to relay
 6. **Input Validation** - Verify proof format and public inputs
 7. **Nullifier Check** - Ensure nullifier hasn't been spent
-8. **Job Queuing** - Add job to Redis queue for processing
+8. **Job Queuing** - Add job to database queue for processing
 9. **Worker Processing** - Background worker picks up job
 10. **Transaction Building** - Construct Solana withdraw transaction
 11. **Transaction Submission** - Submit to Solana network
@@ -308,7 +308,7 @@ pub struct ClaimAccount {
        │                   │ PostgreSQL        │                   │
        │                   │◄─────────────────►│                   │
        │                   │                   │                   │
-       │                   │                   │ Redis Queue       │
+       │                   │                   │ Database Queue    │
        │                   │                   │◄─────────────────►│
        │                   │                   │                   │
        │                   │                   │ RPC Calls        │
@@ -322,7 +322,7 @@ pub struct ClaimAccount {
 
 ```text
 ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌──────────────┐
-│   Indexer   │    │ PostgreSQL   │    │     Relay       │    │     Redis    │
+│   Indexer   │    │ PostgreSQL   │    │     Relay       │    │   Database   │
 │   Service   │    │  Database    │    │    Service      │    │    Queue    │
 └─────────────┘    └──────────────┘    └─────────────────┘    └──────────────┘
        │                   │                   │                   │

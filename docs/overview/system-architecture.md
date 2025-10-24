@@ -27,7 +27,7 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 │  │ ZK Tooling  │    │   Storage    │    │   Solana        │    │   Mining    │ │
 │  │             │    │              │    │   Blockchain    │    │   Pool      │ │
 │  │ • SP1 Guest │    │ • PostgreSQL │    │ • Transactions  │    │ • BLAKE3    │ │
-│  │ • SP1 Host  │    │ • Redis      │    │ • Accounts      │    │ • Difficulty│ │
+│  │ • SP1 Host  │    │ • Database   │    │ • Accounts      │    │ • Difficulty│ │
 │  │ • Proofs    │    │ • Merkle     │    │ • Events        │    │ • Nonces    │ │
 │  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────┘
@@ -221,7 +221,7 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 | Service | Technology Stack | Responsibilities | Data Stores |
 |---------|------------------|------------------|-------------|
 | **Indexer** | Rust + Axum + SQLx + PostgreSQL | • Merkle tree maintenance<br/>• Event ingestion<br/>• Note discovery API<br/>• Proof serving | • PostgreSQL (tree nodes)<br/>• Encrypted outputs<br/>• Merkle proofs<br/>• Service state |
-| **Relay** | Rust + Axum + Redis + PostgreSQL | • Withdrawal processing<br/>• Job queue management<br/>• PoW claim discovery<br/>• Transaction submission | • Redis (job queue)<br/>• PostgreSQL (job state)<br/>• Claim cache<br/>• Transaction logs |
+| **Relay** | Rust + Axum + PostgreSQL | • Withdrawal processing<br/>• Job queue management<br/>• PoW claim discovery<br/>• Transaction submission | • PostgreSQL (job state)<br/>• Claim cache<br/>• Transaction logs |
 | **Web App** | Next.js + Tailwind + shadcn/ui | • User interface<br/>• Wallet integration<br/>• Note management<br/>• Admin tooling | • Browser storage<br/>• Session state<br/>• User preferences<br/>• Transaction history |
 
 ### ZK Tooling
@@ -237,7 +237,7 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 | Component | Purpose | Technology | Key Features |
 |-----------|---------|------------|--------------|
 | **cloak-miner** | Standalone PoW client | Rust + BLAKE3 | • Wildcard mining<br/>• Difficulty adjustment<br/>• Claim submission<br/>• Performance metrics |
-| **Mining Pool** | Distributed mining | BLAKE3 + Redis | • Load balancing<br/>• Hashrate aggregation<br/>• Claim distribution<br/>• Pool statistics |
+| **Mining Pool** | Distributed mining | BLAKE3 + Database | • Load balancing<br/>• Hashrate aggregation<br/>• Claim distribution<br/>• Pool statistics |
 | **Claim Registry** | On-chain storage | Solana accounts | • Claim lifecycle<br/>• Consumption limits<br/>• Expiration handling<br/>• Miner rewards |
 
 ## Data Storage Architecture
@@ -311,20 +311,34 @@ CREATE TABLE claim_cache (
 );
 ```
 
-### Redis Data Structures
+### Job Queue Data Structures
 
-**Job Queue:**
-```redis
-# Withdrawal job queue
-HSET withdraw_jobs:{job_id} status "queued" priority 1 created_at {timestamp}
-LPUSH withdraw_queue {job_id}
+**Job Processing:**
+```sql
+-- Withdrawal job queue
+INSERT INTO withdraw_jobs (job_id, status, priority, created_at) 
+VALUES ('{job_id}', 'queued', 1, NOW());
 
-# Job processing state
-HSET job_state:{job_id} worker_id {worker_id} started_at {timestamp} attempts 1
+-- Job processing state
+UPDATE withdraw_jobs 
+SET status = 'processing', worker_id = '{worker}', started_at = NOW() 
+WHERE job_id = '{job_id}';
 
-# Claim discovery cache
-HSET claim_cache:{claim_pda} miner_pda {miner_pda} batch_hash {batch_hash} available true
-EXPIRE claim_cache:{claim_pda} 300
+-- Job completion
+UPDATE withdraw_jobs 
+SET status = 'completed', tx_signature = '{signature}', completed_at = NOW() 
+WHERE job_id = '{job_id}';
+```
+
+**Claim Cache:**
+```sql
+-- Active claims by miner
+INSERT INTO active_claims (claim_hash, miner_id, difficulty, created_at) 
+VALUES ('{claim_hash}', '{miner}', {diff}, NOW());
+
+-- Claim consumption tracking
+INSERT INTO consumed_claims (claim_hash, consumed_at, tx_signature) 
+VALUES ('{claim_hash}', NOW(), '{signature}');
 ```
 
 ### Solana Account Layouts
@@ -441,7 +455,7 @@ pub struct JwtAuth {
 
 **Horizontal Scaling:**
 - Multiple indexer instances with read replicas
-- Redis cluster for job queue distribution
+- Database clustering for job queue distribution
 - Load-balanced relay workers
 - Distributed mining pools
 
@@ -567,7 +581,6 @@ services:
     build: ./services/relay
     ports: ["3002:3002"]
     environment:
-      - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://user:pass@postgres:5432/relay
       - RPC_URL=https://api.mainnet-beta.solana.com
     depends_on: [postgres]
@@ -580,9 +593,6 @@ services:
       - POSTGRES_PASSWORD=pass
     volumes: ["postgres_data:/var/lib/postgresql/data"]
 
-  redis:
-    image: redis:7-alpine
-    volumes: ["redis_data:/data"]
 ```
 
 **Production Deployment:**
@@ -643,13 +653,11 @@ lazy_static! {
 pub async fn health_check() -> Result<Json<HealthStatus>> {
     let db_health = check_database_connection().await?;
     let rpc_health = check_solana_rpc().await?;
-    let redis_health = check_redis_connection().await?;
     
     Ok(Json(HealthStatus {
-        status: if db_health && rpc_health && redis_health { "healthy" } else { "unhealthy" },
+        status: if db_health && rpc_health { "healthy" } else { "unhealthy" },
         database: db_health,
         rpc: rpc_health,
-        redis: redis_health,
         timestamp: Utc::now(),
     }))
 }
