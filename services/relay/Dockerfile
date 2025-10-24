@@ -1,7 +1,7 @@
-# Multi-stage Dockerfile for Cloak Indexer Service (Rust)
+# Multi-stage Dockerfile for Cloak Relay Service (Rust)
 
 # Builder stage
-FROM rust:1.85-alpine AS builder
+FROM rust:1.82-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -26,13 +26,10 @@ COPY programs ./programs/
 # Copy services directory
 COPY services ./services/
 
-# Copy tooling directory (needed for workspace)
-COPY tooling ./tooling/
-
 # Build the application in release mode
 ENV CARGO_TARGET_DIR=/tmp/target
 ENV RUSTFLAGS="-C target-feature=-crt-static"
-RUN cargo build --release -p indexer
+RUN cargo build --release -p relay
 
 # Runtime stage
 FROM alpine:latest AS runtime
@@ -44,37 +41,37 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user
-RUN addgroup -g 1001 -S indexer && \
-    adduser -S indexer -u 1001 -G indexer
+RUN addgroup -g 1001 -S relay && \
+    adduser -S relay -u 1001 -G relay
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/artifacts && \
-    chown -R indexer:indexer /app
+RUN mkdir -p /app/logs && \
+    chown -R relay:relay /app
 
 # Copy the binary from builder stage
-COPY --from=builder /tmp/target/release/indexer /app/indexer
+COPY --from=builder /tmp/target/release/relay /app/relay
 
 # Copy migrations
-COPY --from=builder /app/services/indexer/src/migrations /app/migrations
+COPY --from=builder /app/services/relay/migrations /app/migrations
 
 # Set permissions
-RUN chmod +x /app/indexer && \
-    chown indexer:indexer /app/indexer
+RUN chmod +x /app/relay && \
+    chown relay:relay /app/relay
 
 # Switch to non-root user
-USER indexer
+USER relay
 WORKDIR /app
 
 # Expose port
-EXPOSE 3001
+EXPOSE 3002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3002/health || exit 1
 
 # Set environment variables
 ENV RUST_LOG=info
 ENV RUST_BACKTRACE=1
 
 # Start the application
-CMD ["./indexer"]
+CMD ["./relay"]

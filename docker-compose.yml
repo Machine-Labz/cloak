@@ -9,10 +9,9 @@ services:
       POSTGRES_PASSWORD: development_password_change_in_production
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "5434:5432"  # Changed from 5432 to 5434 to avoid conflict with existing postgres on 5433
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./services/indexer/src/db/migrations:/docker-entrypoint-initdb.d
+      - cloak_postgres_data:/var/lib/postgresql/data
     networks:
       - cloak-network
     healthcheck:
@@ -30,11 +29,6 @@ services:
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://cloak:development_password_change_in_production@postgres:5432/cloak_indexer
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=cloak_indexer
-      - DB_USER=cloak
-      - DB_PASSWORD=development_password_change_in_production
       - PORT=3001
       - LOG_LEVEL=info
       - SOLANA_RPC_URL=https://api.devnet.solana.com
@@ -70,12 +64,11 @@ services:
       retries: 3
       start_period: 30s
 
-  # Relay microservice (placeholder for future)
+  # # Relay microservice (placeholder for future)
   # relay:
   #   build:
-  #     context: ./services/relay
-  #     dockerfile: Dockerfile
-  #     target: development
+  #     context: .
+  #     dockerfile: ./services/relay/Dockerfile
   #   container_name: cloak-relay
   #   environment:
   #     - NODE_ENV=development
@@ -97,7 +90,7 @@ services:
     image: redis:7-alpine
     container_name: cloak-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"  # Changed from 6379 to 6380 to avoid conflict
     volumes:
       - redis_data:/data
     networks:
@@ -109,7 +102,7 @@ services:
       retries: 3
 
 volumes:
-  postgres_data:
+  cloak_postgres_data:  # Renamed to avoid conflicts
     driver: local
   redis_data:
     driver: local

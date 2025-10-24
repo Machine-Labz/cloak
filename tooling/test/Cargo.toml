@@ -11,6 +11,10 @@ path = "src/localnet_test.rs"
 name = "testnet-test"
 path = "src/testnet_test.rs"
 
+[[bin]]
+name = "batch-localnet-test"
+path = "src/batch_localnet_test.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
@@ -28,3 +32,4 @@ ctrlc = "3.4"
 rand = "0.8"
 sp1-sdk.workspace = true
 shield-pool = { path = "../../programs/shield-pool" }
+five8_const = "1.0.0"

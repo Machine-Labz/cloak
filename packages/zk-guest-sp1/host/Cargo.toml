@@ -15,6 +15,14 @@ path = "src/bin/generate_examples.rs"
 name = "get_vkey_hash"
 path = "src/bin/get_vkey_hash.rs"
 
+[[bin]]
+name = "batch-prove"
+path = "src/bin/batch-prove.rs"
+
+[[bin]]
+name = "generate-batch-example"
+path = "src/bin/generate_batch_example.rs"
+
 [lib]
 name = "zk_guest_sp1_host"
 path = "src/lib.rs"
@@ -29,6 +37,7 @@ hex = { workspace = true }
 base58 = { workspace = true }
 anyhow = { workspace = true }
 bincode = { workspace = true }
+rand = { workspace = true }
 
 [build-dependencies]
 sp1-build = { workspace = true }

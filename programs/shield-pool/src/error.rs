@@ -31,9 +31,13 @@ pub enum ShieldPoolError {
 
     // Account errors
     BadAccounts = 0x1050,
-    InsufficientLamports = 0x1051,
-    InvalidAccountOwner = 0x1052,
-    InvalidAccountSize = 0x1053,
+    PoolOwnerNotProgramId = 0x1051,
+    PoolNotWritable = 0x1052,
+    TreasuryNotWritable = 0x1053,
+    RecipientNotWritable = 0x1054,
+    InsufficientLamports = 0x1055,
+    InvalidAccountOwner = 0x1056,
+    InvalidAccountSize = 0x1057,
 
     // Instruction errors
     BadIxLength = 0x1060,

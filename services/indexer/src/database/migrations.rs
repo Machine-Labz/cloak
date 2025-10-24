@@ -1,5 +1,5 @@
 use crate::error::{IndexerError, Result};
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Acquire, Executor, Pool, Postgres, Row};
 
 pub async fn run_migrations(pool: &Pool<Postgres>) -> Result<()> {
     tracing::info!("Starting database migrations");
@@ -48,7 +48,7 @@ fn get_migrations() -> Vec<Migration> {
     vec![Migration {
         id: "001_initial_schema",
         name: "Initial schema for Cloak Indexer",
-        sql: include_str!("../migrations/001_initial_schema.sql"),
+        sql: include_str!("../migrations/001_initial_schema_fixed.sql"),
     }]
 }
 
@@ -90,18 +90,22 @@ async fn apply_migration(pool: &Pool<Postgres>, migration: &Migration) -> Result
     // Start transaction
     let mut tx = pool.begin().await.map_err(IndexerError::Database)?;
 
-    // Execute migration SQL
-    sqlx::query(migration.sql)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                id = migration.id,
-                error = %e,
-                "Migration execution failed"
-            );
-            IndexerError::Database(e)
-        })?;
+    // Execute migration SQL using raw connection to handle multiple statements
+    tracing::info!(
+        id = migration.id,
+        "Executing migration SQL using raw connection"
+    );
+
+    // Use raw connection to execute multiple statements
+    let conn = tx.acquire().await.map_err(IndexerError::Database)?;
+    conn.execute(migration.sql).await.map_err(|e| {
+        tracing::error!(
+            id = migration.id,
+            error = %e,
+            "Migration execution failed"
+        );
+        IndexerError::Database(e)
+    })?;
 
     // Record migration as applied
     sqlx::query("INSERT INTO schema_migrations (id, name) VALUES ($1, $2)")
@@ -116,6 +120,84 @@ async fn apply_migration(pool: &Pool<Postgres>, migration: &Migration) -> Result
 
     tracing::info!(id = migration.id, "Migration applied successfully");
     Ok(())
+}
+
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current_statement = String::new();
+    let mut in_string = false;
+    let mut string_char = '\0';
+    let mut in_function = false;
+    let mut dollar_quote = String::new();
+    let mut i = 0;
+    let chars: Vec<char> = sql.chars().collect();
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if !in_string && !in_function {
+            // Check for dollar-quoted strings (used in PostgreSQL functions)
+            if ch == '$' {
+                let mut j = i + 1;
+                let mut tag = String::new();
+                while j < chars.len() && chars[j] != '$' {
+                    tag.push(chars[j]);
+                    j += 1;
+                }
+                if j < chars.len() {
+                    dollar_quote = format!("${}$", tag);
+                    in_function = true;
+                    current_statement.push_str(&dollar_quote);
+                    i = j;
+                    continue;
+                }
+            } else if ch == '\'' || ch == '"' {
+                in_string = true;
+                string_char = ch;
+            } else if ch == ';' {
+                // Found statement terminator
+                let trimmed = current_statement.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with("--") {
+                    statements.push(trimmed.to_string());
+                }
+                current_statement.clear();
+                i += 1;
+                continue;
+            }
+        } else if in_function {
+            // Check for end of dollar-quoted string
+            let dollar_chars: Vec<char> = dollar_quote.chars().collect();
+            if chars[i..].starts_with(&dollar_chars) {
+                current_statement.push_str(&dollar_quote);
+                i += dollar_quote.len() - 1;
+                in_function = false;
+                dollar_quote.clear();
+            }
+        } else if in_string {
+            if ch == string_char {
+                // Check for escaped quotes
+                if i + 1 < chars.len() && chars[i + 1] == string_char {
+                    current_statement.push(ch);
+                    current_statement.push(ch);
+                    i += 2;
+                    continue;
+                } else {
+                    in_string = false;
+                }
+            }
+        }
+
+        current_statement.push(ch);
+        i += 1;
+    }
+
+    // Add the last statement if it's not empty
+    let trimmed = current_statement.trim();
+    if !trimmed.is_empty() && !trimmed.starts_with("--") {
+        statements.push(trimmed.to_string());
+    }
+
+    statements
 }
 
 // Tests can be added here when needed

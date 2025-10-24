@@ -93,6 +93,7 @@ fn create_api_v1_routes() -> Router<AppState> {
         // Admin endpoints (for development)
         .route("/admin/push-root", post(admin_push_root))
         .route("/admin/insert-leaf", post(admin_insert_leaf))
+        .route("/admin/reset", post(reset_database))
 }
 
 /// Start the HTTP server

@@ -13,9 +13,9 @@ CREATE TABLE merkle_tree_nodes (
     value CHAR(64) NOT NULL, -- 32-byte hash as hex string (64 chars)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
--- Ensure uniqueness of (level, index)
-UNIQUE(level, index_at_level) );
+    -- Ensure uniqueness of (level, index)
+    UNIQUE(level, index_at_level)
+);
 
 -- Index for fast lookups
 CREATE INDEX idx_merkle_tree_level_index ON merkle_tree_nodes (level, index_at_level);
@@ -32,9 +32,8 @@ CREATE TABLE notes (
     slot BIGINT NOT NULL, -- Solana slot number
     block_time TIMESTAMP WITH TIME ZONE, -- When the transaction was confirmed
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
--- Ensure uniqueness
-UNIQUE(leaf_commit),
+    -- Ensure uniqueness
+    UNIQUE(leaf_commit),
     UNIQUE(leaf_index),
     UNIQUE(tx_signature)
 );
@@ -77,9 +76,9 @@ CREATE TABLE artifacts (
     file_size BIGINT NOT NULL, -- File size in bytes
     sp1_version VARCHAR(32), -- SP1 version if applicable
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
--- Ensure uniqueness per type and version
-UNIQUE(artifact_type, version) );
+    -- Ensure uniqueness per type and version
+    UNIQUE(artifact_type, version)
+);
 
 -- Index for artifact lookups
 CREATE INDEX idx_artifacts_type_version ON artifacts (artifact_type, version);

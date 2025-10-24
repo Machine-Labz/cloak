@@ -1,11 +1,15 @@
-/// SP1 Withdraw Circuit VKey Hash
+use five8_const::decode_32_const;
+
+/// SP1 Withdraw Circuit VKey Hash (updated for batch support)
 pub const WITHDRAW_VKEY_HASH: &str =
-    "0x0019cf1c0567f3a494ec8cbbb132f39061d725ef83e84a69e6894b30c4c63cce";
+    "0x007fa4568b7cec225191ed264b459df3455dfb26ea1aea361650f3080cec3f65";
+pub const GLOBAL_PROGRAM_ID: [u8; 32] =
+    decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 
 // Constants for proof and public input offsets
 pub const PROOF_LEN: usize = 260; // Groth16 proof length (with vkey hash, as in working version)
 pub const PUB_LEN: usize = 104; // Full public inputs length (as in working version)
-pub const SP1_PUB_LEN: usize = 64; // SP1 Solana verifier expects 64-byte public inputs
+pub const SP1_PUB_LEN: usize = 104; // SP1 Solana verifier expects 104-byte public inputs (root + nf + outputs_hash + amount)
 
 pub const PROOF_OFF: usize = 0; // No discriminator offset (as in working version)
 pub const PUB_OFF: usize = PROOF_OFF + PROOF_LEN;

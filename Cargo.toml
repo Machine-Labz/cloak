@@ -6,7 +6,7 @@ members = [
     "programs/shield-pool",
     "services/indexer",
     "services/relay",
-    "test_complete_flow_rust",
+    "tooling/test",
 ]
 resolver = "2"
 
@@ -72,3 +72,6 @@ sha2 = "0.10.9"
 ark-bn254 = "0.4.0"
 ark-serialize = "0.4.2"
 ark-ff = "0.4.2"
+
+# Random
+rand = "0.8"

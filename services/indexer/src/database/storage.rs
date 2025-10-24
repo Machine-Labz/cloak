@@ -102,6 +102,44 @@ impl PostgresTreeStorage {
         Ok(())
     }
 
+    /// Reset the database by clearing all data
+    pub async fn reset_database(&self) -> Result<()> {
+        tracing::info!("Resetting database - clearing all data...");
+
+        let start = std::time::Instant::now();
+
+        // Clear all tables in the correct order (respecting foreign key constraints)
+        sqlx::query("DELETE FROM notes")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to clear notes table: {}", e);
+                IndexerError::Database(e)
+            })?;
+
+        sqlx::query("DELETE FROM merkle_tree_nodes")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to clear merkle_tree_nodes table: {}", e);
+                IndexerError::Database(e)
+            })?;
+
+        sqlx::query("DELETE FROM indexer_metadata")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to clear indexer_metadata table: {}", e);
+                IndexerError::Database(e)
+            })?;
+
+        let duration = start.elapsed();
+        crate::log_database_operation!("RESET", "all_tables", duration.as_millis() as u64);
+
+        tracing::info!("Database reset completed successfully");
+        Ok(())
+    }
+
     /// Get notes in a range with pagination
     pub async fn get_notes_range(
         &self,

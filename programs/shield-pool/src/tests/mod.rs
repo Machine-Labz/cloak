@@ -7,14 +7,17 @@ use solana_sdk::{
 };
 use spl_token::state::AccountState;
 
-// #[cfg(test)]
-// mod deposit;
+#[cfg(test)]
+mod deposit;
 
-// #[cfg(test)]
-// mod admin_push_root;
+#[cfg(test)]
+mod admin_push_root;
 
 #[cfg(test)]
 mod withdraw;
+
+#[cfg(test)]
+mod batch_withdraw;
 
 pub fn setup() -> (Pubkey, Mollusk) {
     let program_id = Pubkey::new_from_array(five8_const::decode_32_const(

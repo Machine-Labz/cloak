@@ -1,20 +1,14 @@
 use anyhow::Result;
 use blake3::Hasher;
-use reqwest;
 use serde::{Deserialize, Serialize};
 use shield_pool::instructions::ShieldPoolInstruction;
-use solana_client::rpc_client::RpcClient;
-use solana_program::system_program;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    compute_budget::ComputeBudgetInstruction,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };
-use std::time::Duration;
 
 /// Configuration for tests
 #[derive(Debug, Clone)]
@@ -81,7 +75,7 @@ pub struct DepositRequest {
 /// Load a keypair from file
 pub fn load_keypair(path: &str) -> Result<Keypair> {
     let keypair_data = std::fs::read(path)?;
-    
+
     // Try to parse as JSON first (array of numbers)
     if let Ok(json_data) = serde_json::from_slice::<Vec<u8>>(&keypair_data) {
         Keypair::try_from(&json_data[..])
@@ -126,6 +120,7 @@ pub fn ensure_user_funding(
 
     if user_balance < 5_000_000_000 {
         println!("\n💰 Transferring SOL from admin to user...");
+
         println!("   🔍 Getting latest blockhash...");
         let blockhash = client.get_latest_blockhash()?;
         println!("   🔍 Blockhash: {}", blockhash);
@@ -135,40 +130,28 @@ pub fn ensure_user_funding(
             &user_keypair.pubkey(),
             2_000_000_000, // 2 SOL
         );
-        let mut transfer_tx = Transaction::new_with_payer(&[transfer_ix], Some(&admin_keypair.pubkey()));
+        let mut transfer_tx =
+            Transaction::new_with_payer(&[transfer_ix], Some(&admin_keypair.pubkey()));
         transfer_tx.sign(&[&admin_keypair], blockhash);
 
         println!("   🔍 Sending transaction...");
-        let signature = client.send_transaction(&transfer_tx)?;
-        println!("   🔍 Transaction sent with signature: {}", signature);
 
-        println!("   🔍 Waiting for confirmation (timeout: 30s)...");
-        let start = std::time::Instant::now();
-        let timeout = Duration::from_secs(30);
-
-        loop {
-            match client.confirm_transaction(&signature) {
-                Ok(confirmed) => {
-                    if confirmed {
-                        println!("   ✅ Transfer successful");
-                        break;
-                    } else {
-                        if start.elapsed() > timeout {
-                            return Err(anyhow::anyhow!("Transfer confirmation timed out after 30 seconds"));
-                        }
-                        std::thread::sleep(Duration::from_millis(500));
-                    }
-                }
-                Err(e) => {
-                    if start.elapsed() > timeout {
-                        return Err(anyhow::anyhow!("Transfer confirmation failed after timeout: {}", e));
-                    }
-                    std::thread::sleep(Duration::from_millis(500));
-                }
+        // Use send_and_confirm_transaction to avoid duplicate transaction issues
+        match client.send_and_confirm_transaction(&transfer_tx) {
+            Ok(signature) => {
+                println!("   ✅ Transfer successful with signature: {}", signature);
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                println!("   ❌ Transfer failed: {}", error_msg);
+                return Err(anyhow::anyhow!("Transfer failed: {}", error_msg));
             }
         }
     } else {
-        println!("\n💰 User has sufficient SOL ({} SOL), skipping transfer", user_balance / SOL_TO_LAMPORTS);
+        println!(
+            "\n💰 User has sufficient SOL ({} SOL), skipping transfer",
+            user_balance / SOL_TO_LAMPORTS
+        );
     }
 
     Ok(())
@@ -189,13 +172,22 @@ pub fn print_config(config: &TestConfig) {
 /// Validate configuration
 pub fn validate_config(config: &TestConfig) -> Result<(), String> {
     if !std::path::Path::new(&config.user_keypair_path).exists() {
-        return Err(format!("User keypair file not found: {}", config.user_keypair_path));
+        return Err(format!(
+            "User keypair file not found: {}",
+            config.user_keypair_path
+        ));
     }
     if !std::path::Path::new(&config.recipient_keypair_path).exists() {
-        return Err(format!("Recipient keypair file not found: {}", config.recipient_keypair_path));
+        return Err(format!(
+            "Recipient keypair file not found: {}",
+            config.recipient_keypair_path
+        ));
     }
     if !std::path::Path::new(&config.program_keypair_path).exists() {
-        return Err(format!("Program keypair file not found: {}", config.program_keypair_path));
+        return Err(format!(
+            "Program keypair file not found: {}",
+            config.program_keypair_path
+        ));
     }
     if config.amount == 0 {
         return Err("Amount must be greater than 0".to_string());
@@ -223,7 +215,7 @@ pub fn create_deposit_instruction(
             AccountMeta::new(*user_pubkey, true),
             AccountMeta::new(*pool_pubkey, false),
             AccountMeta::new(*roots_ring_pubkey, false),
-            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
         ],
         data,
     }
@@ -284,7 +276,7 @@ pub fn create_withdraw_instruction(
             AccountMeta::new(*roots_ring_pubkey, false),
             AccountMeta::new(*nullifier_shard_pubkey, false),
             AccountMeta::new(*recipient_pubkey, false),
-            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
         ],
         data,
     }

@@ -4,8 +4,10 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sp1_zkvm::io;
 
+mod batch;
 mod encoding;
 
+use batch::*;
 use encoding::*;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,23 +63,46 @@ mod hex_string {
 
 sp1_zkvm::entrypoint!(main);
 
+/// Input wrapper that can be either single or batch mode
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum InputMode {
+    Batch(BatchCircuitInputs),
+    Single(CircuitInputs),
+}
+
 pub fn main() {
     // Read JSON input from stdin
     let input_json = io::read::<String>();
 
-    // Parse the input
-    let inputs: CircuitInputs =
-        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
+    // Try to parse as batch first, then fall back to single
+    let mode: InputMode = serde_json::from_str(&input_json).expect("Failed to parse input JSON");
 
-    // Verify all circuit constraints
-    verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
+    match mode {
+        InputMode::Batch(batch_inputs) => {
+            // Batch mode: verify all withdrawals
+            verify_batch_constraints(&batch_inputs)
+                .expect("Batch circuit constraint verification failed");
 
-    // Commit public inputs to the proof as individual primitive values
-    // This matches the format expected by the Solana verifier
-    sp1_zkvm::io::commit(&inputs.public.root);
-    sp1_zkvm::io::commit(&inputs.public.nf);
-    sp1_zkvm::io::commit(&inputs.public.outputs_hash);
-    sp1_zkvm::io::commit(&inputs.public.amount);
+            // Commit each withdrawal's public inputs
+            for withdrawal in &batch_inputs.withdrawals {
+                sp1_zkvm::io::commit(&withdrawal.public.root);
+                sp1_zkvm::io::commit(&withdrawal.public.nf);
+                sp1_zkvm::io::commit(&withdrawal.public.outputs_hash);
+                sp1_zkvm::io::commit(&withdrawal.public.amount);
+            }
+        }
+        InputMode::Single(inputs) => {
+            // Single mode: original behavior
+            verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
+
+            // Commit public inputs to the proof as individual primitive values
+            sp1_zkvm::io::commit(&inputs.public.root);
+            sp1_zkvm::io::commit(&inputs.public.nf);
+            sp1_zkvm::io::commit(&inputs.public.outputs_hash);
+            sp1_zkvm::io::commit(&inputs.public.amount);
+        }
+    }
 }
 
 fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
@@ -213,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_conservation_failure() {
-        let mut inputs = create_test_inputs();
+        let inputs = create_test_inputs();
         assert!(verify_circuit_constraints(&inputs).is_err());
     }
 }

@@ -27,5 +27,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// Tests can be added here when needed

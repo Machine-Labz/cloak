@@ -1,4 +1,5 @@
 pub mod admin_push_root;
+pub mod batch_withdraw;
 pub mod deposit;
 pub mod withdraw;
 
@@ -9,6 +10,7 @@ pub enum ShieldPoolInstruction {
     Deposit = 0,
     AdminPushRoot = 1,
     Withdraw = 2,
+    BatchWithdraw = 3,
 }
 
 impl TryFrom<&u8> for ShieldPoolInstruction {
@@ -19,6 +21,7 @@ impl TryFrom<&u8> for ShieldPoolInstruction {
             0 => Ok(Self::Deposit),
             1 => Ok(Self::AdminPushRoot),
             2 => Ok(Self::Withdraw),
+            3 => Ok(Self::BatchWithdraw),
             _ => Err(ShieldPoolError::InvalidTag.into()),
         }
     }

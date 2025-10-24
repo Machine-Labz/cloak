@@ -1,7 +1,7 @@
 use crate::instructions::ShieldPoolInstruction;
-use five8_const::decode_32_const;
 use instructions::{
-    admin_push_root::process_admin_push_root_instruction, deposit::process_deposit_instruction,
+    admin_push_root::process_admin_push_root_instruction,
+    batch_withdraw::process_batch_withdraw_instruction, deposit::process_deposit_instruction,
     withdraw::process_withdraw_instruction,
 };
 use pinocchio::{
@@ -9,7 +9,8 @@ use pinocchio::{
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
 
-mod constants;
+use crate::constants::GLOBAL_PROGRAM_ID;
+pub mod constants;
 mod error;
 pub mod instructions;
 mod state;
@@ -18,21 +19,17 @@ mod state;
 mod tests;
 
 // Shield Pool Program ID
-const ID: [u8; 32] = decode_32_const("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
+const ID: [u8; 32] = GLOBAL_PROGRAM_ID;
 
 program_entrypoint!(process_instruction);
 default_allocator!();
 default_panic_handler!();
 
 pub fn process_instruction(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if program_id != &ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-
     let (instruction_discriminant, instruction_data) = data
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
@@ -43,5 +40,8 @@ pub fn process_instruction(
             process_admin_push_root_instruction(accounts, instruction_data)
         }
         ShieldPoolInstruction::Withdraw => process_withdraw_instruction(accounts, instruction_data),
+        ShieldPoolInstruction::BatchWithdraw => {
+            process_batch_withdraw_instruction(accounts, instruction_data)
+        }
     }
 }
