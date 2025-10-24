@@ -570,7 +570,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://user:pass@postgres:5432/relay
       - RPC_URL=https://api.mainnet-beta.solana.com
-    depends_on: [redis, postgres]
+    depends_on: [postgres]
 
   postgres:
     image: postgres:15

@@ -9,16 +9,29 @@ This comprehensive runbook provides detailed operational procedures for running 
 
 ## Table of Contents
 
-1. [System Overview](#system-overview)
-2. [Deployment Architecture](#deployment-architecture)
-3. [Infrastructure Provisioning](#infrastructure-provisioning)
-4. [Service Configuration](#service-configuration)
-5. [Monitoring & Alerting](#monitoring--alerting)
-6. [Operational Procedures](#operational-procedures)
-7. [Troubleshooting Guide](#troubleshooting-guide)
-8. [Maintenance Procedures](#maintenance-procedures)
-9. [Security Operations](#security-operations)
-10. [Performance Optimization](#performance-optimization)
+- [Cloak Operations Runbook](#cloak-operations-runbook)
+  - [Table of Contents](#table-of-contents)
+  - [System Overview](#system-overview)
+    - [Core Components](#core-components)
+    - [Service Dependencies](#service-dependencies)
+  - [Deployment Architecture](#deployment-architecture)
+    - [Production Environment](#production-environment)
+    - [Development Environment](#development-environment)
+  - [Infrastructure Provisioning](#infrastructure-provisioning)
+    - [Hardware Requirements](#hardware-requirements)
+    - [Cloud Provider Configurations](#cloud-provider-configurations)
+  - [Service Configuration](#service-configuration)
+    - [Indexer Configuration](#indexer-configuration)
+    - [Relay Configuration](#relay-configuration)
+    - [Miner Configuration](#miner-configuration)
+  - [Monitoring \& Alerting](#monitoring--alerting)
+    - [Metrics Collection](#metrics-collection)
+    - [Alerting Rules](#alerting-rules)
+    - [Dashboard Configuration](#dashboard-configuration)
+  - [Operational Procedures](#operational-procedures)
+    - [Service Startup Procedures](#service-startup-procedures)
+    - [Health Check Procedures](#health-check-procedures)
+    - [Backup Procedures](#backup-procedures)
 
 ## System Overview
 
@@ -119,10 +132,9 @@ services:
     build: ./services/relay
     ports: ["3002:3002"]
     environment:
-      - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://cloak:password@postgres:5432/relay
       - RPC_URL=https://api.devnet.solana.com
-    depends_on: [redis, postgres]
+    depends_on: [postgres]
     
   postgres:
     image: postgres:15

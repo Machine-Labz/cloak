@@ -81,7 +81,7 @@ cp config.toml.example config.toml  # if you use template configuration
 cargo run
 ```
 
-> The relay automatically creates job tables, connects to Redis, and initialises the PoW `ClaimFinder` when `SCRAMBLE_REGISTRY_PROGRAM_ID` is set in `config.solana`.
+> The relay automatically creates job tables, connects, and initialises the PoW `ClaimFinder` when `SCRAMBLE_REGISTRY_PROGRAM_ID` is set in `config.solana`.
 
 ### Web App
 
