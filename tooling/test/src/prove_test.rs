@@ -125,30 +125,14 @@ async fn main() -> Result<()> {
     let accounts = if config.is_testnet() {
         println!("\n✅ Using existing program accounts on testnet...");
         use test_complete_flow_rust::shared::get_pda_addresses;
-        let (default_pool, default_commitments, default_roots, default_nullifier, default_treasury) =
+        let (pool, commitments, roots_ring, nullifier_shard, treasury) =
             get_pda_addresses(&program_id);
 
-        let pool = env_pubkey("RELAY__SOLANA__POOL_ADDRESS").unwrap_or(default_pool);
-        let commitments =
-            env_pubkey("RELAY__SOLANA__COMMITMENTS_ADDRESS").unwrap_or(default_commitments);
-        let roots_ring = env_pubkey("RELAY__SOLANA__ROOTS_RING_ADDRESS").unwrap_or(default_roots);
-        let nullifier_shard =
-            env_pubkey("RELAY__SOLANA__NULLIFIER_SHARD_ADDRESS").unwrap_or(default_nullifier);
-        let treasury = env_pubkey("RELAY__SOLANA__TREASURY_ADDRESS").unwrap_or(default_treasury);
-
-        fn describe(label: &str, value: &Pubkey, default: &Pubkey) {
-            if value == default {
-                println!("   - {} (derived PDA): {}", label, value);
-            } else {
-                println!("   - {} (env override): {}", label, value);
-            }
-        }
-
-        describe("Pool", &pool, &default_pool);
-        describe("Commitments log", &commitments, &default_commitments);
-        describe("Roots ring", &roots_ring, &default_roots);
-        describe("Nullifier shard", &nullifier_shard, &default_nullifier);
-        describe("Treasury", &treasury, &default_treasury);
+        println!("   - Pool (derived PDA): {}", pool);
+        println!("   - Commitments log (derived PDA): {}", commitments);
+        println!("   - Roots ring (derived PDA): {}", roots_ring);
+        println!("   - Nullifier shard (derived PDA): {}", nullifier_shard);
+        println!("   - Treasury (derived PDA): {}", treasury);
 
         ProgramAccounts {
             pool,
@@ -223,13 +207,22 @@ async fn main() -> Result<()> {
     println!("\n⛏️  Verifying Miner Reward...");
     let miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
     let miner_reward = miner_balance_after.saturating_sub(miner_balance);
-    
-    println!("   📊 Miner balance before: {} SOL", miner_balance / SOL_TO_LAMPORTS);
-    println!("   📊 Miner balance after: {} SOL", miner_balance_after / SOL_TO_LAMPORTS);
-    
+
+    println!(
+        "   📊 Miner balance before: {} SOL",
+        miner_balance / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   📊 Miner balance after: {} SOL",
+        miner_balance_after / SOL_TO_LAMPORTS
+    );
+
     if miner_reward > 0 {
-        println!("   ✅ Miner received reward: {} lamports ({} SOL)", 
-                miner_reward, miner_reward as f64 / SOL_TO_LAMPORTS as f64);
+        println!(
+            "   ✅ Miner received reward: {} lamports ({} SOL)",
+            miner_reward,
+            miner_reward as f64 / SOL_TO_LAMPORTS as f64
+        );
     } else {
         println!("   ⚠️  No miner reward detected (balance unchanged)");
     }
@@ -274,11 +267,20 @@ async fn main() -> Result<()> {
 
     println!("\n⛏️  Miner Reward Summary:");
     println!("   - Miner address: {}", miner_keypair.pubkey());
-    println!("   - Balance before: {} SOL", miner_balance / SOL_TO_LAMPORTS);
-    println!("   - Balance after: {} SOL", miner_balance_after / SOL_TO_LAMPORTS);
+    println!(
+        "   - Balance before: {} SOL",
+        miner_balance / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   - Balance after: {} SOL",
+        miner_balance_after / SOL_TO_LAMPORTS
+    );
     if miner_reward > 0 {
-        println!("   - Reward received: {} lamports ({} SOL)", 
-                miner_reward, miner_reward as f64 / SOL_TO_LAMPORTS as f64);
+        println!(
+            "   - Reward received: {} lamports ({} SOL)",
+            miner_reward,
+            miner_reward as f64 / SOL_TO_LAMPORTS as f64
+        );
         println!("   - PoW claim consumption: ✅ Successful");
     } else {
         println!("   - Reward received: 0 lamports");
@@ -1044,7 +1046,7 @@ struct TestData {
     commitment: String,
     nullifier: String,
 }
-// Data structures
+
 #[derive(Debug)]
 struct ProgramAccounts {
     pool: Pubkey,
@@ -1052,12 +1054,6 @@ struct ProgramAccounts {
     roots_ring: Pubkey,
     nullifier_shard: Pubkey,
     treasury: Pubkey,
-}
-
-fn env_pubkey(var: &str) -> Option<Pubkey> {
-    std::env::var(var)
-        .ok()
-        .and_then(|value| Pubkey::from_str(value.trim()).ok())
 }
 
 fn deploy_program(_client: &RpcClient) -> Result<Pubkey> {
@@ -1401,132 +1397,6 @@ fn push_root_to_program(
     }
 }
 
-fn execute_withdraw_transaction(
-    client: &RpcClient,
-    program_id: &Pubkey,
-    accounts: &ProgramAccounts,
-    prove_result: &ProofArtifacts,
-    test_data: &TestData,
-    recipient_keypair: &Keypair,
-    admin_keypair: &Keypair,
-) -> Result<String> {
-    use solana_sdk::{compute_budget::ComputeBudgetInstruction, transaction::Transaction};
-
-    println!("   💸 Executing Withdraw Transaction...");
-
-    // Calculate fee and recipient amount
-    let fee = {
-        let fixed_fee = 2_500_000;
-        let variable_fee = (test_data.amount * 5) / 1_000;
-        fixed_fee + variable_fee
-    };
-    let recipient_amount = test_data.amount - fee;
-
-    println!("   - Amount: {} lamports", test_data.amount);
-    println!("   - Fee: {} lamports", fee);
-    println!("   - Recipient amount: {} lamports", recipient_amount);
-
-    // Decode proof and public inputs from hex
-    let proof_bytes = hex::decode(&prove_result.proof_hex)?;
-    let public_inputs = hex::decode(&prove_result.public_inputs_hex)?;
-
-    // Convert nullifier from hex string to [u8; 32]
-    let nullifier_hex_clean = test_data
-        .nullifier
-        .strip_prefix("0x")
-        .unwrap_or(&test_data.nullifier);
-    let nullifier_bytes = hex::decode(nullifier_hex_clean).unwrap();
-    let mut nullifier_array = [0u8; 32];
-    nullifier_array.copy_from_slice(&nullifier_bytes);
-
-    // Create withdraw instruction
-    let withdraw_ix = test_complete_flow_rust::shared::create_withdraw_instruction(
-        &accounts.pool,
-        &accounts.treasury,
-        &accounts.roots_ring,
-        &accounts.nullifier_shard,
-        &recipient_keypair.pubkey(),
-        program_id,
-        &proof_bytes,
-        &public_inputs,
-        &nullifier_array,
-        1,
-        recipient_amount,
-    );
-
-    // Add compute budget instructions
-    let compute_unit_limit_ix = ComputeBudgetInstruction::set_compute_unit_limit(500_000);
-    let compute_unit_price_ix = ComputeBudgetInstruction::set_compute_unit_price(1_000);
-
-    // Log balances before withdraw
-    let pool_balance_before = client.get_balance(&accounts.pool)?;
-    let recipient_balance_before = client.get_balance(&recipient_keypair.pubkey())?;
-    let treasury_balance_before = client.get_balance(&accounts.treasury)?;
-
-    println!("   📊 Balances BEFORE withdraw:");
-    println!(
-        "      - Pool: {:.4} SOL",
-        pool_balance_before as f64 / SOL_TO_LAMPORTS as f64
-    );
-    println!(
-        "      - Recipient: {:.4} SOL",
-        recipient_balance_before as f64 / SOL_TO_LAMPORTS as f64
-    );
-    println!(
-        "      - Treasury: {:.4} SOL",
-        treasury_balance_before as f64 / SOL_TO_LAMPORTS as f64
-    );
-
-    println!("   🔍 Getting latest blockhash for withdraw...");
-    let blockhash = client.get_latest_blockhash()?;
-
-    // Create and send withdraw transaction
-    let mut withdraw_tx = Transaction::new_with_payer(
-        &[compute_unit_price_ix, compute_unit_limit_ix, withdraw_ix],
-        Some(&admin_keypair.pubkey()),
-    );
-
-    withdraw_tx.sign(&[&admin_keypair], blockhash);
-
-    match client.send_and_confirm_transaction(&withdraw_tx) {
-        Ok(signature) => {
-            // Log balances after withdraw
-            let pool_balance_after = client.get_balance(&accounts.pool)?;
-            let recipient_balance_after = client.get_balance(&recipient_keypair.pubkey())?;
-            let treasury_balance_after = client.get_balance(&accounts.treasury)?;
-
-            println!("   📊 Balances AFTER withdraw:");
-            println!(
-                "      - Pool: {} SOL (Δ: {:.4})",
-                pool_balance_after as f64 / SOL_TO_LAMPORTS as f64,
-                (pool_balance_after as i64 - pool_balance_before as i64) as f64
-                    / SOL_TO_LAMPORTS as f64
-            );
-            println!(
-                "      - Recipient: {} SOL (Δ: {:.4})",
-                recipient_balance_after as f64 / SOL_TO_LAMPORTS as f64,
-                (recipient_balance_after as i64 - recipient_balance_before as i64) as f64
-                    / SOL_TO_LAMPORTS as f64
-            );
-            println!(
-                "      - Treasury: {} SOL (Δ: {:.4})",
-                treasury_balance_after as f64 / SOL_TO_LAMPORTS as f64,
-                (treasury_balance_after as i64 - treasury_balance_before as i64) as f64
-                    / SOL_TO_LAMPORTS as f64
-            );
-
-            println!("   ✅ WITHDRAW SUCCESSFUL!");
-            println!("   📝 Transaction signature: {}", signature);
-
-            Ok(signature.to_string())
-        }
-        Err(e) => {
-            println!("   ❌ Withdraw transaction failed: {}", e);
-            Err(anyhow::anyhow!("Withdraw transaction failed: {}", e))
-        }
-    }
-}
-
 /// Execute withdraw transaction via relay service
 async fn execute_withdraw_via_relay(
     prove_result: &ProofArtifacts,
@@ -1766,16 +1636,13 @@ struct PublicInputs {
 
 #[derive(Debug, Deserialize)]
 struct WithdrawResponse {
-    success: bool,
     data: WithdrawData,
-    error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct WithdrawData {
     request_id: String,
     status: String,
-    message: String,
 }
 
 async fn verify_miner_status(client: &RpcClient, miner_keypair: &Keypair) -> Result<()> {
@@ -1787,17 +1654,20 @@ async fn verify_miner_status(client: &RpcClient, miner_keypair: &Keypair) -> Res
             miner_balance / SOL_TO_LAMPORTS
         ));
     }
-    
-    println!("   ✅ Miner balance sufficient: {} SOL", miner_balance / SOL_TO_LAMPORTS);
-    
+
+    println!(
+        "   ✅ Miner balance sufficient: {} SOL",
+        miner_balance / SOL_TO_LAMPORTS
+    );
+
     // Check if there are any active claims by querying the scramble registry
     // This is a simplified check - in a real scenario, we'd query for active claims
     println!("   🔍 Checking for active PoW claims...");
-    
+
     // For now, we'll just verify the miner can be found on-chain
     // In a production system, we'd query the scramble registry for active claims
     println!("   ✅ Miner verification complete");
     println!("   ℹ️  Note: Ensure cloak-miner is running to provide PoW claims");
-    
+
     Ok(())
 }
