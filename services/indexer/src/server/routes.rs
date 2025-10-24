@@ -8,6 +8,8 @@ use crate::server::middleware::{
     cors_layer, logging_middleware, request_size_limit, timeout_middleware,
 };
 use crate::server::prover_handler::generate_proof;
+use crate::server::rate_limiter::RateLimiter;
+use crate::sp1_tee_client::create_tee_client;
 use axum::{
     middleware,
     routing::{get, post},
@@ -15,6 +17,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
@@ -49,6 +52,33 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     tracing::info!("Initializing artifact manager");
     let artifact_manager = ArtifactManager::new(&config);
 
+    // Initialize rate limiter for proof generation
+    // Allow 3 proof requests per hour per client (SP1 proofs are expensive)
+    tracing::info!("Initializing rate limiter (3 requests per hour)");
+    let rate_limiter = Arc::new(RateLimiter::new(
+        Duration::from_secs(3600), // 1 hour window
+        3,                         // 3 requests per hour
+    ));
+
+    // Initialize TEE client if enabled
+    let tee_client = if config.sp1_tee.enabled {
+        tracing::info!("Initializing SP1 TEE client at startup");
+        match create_tee_client(config.sp1_tee.clone()) {
+            Ok(client) => {
+                tracing::info!("✅ SP1 TEE client initialized successfully at startup");
+                Some(Arc::new(client))
+            }
+            Err(e) => {
+                tracing::warn!("⚠️ Failed to initialize SP1 TEE client: {}", e);
+                tracing::warn!("🔄 TEE proving will not be available");
+                None
+            }
+        }
+    } else {
+        tracing::info!("SP1 TEE is disabled");
+        None
+    };
+
     // Create shared state
     tracing::info!("Application components initialized successfully");
     let state = AppState {
@@ -56,6 +86,8 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
         merkle_tree: Arc::new(Mutex::new(merkle_tree)),
         artifact_manager,
         config: config.clone(),
+        rate_limiter,
+        tee_client,
     };
 
     // Create the router

@@ -1,6 +1,8 @@
 use crate::artifacts::ArtifactManager;
 use crate::database::PostgresTreeStorage;
 use crate::merkle::{MerkleTree, TreeStorage};
+use crate::server::rate_limiter::RateLimiter;
+use crate::sp1_tee_client::Sp1TeeClient;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -19,6 +21,8 @@ pub struct AppState {
     pub merkle_tree: Arc<Mutex<MerkleTree>>,
     pub artifact_manager: ArtifactManager,
     pub config: crate::config::Config,
+    pub rate_limiter: Arc<RateLimiter>,
+    pub tee_client: Option<Arc<Sp1TeeClient>>,
 }
 
 // Request types
@@ -46,6 +50,7 @@ pub async fn api_info() -> impl IntoResponse {
         ("merkle_root", "/api/v1/merkle/root"),
         ("merkle_proof", "/api/v1/merkle/proof/:index"),
         ("notes_range", "/api/v1/notes/range"),
+        ("prove", "/api/v1/prove"),
         ("artifacts", "/api/v1/artifacts/withdraw/:version"),
     ]
     .into_iter()
@@ -58,6 +63,14 @@ pub async fn api_info() -> impl IntoResponse {
         "description": "Merkle tree indexer for Cloak privacy protocol",
         "endpoints": endpoints,
         "documentation": "https://docs.cloak.network/indexer",
+        "deprecated_endpoints": {
+            "prove": {
+                "endpoint": "/api/v1/prove",
+                "reason": "Server-side proof generation will be removed. Use client-side proof generation instead.",
+                "sunset_date": "2025-06-01",
+                "migration_guide": "https://docs.cloak.network/architecture/proving"
+            }
+        },
         "timestamp": chrono::Utc::now()
     }))
 }
