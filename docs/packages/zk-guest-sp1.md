@@ -242,17 +242,20 @@ rustup install nightly
 ```bash
 # Install SP1
 curl -L https://sp1.succinct.xyz | bash
+source ~/.zshenv  # or ~/.bashrc depending on your shell
 sp1up
 
+# Install the succinct toolchain (REQUIRED)
+cargo prove install-toolchain
+
 # Verify installation
-sp1 --version
 cargo prove --version
 ```
 
 **Build Tools:**
 ```bash
-# RISC-V target for guest program
-rustup target add riscv32im-succinct-zkvm-elf
+# RISC-V target for guest program (requires succinct toolchain)
+rustup target add riscv32im-succinct-zkvm-elf --toolchain succinct
 ```
 
 ### Build from Source
@@ -908,6 +911,34 @@ vim examples/outputs.example.json
 ```
 
 ## Troubleshooting
+
+### "succinct toolchain is not installed"
+
+**Symptom:**
+```
+error: override toolchain 'succinct' is not installed: the RUSTUP_TOOLCHAIN environment variable specifies an uninstalled toolchain
+```
+
+**Solution:**
+```bash
+# Install SP1 and the succinct toolchain
+curl -L https://sp1.succinct.xyz | bash
+source ~/.zshenv  # or ~/.bashrc depending on your shell
+sp1up
+cargo prove install-toolchain
+
+# Add RISC-V target to succinct toolchain
+rustup target add riscv32im-succinct-zkvm-elf --toolchain succinct
+
+# Verify installation
+cargo prove --version
+
+# Clean and rebuild
+cargo clean
+cargo build --release
+```
+
+---
 
 ### "Could not find guest ELF in any expected location"
 

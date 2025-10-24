@@ -43,7 +43,30 @@ packages/zk-guest-sp1/
 
 ### Prerequisites
 
-- Rust with SP1 toolchain
+**CRITICAL:** This package requires the SP1 toolchain to be installed. Without it, you'll get the error:
+```
+error: override toolchain 'succinct' is not installed
+```
+
+**Install SP1 toolchain:**
+```bash
+# Install SP1
+curl -L https://sp1.succinct.xyz | bash
+source ~/.zshenv  # or ~/.bashrc depending on your shell
+sp1up
+
+# Install the succinct toolchain
+cargo prove install-toolchain
+
+# Add RISC-V target (requires succinct toolchain)
+rustup target add riscv32im-succinct-zkvm-elf --toolchain succinct
+
+# Verify installation
+cargo prove --version
+```
+
+**Additional requirements:**
+- Rust (stable or nightly)
 - SP1 environment setup (see [SP1 docs](https://docs.succinct.xyz/))
 
 ### Build
@@ -168,6 +191,48 @@ This creates `examples/*.json` files with matching hashes and valid constraints.
 - Public inputs are committed to the proof and verified
 - All cryptographic operations use BLAKE3-256
 - Integer serialization is deterministic (little-endian)
+
+## Troubleshooting
+
+### Common Build Errors
+
+**1. SP1 Toolchain Not Installed:**
+```
+error: override toolchain 'succinct' is not installed
+```
+**Solution:**
+```bash
+curl -L https://sp1.succinct.xyz | bash
+source ~/.zshenv  # or ~/.bashrc depending on your shell
+sp1up
+cargo prove install-toolchain
+```
+
+**2. RISC-V Target Not Supported:**
+```
+error: toolchain 'nightly-aarch64-apple-darwin' does not support target 'riscv32im-succinct-zkvm-elf'
+```
+**Solution:**
+```bash
+rustup target add riscv32im-succinct-zkvm-elf --toolchain succinct
+```
+
+**3. Build Script Failures:**
+```
+Failed to run rustc --version
+```
+**Solution:**
+- Ensure `RUSTUP_TOOLCHAIN` environment variable is not set incorrectly
+- Try `cargo clean` and rebuild
+- Verify SP1 installation with `sp1 --version`
+
+### Environment Variables
+
+**Optional SP1 configuration:**
+```bash
+export SP1_PROVER=network  # or 'local' for local proving
+export SP1_NETWORK_RPC=https://rpc.succinct.xyz
+```
 
 ## Development
 
