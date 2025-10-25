@@ -6,34 +6,21 @@ This document outlines the comprehensive testing strategy for Cloak's zero-knowl
 
 ### Testing Pyramid
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    ZK TESTING PYRAMID                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                E2E Tests (localnet)                    │    │
-│  │  • Deposit → Indexer → Proof → Withdraw → Success      │    │
-│  │  • Multiple users, complex scenarios                  │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │              Integration Tests                          │    │
-│  │  • On-chain verification                               │    │
-│  │  • Service interactions                                │    │
-│  │  • API contract validation                             │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                Property Tests                           │    │
-│  │  • Randomized Merkle trees                             │    │
-│  │  • Double-spend prevention                             │    │
-│  │  • Edge case validation                                │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                Unit Tests                               │    │
-│  │  • Constraint verification                              │    │
-│  │  • Hash function consistency                           │    │
-│  │  • Encoding/decoding                                   │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph "ZK TESTING PYRAMID"
+        E2E[E2E Tests (localnet)<br/>• Deposit → Indexer → Proof → Withdraw → Success<br/>• Multiple users, complex scenarios]
+        
+        INT[Integration Tests<br/>• On-chain verification<br/>• Service interactions<br/>• API contract validation]
+        
+        PROP[Property Tests<br/>• Randomized Merkle trees<br/>• Double-spend prevention<br/>• Edge case validation]
+        
+        UNIT[Unit Tests<br/>• Constraint verification<br/>• Hash function consistency<br/>• Encoding/decoding]
+    end
+    
+    E2E --> INT
+    INT --> PROP
+    PROP --> UNIT
 ```
 
 ## Unit Tests

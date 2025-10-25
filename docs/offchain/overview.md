@@ -9,41 +9,39 @@ Cloak's off-chain infrastructure consists of two primary services that coordinat
 
 ## Service Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          User / Web App                              │
-└────────────┬──────────────────────────┬──────────────────────────────┘
-             │                          │
-             │ Deposit Events           │ Withdraw Requests
-             ▼                          ▼
-    ┌────────────────┐         ┌────────────────┐
-    │    Indexer     │         │     Relay      │
-    │                │         │                │
-    │  - Merkle Tree │◄────────┤  - Job Queue   │
-    │  - Event Sync  │ Proofs  │  - Workers     │
-    │  - Artifacts   │         │  - Tx Builder  │
-    └────────┬───────┘         └────────┬───────┘
-             │                          │
-             │                          │ Query Claims
-             │                          ▼
-             │                  ┌────────────────┐
-             │                  │ Claim Finder   │
-             │                  │  (PoW Mining)  │
-             │                  └────────────────┘
-             │                          │
-             └──────────┬───────────────┘
-                        │
-                        ▼
-            ┌───────────────────────┐
-            │   Solana Programs     │
-            │  - shield-pool        │
-            │  - scramble-registry  │
-            └───────────────────────┘
-
-    ┌──────────────┐
-    │  PostgreSQL  │
-    │   (State)    │
-    └──────────────┘
+```mermaid
+graph TB
+    subgraph "Off-Chain Service Architecture"
+        UA[User / Web App]
+        
+        subgraph "Core Services"
+            IDX[Indexer<br/>• Merkle Tree<br/>• Event Sync<br/>• Artifacts]
+            REL[Relay<br/>• Job Queue<br/>• Workers<br/>• Tx Builder]
+            CF[Claim Finder<br/>• PoW Mining<br/>• Claim Discovery]
+        end
+        
+        subgraph "On-Chain Programs"
+            SP[Shield Pool<br/>• Deposits<br/>• Withdrawals<br/>• Nullifiers]
+            SR[Scramble Registry<br/>• Claims<br/>• Miners<br/>• Difficulty]
+        end
+        
+        subgraph "Data Storage"
+            PG[PostgreSQL<br/>• State<br/>• Merkle Nodes<br/>• Job Queue]
+        end
+    end
+    
+    UA -->|Deposit Events| IDX
+    UA -->|Withdraw Requests| REL
+    
+    IDX <-->|Proofs| REL
+    REL -->|Query Claims| CF
+    
+    IDX -->|Store State| PG
+    REL -->|Job State| PG
+    
+    IDX <-->|Sync Events| SP
+    REL <-->|Execute Txs| SP
+    CF <-->|Mine Claims| SR
 ```
 
 ## Services

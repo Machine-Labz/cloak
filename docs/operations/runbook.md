@@ -52,24 +52,65 @@ This comprehensive runbook provides detailed operational procedures for running 
 
 ### Service Dependencies
 
-```text
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
-│   Clients   │    │   Services   │    │   Blockchain    │
-│             │    │              │    │                 │
-│ • Web App   │◄──►│ • Indexer    │◄──►│ • Solana RPC    │
-│ • CLI Tools │    │ • Relay      │    │ • Programs      │
-│ • APIs      │    │ • Workers    │    │ • Events        │
-└─────────────┘    └──────────────┘    └─────────────────┘
-       │                   │                   │
-       │                   │                   │
-       ▼                   ▼                   ▼
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
-│   Storage   │    │   Queue      │    │   Monitoring    │
-│             │    │              │    │                 │
-│ • PostgreSQL│    │ • Database   │    │ • Prometheus     │
-│ • Merkle    │    │ • Jobs       │    │ • Grafana       │
-│ • Encrypted │    │ • Claims     │    │ • Alerts        │
-└─────────────┘    └──────────────┘    └─────────────────┘
+```mermaid
+graph TB
+    subgraph "Service Dependencies"
+        subgraph "Client Layer"
+            WA[Web App]
+            CLI[CLI Tools]
+            API[APIs]
+        end
+        
+        subgraph "Service Layer"
+            IDX[Indexer]
+            REL[Relay]
+            WRK[Workers]
+        end
+        
+        subgraph "Blockchain Layer"
+            RPC[Solana RPC]
+            PROG[Programs]
+            EVT[Events]
+        end
+        
+        subgraph "Storage Layer"
+            PG[PostgreSQL]
+            DB[Database]
+            MT[Merkle Tree]
+        end
+        
+        subgraph "Queue Layer"
+            Q[Database Queue]
+            J[Jobs]
+            C[Claims]
+        end
+        
+        subgraph "Monitoring Layer"
+            PROM[Prometheus]
+            GRAF[Grafana]
+            ALERT[Alerts]
+        end
+    end
+    
+    WA <--> IDX
+    CLI <--> REL
+    API <--> WRK
+    
+    IDX <--> RPC
+    REL <--> PROG
+    WRK <--> EVT
+    
+    IDX --> PG
+    REL --> DB
+    WRK --> MT
+    
+    REL --> Q
+    WRK --> J
+    REL --> C
+    
+    IDX --> PROM
+    REL --> GRAF
+    WRK --> ALERT
 ```
 
 ## Deployment Architecture

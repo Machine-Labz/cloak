@@ -39,35 +39,21 @@ where pk_spend = BLAKE3(sk_spend)
 
 ### Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Deposit Flow                         │
-│                                                         │
-│  Client              Shield Pool         Indexer        │
-│  ┌────────┐         ┌──────────┐       ┌────────┐     │
-│  │ 1. Gen │         │          │       │        │     │
-│  │ Note   │         │          │       │        │     │
-│  └───┬────┘         │          │       │        │     │
-│      │              │          │       │        │     │
-│      │ 2. Compute   │          │       │        │     │
-│      │ commitment   │          │       │        │     │
-│      ├──────────────┼─────────▶│       │        │     │
-│      │ 3. Submit    │ 4. Emit  │       │        │     │
-│      │ deposit tx   │ event    │       │        │     │
-│      │              ├──────────┼──────▶│        │     │
-│      │              │          │       │ 5. Add │     │
-│      │              │          │       │ to tree│     │
-│      │              │          │       └───┬────┘     │
-│      │ 6. Query     │          │           │          │
-│      │◀─────────────┼──────────┼───────────┘          │
-│      │ confirmation │          │                      │
-│      │              │          │                      │
-│  ┌───▼────┐         │          │                      │
-│  │ Store  │         │          │                      │
-│  │ Note   │         │          │                      │
-│  └────────┘         └──────────┘                      │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant SP as Shield Pool
+    participant I as Indexer
+    
+    Note over C,I: Deposit Flow
+    
+    C->>C: 1. Generate Note
+    C->>SP: 2. Compute commitment
+    C->>SP: 3. Submit deposit tx
+    SP->>I: 4. Emit event
+    I->>I: 5. Add to tree
+    I-->>C: 6. Query confirmation
+    C->>C: Store Note
 ```
 
 ## Step 1: Generate Note Secrets

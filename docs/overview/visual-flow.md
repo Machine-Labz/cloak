@@ -11,46 +11,23 @@ This page provides detailed visual representations of all major Cloak workflows,
 
 ### Complete Deposit Sequence
 
-```text
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌──────────────┐
-│   Client    │    │   Indexer    │    │  Shield Pool    │    │   Merkle     │
-│   Wallet    │    │   Service    │    │    Program      │    │    Tree      │
-└─────────────┘    └──────────────┘    └─────────────────┘    └──────────────┘
-       │                   │                   │                   │
-       │ 1. Generate       │                   │                   │
-       │    secrets        │                   │                   │
-       │ (sk_spend, r)     │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 2. Compute        │                   │                   │
-       │    commitment     │                   │                   │
-       │ C = H(amt||r||pk) │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 3. Encrypt        │                   │                   │
-       │    output         │                   │                   │
-       │    payload        │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 4. Submit         │                   │                   │
-       │    deposit tx     │                   │                   │
-       ├──────────────────────────────────────►│                   │
-       │                   │                   │                   │
-       │                   │ 5. Listen for     │                   │
-       │                   │    DepositCommit  │                   │
-       │                   │◄──────────────────┤                   │
-       │                   │                   │                   │
-       │                   │ 6. Append to      │                   │
-       │                   │    Merkle tree    │                   │
-       │                   ├──────────────────────────────────────►│
-       │                   │                   │                   │
-       │                   │ 7. Store          │                   │
-       │                   │    encrypted      │                   │
-       │                   │    output         │                   │
-       │                   ├──────────────────►│                   │
-       │                   │                   │                   │
-       │ 8. Confirmation   │                   │                   │
-       │◄──────────────────┤                   │                   │
+```mermaid
+sequenceDiagram
+    participant C as Client Wallet
+    participant I as Indexer Service
+    participant SP as Shield Pool Program
+    participant MT as Merkle Tree
+    
+    Note over C,MT: Deposit Flow
+    
+    C->>C: 1. Generate secrets<br/>(sk_spend, r)
+    C->>I: 2. Compute commitment<br/>C = H(amt||r||pk)
+    C->>I: 3. Encrypt output<br/>payload
+    C->>SP: 4. Submit deposit tx
+    SP->>I: 5. DepositCommit event
+    I->>MT: 6. Append to Merkle tree
+    I->>I: 7. Store encrypted output
+    I-->>C: 8. Confirmation
 ```
 
 **Detailed Steps:**
@@ -88,58 +65,28 @@ pub struct DepositInstruction {
 
 ### Standard Withdrawal Sequence
 
-```text
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌──────────────┐
-│   Client    │    │   Relay      │    │   SP1 Prover    │    │   Solana     │
-│   Wallet    │    │   Service    │    │                 │    │   Programs   │
-└─────────────┘    └──────────────┘    └─────────────────┘    └──────────────┘
-       │                   │                   │                   │
-       │ 1. Discover       │                   │                   │
-       │    spendable      │                   │                   │
-       │    notes          │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 2. Fetch Merkle  │                   │                   │
-       │    proof          │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 3. Prepare        │                   │                   │
-       │    witness        │                   │                   │
-       │    data           │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │ 4. Generate ZK    │                   │                   │
-       │    proof          │                   │                   │
-       ├──────────────────────────────────────►│                   │
-       │                   │                   │                   │
-       │ 5. Submit         │                   │                   │
-       │    withdraw       │                   │                   │
-       │    request        │                   │                   │
-       ├──────────────────►│                   │                   │
-       │                   │                   │                   │
-       │                   │ 6. Validate       │                   │
-       │                   │    inputs         │                   │
-       │                   ├──────────────────►│                   │
-       │                   │                   │                   │
-       │                   │ 7. Check          │                   │
-       │                   │    nullifiers     │                   │
-       │                   ├──────────────────►│                   │
-       │                   │                   │                   │
-       │                   │ 8. Enqueue job    │                   │
-       │                   ├──────────────────►│                   │
-       │                   │                   │                   │
-       │                   │ 9. Process job    │                   │
-       │                   │    (worker)       │                   │
-       │                   ├──────────────────►│                   │
-       │                   │                   │                   │
-       │                   │ 10. Build tx      │                   │
-       │                   ├──────────────────────────────────────►│
-       │                   │                   │                   │
-       │                   │ 11. Submit tx     │                   │
-       │                   ├──────────────────────────────────────►│
-       │                   │                   │                   │
-       │ 12. Confirmation  │                   │                   │
-       │◄──────────────────┤                   │                   │
+```mermaid
+sequenceDiagram
+    participant C as Client Wallet
+    participant R as Relay Service
+    participant SP1 as SP1 Prover
+    participant SP as Solana Programs
+    
+    Note over C,SP: Standard Withdrawal Flow
+    
+    C->>R: 1. Discover spendable notes
+    C->>R: 2. Fetch Merkle proof
+    C->>R: 3. Prepare witness data
+    C->>SP1: 4. Generate ZK proof
+    C->>R: 5. Submit withdraw request
+    R->>R: 6. Validate inputs
+    R->>SP: 7. Check nullifiers
+    R->>R: 8. Enqueue job
+    R->>R: 9. Process job (worker)
+    R->>SP: 10. Build tx
+    R->>SP: 11. Submit tx
+    SP-->>R: 12. Confirmation
+    R-->>C: 13. Return result
 ```
 
 **Detailed Steps:**

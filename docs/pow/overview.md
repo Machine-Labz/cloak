@@ -18,29 +18,27 @@ The PoW system serves three primary functions:
 
 ### Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    POW MINING ARCHITECTURE                      │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Miners    │    │   Registry   │    │   Relay         │    │
-│  │             │    │   Program    │    │   Workers       │    │
-│  │ • BLAKE3    │───►│ • Claims     │◄───│ • Claim        │    │
-│  │ • Nonces    │    │ • Difficulty │    │   Discovery     │    │
-│  │ • Wildcard  │    │ • Miners     │    │ • Consumption   │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-│         │                   │                   │               │
-│         │                   │                   │               │
-│         ▼                   ▼                   ▼               │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Mining    │    │   On-Chain   │    │   Shield Pool   │    │
-│  │   Pool      │    │   Storage    │    │   Program       │    │
-│  │             │    │             │    │                 │    │
-│  │ • Hashrate  │    │ • Accounts   │    │ • CPI Calls     │    │
-│  │ • Stats     │    │ • State      │    │ • Verification  │    │
-│  │ • Rewards   │    │ • Events     │    │ • Execution     │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "POW MINING ARCHITECTURE"
+        subgraph "Top Layer"
+            M[Miners<br/>• BLAKE3<br/>• Nonces<br/>• Wildcard]
+            R[Registry Program<br/>• Claims<br/>• Difficulty<br/>• Miners]
+            W[Relay Workers<br/>• Claim Discovery<br/>• Consumption]
+        end
+        
+        subgraph "Bottom Layer"
+            P[Mining Pool<br/>• Hashrate<br/>• Stats<br/>• Rewards]
+            S[On-Chain Storage<br/>• Accounts<br/>• State<br/>• Events]
+            SP[Shield Pool Program<br/>• CPI Calls<br/>• Verification<br/>• Execution]
+        end
+    end
+    
+    M -->|mine claims| R
+    R <-->|discover/consume| W
+    M -->|contribute| P
+    R -->|store| S
+    W -->|execute| SP
 ```
 
 ## Core Components
@@ -248,28 +246,21 @@ pub fn withdraw_with_pow(
 
 ### State Transitions
 
-```text
-┌─────────┐    mine_claim     ┌─────────┐    reveal_claim    ┌─────────┐
-│ Pending │ ────────────────► │ Mined   │ ─────────────────► │Revealed │
-└─────────┘                   └─────────┘                   └─────────┘
-     │                             │                             │
-     │                             │                             │ consume_claim
-     │                             │                             ▼
-     │                             │                        ┌─────────┐
-     │                             │                        │Consumed │
-     │                             │                        └─────────┘
-     │                             │                             │
-     │                             │                             │ (repeat)
-     │                             │                             ▼
-     │                             │                        ┌─────────┐
-     │                             │                        │Expired  │
-     │                             │                        └─────────┘
-     │                             │
-     │                             │ (timeout)
-     │                             ▼
-     │                        ┌─────────┐
-     │                        │ Expired  │
-     └──────────────────────► └─────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : start mining
+    
+    Pending --> Mined : mine_claim()
+    Mined --> Revealed : reveal_claim()
+    Revealed --> Consumed : consume_claim()
+    
+    Consumed --> Consumed : repeat cycle
+    Consumed --> Expired : timeout
+    
+    Mined --> Expired : timeout
+    Pending --> Expired : timeout
+    
+    Expired --> [*]
 ```
 
 ### Detailed Lifecycle

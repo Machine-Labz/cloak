@@ -30,30 +30,28 @@ This document outlines the high-level design principles, architectural decisions
 
 ### High-Level Flow
 
-```text
-┌────────────────────────────────────────────────────────────────┐
-│                    ZK DESIGN ARCHITECTURE                      │
-├────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Deposit   │    │   Storage    │    │   Withdrawal    │    │
-│  │             │    │              │    │                 │    │
-│  │ • Generate  │───►│ • Merkle     │───►│ • Generate      │    │
-│  │   secrets   │    │   Tree       │    │   Proof         │    │
-│  │ • Compute   │    │ • Encrypted  │    │ • Verify        │    │
-│  │   commitment│    │   Outputs    │    │ • Execute       │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-│         │                   │                   │              │
-│         │                   │                   │              │
-│         ▼                   ▼                   ▼              │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Client    │    │   Indexer    │    │   Relay         │    │
-│  │   Wallet    │    │   Service    │    │   Service       │    │
-│  │             │    │              │    │                 │    │
-│  │ • Key Mgmt  │    │ • Tree       │    │ • Job Queue     │    │
-│  │ • Encryption│    │   Updates    │    │ • Proof Gen     │    │
-│  │ • UI/UX     │    │ • Proof      │    │ • Submission    │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-└────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "ZK DESIGN ARCHITECTURE"
+        subgraph "Core Operations"
+            DEP[Deposit<br/>• Generate secrets<br/>• Compute commitment]
+            STO[Storage<br/>• Merkle Tree<br/>• Encrypted Outputs]
+            WIT[Withdrawal<br/>• Generate Proof<br/>• Verify<br/>• Execute]
+        end
+        
+        subgraph "Service Layer"
+            CLI[Client Wallet<br/>• Key Mgmt<br/>• Encryption<br/>• UI/UX]
+            IDX[Indexer Service<br/>• Tree Updates<br/>• Proof Generation]
+            REL[Relay Service<br/>• Job Queue<br/>• Proof Gen<br/>• Submission]
+        end
+    end
+    
+    DEP -->|commitment| STO
+    STO -->|proof data| WIT
+    
+    CLI -->|deposit| DEP
+    IDX -->|manage| STO
+    REL -->|process| WIT
 ```
 
 ### Component Responsibilities

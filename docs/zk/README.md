@@ -11,30 +11,37 @@ The Zero-Knowledge (ZK) layer is the cryptographic core of Cloak's privacy-prese
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                        ZK LAYER ARCHITECTURE                    │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Client    │    │   SP1 Guest  │    │   On-Chain      │    │
-│  │   Witness   │    │   Circuit    │    │   Verifier      │    │
-│  │             │    │              │    │                 │    │
-│  │ • Secrets   │───►│ • Constraints│───►│ • Proof Check   │    │
-│  │ • Merkle    │    │ • BLAKE3     │    │ • Nullifier     │    │
-│  │ • Outputs   │    │ • Groth16    │    │ • Conservation  │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-│         │                   │                   │               │
-│         │                   │                   │               │
-│         ▼                   ▼                   ▼               │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    │
-│  │   Indexer   │    │   SP1 Host   │    │   Shield Pool   │    │
-│  │   Service   │    │   Prover     │    │   Program       │    │
-│  │             │    │              │    │                 │    │
-│  │ • Merkle    │    │ • Proof Gen  │    │ • Verification  │    │
-│  │ • Proofs    │    │ • Witness    │    │ • Execution     │    │
-│  │ • Discovery │    │ • Artifacts  │    │ • State Update  │    │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "ZK LAYER ARCHITECTURE"
+        subgraph "Client Layer"
+            CW[Client Witness<br/>• Secrets<br/>• Merkle<br/>• Outputs]
+        end
+        
+        subgraph "SP1 Layer"
+            SG[SP1 Guest Circuit<br/>• Constraints<br/>• BLAKE3<br/>• Groth16]
+            SH[SP1 Host Prover<br/>• Proof Gen<br/>• Witness<br/>• Artifacts]
+        end
+        
+        subgraph "On-Chain Layer"
+            OV[On-Chain Verifier<br/>• Proof Check<br/>• Nullifier<br/>• Conservation]
+            SP[Shield Pool Program<br/>• Verification<br/>• Execution<br/>• State Update]
+        end
+        
+        subgraph "Service Layer"
+            IS[Indexer Service<br/>• Merkle<br/>• Proofs<br/>• Discovery]
+        end
+    end
+    
+    CW -->|Witness Data| SG
+    SG -->|Proof| OV
+    OV -->|Verification| SP
+    
+    CW -->|Merkle Proof| IS
+    IS -->|Proof Data| SH
+    SH -->|Generated Proof| OV
+    
+    IS <-->|Sync State| SP
 ```
 
 ## Technology Stack

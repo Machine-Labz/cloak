@@ -9,28 +9,83 @@ Cloak is a privacy-preserving protocol built on Solana that enables anonymous de
 
 ## High-Level Architecture
 
-```text
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                                CLOAK PROTOCOL                                  │
-├────────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐ │
-│  │   Clients   │    │   Services   │    │  On-Chain       │    │   Miners    │ │
-│  │             │    │              │    │  Programs       │    │             │ │
-│  │ • Web App   │◄──►│ • Indexer    │◄──►│ • Shield Pool   │◄──►│ • PoW       │ │
-│  │ • CLI Tools │    │ • Relay      │    │ • Scramble      │    │ • Wildcard  │ │
-│  │ • APIs      │    │ • Workers    │    │   Registry      │    │ • Claims    │ │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘ │
-│         │                   │                   │                   │          │
-│         │                   │                   │                   │          │
-│         ▼                   ▼                   ▼                   ▼          │
-│  ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────────┐ │
-│  │ ZK Tooling  │    │   Storage    │    │   Solana        │    │   Mining    │ │
-│  │             │    │              │    │   Blockchain    │    │   Pool      │ │
-│  │ • SP1 Guest │    │ • PostgreSQL │    │ • Transactions  │    │ • BLAKE3    │ │
-│  │ • SP1 Host  │    │ • Database   │    │ • Accounts      │    │ • Difficulty│ │
-│  │ • Proofs    │    │ • Merkle     │    │ • Events        │    │ • Nonces    │ │
-│  └─────────────┘    └──────────────┘    └─────────────────┘    └─────────────┘ │
-└────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "CLOAK PROTOCOL"
+        subgraph "Client Layer"
+            WA[Web App]
+            CLI[CLI Tools]
+            API[APIs]
+        end
+        
+        subgraph "Service Layer"
+            IDX[Indexer]
+            REL[Relay]
+            WRK[Workers]
+        end
+        
+        subgraph "On-Chain Layer"
+            SP[Shield Pool]
+            SR[Scramble Registry]
+        end
+        
+        subgraph "Mining Layer"
+            POW[PoW]
+            WC[Wildcard]
+            CLM[Claims]
+        end
+        
+        subgraph "Storage Layer"
+            PG[PostgreSQL]
+            DB[Database]
+            MT[Merkle Tree]
+        end
+        
+        subgraph "ZK Layer"
+            SP1G[SP1 Guest]
+            SP1H[SP1 Host]
+            PRF[Proofs]
+        end
+        
+        subgraph "Blockchain Layer"
+            TX[Transactions]
+            ACC[Accounts]
+            EVT[Events]
+        end
+        
+        subgraph "Mining Pool Layer"
+            B3[BLAKE3]
+            DIFF[Difficulty]
+            NC[Nonces]
+        end
+    end
+    
+    WA <--> IDX
+    CLI <--> REL
+    API <--> WRK
+    
+    IDX <--> SP
+    REL <--> SR
+    WRK <--> SP
+    
+    SP <--> POW
+    SR <--> WC
+    SP <--> CLM
+    
+    IDX --> PG
+    REL --> DB
+    WRK --> MT
+    
+    SP1G --> SP1H
+    SP1H --> PRF
+    
+    SP --> TX
+    SR --> ACC
+    SP --> EVT
+    
+    POW --> B3
+    WC --> DIFF
+    CLM --> NC
 ```
 
 ## Core Domains

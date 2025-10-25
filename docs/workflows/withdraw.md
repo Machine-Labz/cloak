@@ -43,46 +43,31 @@ root:32 || nf:32 || outputs_hash:32 || amount:8
 
 ### Architecture Diagram
 
-```
-┌────────────────────────────────────────────────────────┐
-│                  Withdraw Flow                         │
-│                                                        │
-│  Client        Indexer       Relay        Solana      │
-│  ┌──────┐    ┌────────┐   ┌────────┐   ┌─────────┐  │
-│  │1. Get│    │        │   │        │   │         │  │
-│  │ notes│◄───┤        │   │        │   │         │  │
-│  └──┬───┘    │        │   │        │   │         │  │
-│     │        │        │   │        │   │         │  │
-│  ┌──▼───┐    │        │   │        │   │         │  │
-│  │2. Get│    │        │   │        │   │         │  │
-│  │proof │◄───┤        │   │        │   │         │  │
-│  └──┬───┘    │        │   │        │   │         │  │
-│     │        │        │   │        │   │         │  │
-│  ┌──▼───┐    │        │   │        │   │         │  │
-│  │3. Gen│    │        │   │        │   │         │  │
-│  │  ZK  │    │        │   │        │   │         │  │
-│  │proof │    │        │   │        │   │         │  │
-│  └──┬───┘    │        │   │        │   │         │  │
-│     │        │        │   │        │   │         │  │
-│  ┌──▼───┐    │        │   │        │   │         │  │
-│  │4. Sub│    │        │   │        │   │         │  │
-│  │ mit  ├────┼────────┼──▶│ 5. Q   │   │         │  │
-│  └──────┘    │        │   │  ueue  │   │         │  │
-│               │        │   └───┬────┘   │         │  │
-│               │        │       │        │         │  │
-│               │        │   ┌───▼────┐   │         │  │
-│               │        │   │6. Find │   │         │  │
-│               │        │   │ claim  │   │         │  │
-│               │        │   └───┬────┘   │         │  │
-│               │        │       │        │         │  │
-│               │        │   ┌───▼────┐   │         │  │
-│               │        │   │7. Build│   │         │  │
-│               │        │   │   tx   ├───┼────────▶│  │
-│               │        │   └────────┘   │ 8. Exec│  │
-│               │        │                │  verify│  │
-│               │        │                │  send  │  │
-│               │        │                └────────┘  │
-└────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant I as Indexer
+    participant R as Relay
+    participant S as Solana
+    
+    Note over C,S: Withdraw Flow
+    
+    C->>I: 1. Get notes
+    I-->>C: Available notes
+    
+    C->>I: 2. Get proof
+    I-->>C: Merkle proof
+    
+    C->>C: 3. Generate ZK proof
+    
+    C->>R: 4. Submit withdraw
+    R->>R: 5. Queue job
+    
+    R->>R: 6. Find claim
+    R->>R: 7. Build transaction
+    R->>S: 8. Execute & verify
+    S-->>R: Transaction result
+    R-->>C: Withdraw complete
 ```
 
 ## Step 1: Discover Spendable Notes

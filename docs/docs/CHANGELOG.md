@@ -15,6 +15,17 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ### ✨ Features
 
+- feat(prover): implement rate limiting and deprecate server-side proof generation endpoint ([26f67a6](https://github.com/Machine-Labz/cloak/commit/26f67a648a40be73b04b0c311a546df0d51caec5))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+372</span> / <span className="text-red-500">-18</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
+  | `services/indexer/src/server/prover_handler.rs` | <span className="text-green-500">+327</span> / <span className="text-red-500">-18</span> |
+  | `services/indexer/src/server/routes.rs` | <span className="text-green-500">+32</span> / <span className="text-red-500">-0</span> |
+
+  </details>
 - update documentation structure and add essential configuration files ([b7f58d0](https://github.com/Machine-Labz/cloak/commit/b7f58d0c2ecee43a950001859a6ec06ca7dbdc08))
   <details>
   <summary>📂 <strong>70 files changed</strong>: <span className="text-green-500">+17776</span> / <span className="text-red-500">-3710</span></summary>
@@ -747,6 +758,70 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ### 📚 Documentation
 
+- update quickstart guide with detailed installation steps for required tools and troubleshooting tips ([c3f3dcf](https://github.com/Machine-Labz/cloak/commit/c3f3dcf6b037d2cfa69f5d677aacb10a0ec8e8ef))
+  <details>
+  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+57</span> / <span className="text-red-500">-8</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/overview/quickstart.md` | <span className="text-green-500">+57</span> / <span className="text-red-500">-8</span> |
+
+  </details>
+- enhance README and package documentation with detailed installation instructions for SP1 toolchain and troubleshooting steps ([d33bf38](https://github.com/Machine-Labz/cloak/commit/d33bf3841100d370734099d72225f11e5dfdc55b))
+  <details>
+  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+166</span> / <span className="text-red-500">-11</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `README.md` | <span className="text-green-500">+65</span> / <span className="text-red-500">-6</span> |
+  | `docs/packages/zk-guest-sp1.md` | <span className="text-green-500">+34</span> / <span className="text-red-500">-3</span> |
+  | `packages/zk-guest-sp1/README.md` | <span className="text-green-500">+66</span> / <span className="text-red-500">-1</span> |
+  | `services/web` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+
+  </details>
+- remove DIAGRAMS.md file containing architectural and transaction flow documentation ([04f5be7](https://github.com/Machine-Labz/cloak/commit/04f5be7594ebb6ec3d67b978c849deedc05a5d92))
+  <details>
+  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+0</span> / <span className="text-red-500">-669</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `DIAGRAMS.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-669</span> |
+
+  </details>
+- refactor(tests): streamline test suite by removing unused binaries and enhancing documentation ([965827e](https://github.com/Machine-Labz/cloak/commit/965827ea5f266ffae4c49f2312fa9ce9bed4f6f9))
+  <details>
+  <summary>📂 <strong>9 files changed</strong>: <span className="text-green-500">+112</span> / <span className="text-red-500">-1024</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `tooling/test/Cargo.toml` | <span className="text-green-500">+0</span> / <span className="text-red-500">-16</span> |
+  | `tooling/test/src/bin/call_initialize.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-124</span> |
+  | `tooling/test/src/bin/check_claims.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-165</span> |
+  | `tooling/test/src/bin/derive_pdas.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-24</span> |
+  | `tooling/test/src/bin/init_localnet.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-226</span> |
+  | `tooling/test/src/bin/init_testnet.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-110</span> |
+  | `tooling/test/src/lib.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-0</span> |
+  | `tooling/test/src/prove_test.rs` | <span className="text-green-500">+43</span> / <span className="text-red-500">-173</span> |
+  | `tooling/test/src/shared.rs` | <span className="text-green-500">+67</span> / <span className="text-red-500">-186</span> |
+
+  </details>
+- update documentation to reflect transition from Redis to database for job queuing and service configuration ([2a439b3](https://github.com/Machine-Labz/cloak/commit/2a439b356c99f8cc6d771b4d884f988325d936fe))
+  <details>
+  <summary>📂 <strong>9 files changed</strong>: <span className="text-green-500">+105</span> / <span className="text-red-500">-134</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/docs/CHANGELOG.md` | <span className="text-green-500">+28</span> / <span className="text-red-500">-0</span> |
+  | `docs/offchain/relay.md` | <span className="text-green-500">+24</span> / <span className="text-red-500">-50</span> |
+  | `docs/operations/runbook.md` | <span className="text-green-500">+11</span> / <span className="text-red-500">-50</span> |
+  | `docs/overview/quickstart.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+  | `docs/overview/system-architecture.md` | <span className="text-green-500">+30</span> / <span className="text-red-500">-22</span> |
+  | `docs/overview/tech-stack.md` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `docs/overview/visual-flow.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+  | `docs/workflows/withdraw.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/zk/testing.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+
+  </details>
 - restructure runbook and update service configuration details ([7b17f90](https://github.com/Machine-Labz/cloak/commit/7b17f90193b45f8fb01619a6ca616a0d23af3be8))
   <details>
   <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+27</span> / <span className="text-red-500">-15</span></summary>
@@ -861,6 +936,16 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ### ♻️ Refactoring
 
+- refactor(prover): clean up code formatting and improve logging in proof generation endpoint ([8b0c4d1](https://github.com/Machine-Labz/cloak/commit/8b0c4d14370428b9310260bca077310efa49717f))
+  <details>
+  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+54</span> / <span className="text-red-500">-36</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/src/server/prover_handler.rs` | <span className="text-green-500">+31</span> / <span className="text-red-500">-24</span> |
+  | `services/relay/src/claim_manager.rs` | <span className="text-green-500">+23</span> / <span className="text-red-500">-12</span> |
+
+  </details>
 - refactor(indexer): deprecate server-side proof generation endpoint and remove rate limiting ([e33ba2f](https://github.com/Machine-Labz/cloak/commit/e33ba2f1b66706ec3b1ea0fbcea432a57f8256e4))
   <details>
   <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+20</span> / <span className="text-red-500">-331</span></summary>
@@ -1106,261 +1191,6 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `programs/shield-pool/tests/withdraw_e2e.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-132</span> |
 
   </details>
-- implement shield pool program for SP1 withdrawals ([f2c19f1](https://github.com/Machine-Labz/cloak/commit/f2c19f15163ebe04318f26fa6945773643693f33))
-  <details>
-  <summary>📂 <strong>17 files changed</strong>: <span className="text-green-500">+1440</span> / <span className="text-red-500">-10</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `docs/development/CLEANUP_COMPLETE.md` | <span className="text-green-500">+70</span> / <span className="text-red-500">-0</span> |
-  | `docs/development/README.md` | <span className="text-green-500">+44</span> / <span className="text-red-500">-0</span> |
-  | `docs/development/VKEY_FILE_SYSTEM.md` | <span className="text-green-500">+146</span> / <span className="text-red-500">-0</span> |
-  | `docs/development/WORKSPACE_SETUP_COMPLETE.md` | <span className="text-green-500">+87</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/Cargo.toml` | <span className="text-green-500">+27</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/README.md` | <span className="text-green-500">+228</span> / <span className="text-red-500">-10</span> |
-  | `programs/shield-pool/build.rs` | <span className="text-green-500">+50</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/error.rs` | <span className="text-green-500">+55</span> / <span className="text-red-500">-0</span> |
-  | `...shield-pool/src/instructions/admin_push_root.rs` | <span className="text-green-500">+26</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/instructions/deposit.rs` | <span className="text-green-500">+16</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/instructions/mod.rs` | <span className="text-green-500">+26</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+237</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+50</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/state.rs` | <span className="text-green-500">+166</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/tests/mod.rs` | <span className="text-green-500">+60</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/tests/withdraw_e2e.rs` | <span className="text-green-500">+132</span> / <span className="text-red-500">-0</span> |
-
-  </details>
-- misc: add content folder with useful libraries for development ([134e674](https://github.com/Machine-Labz/cloak/commit/134e67430a41762f717128f73f744dd756819931))
-  <details>
-  <summary>📂 <strong>124 files changed</strong>: <span className="text-green-500">+9024</span> / <span className="text-red-500">-0</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.context/pinocchio-programs-reference/.gitignore` | <span className="text-green-500">+4</span> / <span className="text-red-500">-0</span> |
-  | `.context/pinocchio-programs-reference/Cargo.toml` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `.context/pinocchio-programs-reference/README.md` | <span className="text-green-500">+146</span> / <span className="text-red-500">-0</span> |
-  | `.../pinocchio-programs-reference/escrow/Cargo.toml` | <span className="text-green-500">+22</span> / <span className="text-red-500">-0</span> |
-  | `...chio-programs-reference/escrow/src/constants.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `...nocchio-programs-reference/escrow/src/errors.rs` | <span className="text-green-500">+11</span> / <span className="text-red-500">-0</span> |
-  | `...grams-reference/escrow/src/instructions/make.rs` | <span className="text-green-500">+27</span> / <span className="text-red-500">-0</span> |
-  | `...ograms-reference/escrow/src/instructions/mod.rs` | <span className="text-green-500">+25</span> / <span className="text-red-500">-0</span> |
-  | `...ams-reference/escrow/src/instructions/refund.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `...grams-reference/escrow/src/instructions/take.rs` | <span className="text-green-500">+113</span> / <span className="text-red-500">-0</span> |
-  | `.../pinocchio-programs-reference/escrow/src/lib.rs` | <span className="text-green-500">+40</span> / <span className="text-red-500">-0</span> |
-  | `...grams-reference/escrow/src/state/contributor.rs` | <span className="text-green-500">+24</span> / <span className="text-red-500">-0</span> |
-  | `...o-programs-reference/escrow/src/state/escrow.rs` | <span className="text-green-500">+47</span> / <span className="text-red-500">-0</span> |
-  | `...ograms-reference/escrow/src/state/fundraiser.rs` | <span className="text-green-500">+47</span> / <span className="text-red-500">-0</span> |
-  | `...chio-programs-reference/escrow/src/state/mod.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-0</span> |
-  | `...rograms-reference/escrow/src/tests/make_test.rs` | <span className="text-green-500">+73</span> / <span className="text-red-500">-0</span> |
-  | `...chio-programs-reference/escrow/src/tests/mod.rs` | <span className="text-green-500">+54</span> / <span className="text-red-500">-0</span> |
-  | `...rograms-reference/escrow/src/tests/take_test.rs` | <span className="text-green-500">+222</span> / <span className="text-red-500">-0</span> |
-  | `...occhio-programs-reference/fundraiser/Cargo.toml` | <span className="text-green-500">+22</span> / <span className="text-red-500">-0</span> |
-  | `...-programs-reference/fundraiser/src/constants.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `...hio-programs-reference/fundraiser/src/errors.rs` | <span className="text-green-500">+11</span> / <span className="text-red-500">-0</span> |
-  | `...-reference/fundraiser/src/instructions/check.rs` | <span className="text-green-500">+28</span> / <span className="text-red-500">-0</span> |
-  | `...rence/fundraiser/src/instructions/contribute.rs` | <span className="text-green-500">+27</span> / <span className="text-red-500">-0</span> |
-  | `...rence/fundraiser/src/instructions/initialize.rs` | <span className="text-green-500">+31</span> / <span className="text-red-500">-0</span> |
-  | `...ms-reference/fundraiser/src/instructions/mod.rs` | <span className="text-green-500">+28</span> / <span className="text-red-500">-0</span> |
-  | `...reference/fundraiser/src/instructions/refund.rs` | <span className="text-green-500">+32</span> / <span className="text-red-500">-0</span> |
-  | `...occhio-programs-reference/fundraiser/src/lib.rs` | <span className="text-green-500">+50</span> / <span className="text-red-500">-0</span> |
-  | `...s-reference/fundraiser/src/state/contributor.rs` | <span className="text-green-500">+24</span> / <span className="text-red-500">-0</span> |
-  | `...ms-reference/fundraiser/src/state/fundraiser.rs` | <span className="text-green-500">+47</span> / <span className="text-red-500">-0</span> |
-  | `...-programs-reference/fundraiser/src/state/mod.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-0</span> |
-  | `...ms-reference/fundraiser/src/tests/check_test.rs` | <span className="text-green-500">+199</span> / <span className="text-red-500">-0</span> |
-  | `...ference/fundraiser/src/tests/contribute_test.rs` | <span className="text-green-500">+195</span> / <span className="text-red-500">-0</span> |
-  | `...eference/fundraiser/src/tests/initalize_test.rs` | <span className="text-green-500">+114</span> / <span className="text-red-500">-0</span> |
-  | `...-programs-reference/fundraiser/src/tests/mod.rs` | <span className="text-green-500">+60</span> / <span className="text-red-500">-0</span> |
-  | `...s-reference/fundraiser/src/tests/refund_test.rs` | <span className="text-green-500">+238</span> / <span className="text-red-500">-0</span> |
-  | `...occhio-programs-reference/sbpf_close/.gitignore` | <span className="text-green-500">+10</span> / <span className="text-red-500">-0</span> |
-  | `...occhio-programs-reference/sbpf_close/Cargo.toml` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `...nocchio-programs-reference/sbpf_close/README.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-0</span> |
-  | `...occhio-programs-reference/sbpf_close/src/lib.rs` | <span className="text-green-500">+49</span> / <span className="text-red-500">-0</span> |
-  | `...eference/sbpf_close/src/sbpf_close/sbpf_close.s` | <span className="text-green-500">+45</span> / <span className="text-red-500">-0</span> |
-  | `...t/pinocchio-programs-reference/vault/.gitignore` | <span className="text-green-500">+2</span> / <span className="text-red-500">-0</span> |
-  | `...t/pinocchio-programs-reference/vault/Cargo.toml` | <span className="text-green-500">+23</span> / <span className="text-red-500">-0</span> |
-  | `...pinocchio-programs-reference/vault/src/based.rs` | <span className="text-green-500">+84</span> / <span className="text-red-500">-0</span> |
-  | `...t/pinocchio-programs-reference/vault/src/lib.rs` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `...inocchio-programs-reference/vault/src/native.rs` | <span className="text-green-500">+43</span> / <span className="text-red-500">-0</span> |
-  | `...cchio-programs-reference/vault/src/optimized.rs` | <span className="text-green-500">+39</span> / <span className="text-red-500">-0</span> |
-  | `...pinocchio-programs-reference/vault/src/tests.rs` | <span className="text-green-500">+48</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/.github/workflows/pr.yml` | <span className="text-green-500">+44</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/.gitignore` | <span className="text-green-500">+12</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/Cargo.toml` | <span className="text-green-500">+52</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/LICENSE-MIT` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/README.md` | <span className="text-green-500">+163</span> / <span className="text-red-500">-0</span> |
-  | `...sp1-solana/example-sp1-wasm-verifier/.gitignore` | <span className="text-green-500">+14</span> / <span className="text-red-500">-0</span> |
-  | `...sp1-solana/example-sp1-wasm-verifier/Cargo.toml` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `...p1-solana/example-sp1-wasm-verifier/LICENSE-MIT` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `.../sp1-solana/example-sp1-wasm-verifier/README.md` | <span className="text-green-500">+113</span> / <span className="text-red-500">-0</span> |
-  | `...m-verifier/example/fibonacci-program/Cargo.lock` | <span className="text-green-500">+468</span> / <span className="text-red-500">-0</span> |
-  | `...m-verifier/example/fibonacci-program/Cargo.toml` | <span className="text-green-500">+8</span> / <span className="text-red-500">-0</span> |
-  | `...-verifier/example/fibonacci-program/src/main.rs` | <span className="text-green-500">+37</span> / <span className="text-red-500">-0</span> |
-  | `...ifier/example/json/fibonacci_groth16_proof.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `...erifier/example/json/fibonacci_plonk_proof.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `...ple-sp1-wasm-verifier/example/script/Cargo.toml` | <span className="text-green-500">+15</span> / <span className="text-red-500">-0</span> |
-  | `...ample-sp1-wasm-verifier/example/script/build.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-0</span> |
-  | `...le-sp1-wasm-verifier/example/script/src/main.rs` | <span className="text-green-500">+86</span> / <span className="text-red-500">-0</span> |
-  | `...-sp1-wasm-verifier/example/wasm_example/main.js` | <span className="text-green-500">+56</span> / <span className="text-red-500">-0</span> |
-  | `...wasm-verifier/example/wasm_example/package.json` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `...sm-verifier/example/wasm_example/pnpm-lock.yaml` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `...a/example-sp1-wasm-verifier/verifier/Cargo.toml` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `...a/example-sp1-wasm-verifier/verifier/src/lib.rs` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/pinocchio/Cargo.toml` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/pinocchio/src/lib.rs` | <span className="text-green-500">+120</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/program/Cargo.toml` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/program/src/lib.rs` | <span className="text-green-500">+58</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/script/.gitignore` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/script/Cargo.toml` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/script/build.rs` | <span className="text-green-500">+11</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/script/src/main.rs` | <span className="text-green-500">+203</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/example/sp1-program/Cargo.toml` | <span className="text-green-500">+8</span> / <span className="text-red-500">-0</span> |
-  | `...ple/sp1-program/elf/riscv32im-succinct-zkvm-elf` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...text/sp1-solana/example/sp1-program/src/main.rs` | <span className="text-green-500">+37</span> / <span className="text-red-500">-0</span> |
-  | `...olana/solana-project/APPLICATION_FLOW_DESIGN.md` | <span className="text-green-500">+204</span> / <span className="text-red-500">-0</span> |
-  | `...xt/sp1-solana/solana-project/CLEANUP_SUMMARY.md` | <span className="text-green-500">+66</span> / <span className="text-red-500">-0</span> |
-  | `...solana-project/COMPLETE_APPLICATION_ANALYSIS.md` | <span className="text-green-500">+251</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/solana-project/Cargo.toml` | <span className="text-green-500">+33</span> / <span className="text-red-500">-0</span> |
-  | `...text/sp1-solana/solana-project/DEMO_COMPLETE.md` | <span className="text-green-500">+171</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/solana-project/README.md` | <span className="text-green-500">+238</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/solana-project/SUMMARY.md` | <span className="text-green-500">+89</span> / <span className="text-red-500">-0</span> |
-  | `...olana/solana-project/ZK_STUDY_SESSION_STATUS.md` | <span className="text-green-500">+216</span> / <span className="text-red-500">-0</span> |
-  | `...a-project/pinocchio-withdrawal-proof/Cargo.toml` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `...na-project/pinocchio-withdrawal-proof/README.md` | <span className="text-green-500">+126</span> / <span className="text-red-500">-0</span> |
-  | `...a-project/pinocchio-withdrawal-proof/src/lib.rs` | <span className="text-green-500">+226</span> / <span className="text-red-500">-0</span> |
-  | `...cchio-withdrawal-proof/test_withdrawal_proof.rs` | <span className="text-green-500">+174</span> / <span className="text-red-500">-0</span> |
-  | `...na-project/withdrawal-json-generator/Cargo.toml` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `...oject/withdrawal-json-generator/src/bin/main.rs` | <span className="text-green-500">+141</span> / <span className="text-red-500">-0</span> |
-  | `...ithdrawal-json/withdrawal_compressed_proof.json` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `...na/solana-project/withdrawal-proof/.env.example` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `...drawal-proof/.github/workflows/foundry-test.yml` | <span className="text-green-500">+43</span> / <span className="text-red-500">-0</span> |
-  | `...ct/withdrawal-proof/.github/workflows/prove.yml` | <span className="text-green-500">+46</span> / <span className="text-red-500">-0</span> |
-  | `...lana/solana-project/withdrawal-proof/.gitignore` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `...-project/withdrawal-proof/.vscode/settings.json` | <span className="text-green-500">+29</span> / <span className="text-red-500">-0</span> |
-  | `...lana/solana-project/withdrawal-proof/Cargo.toml` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `...ana/solana-project/withdrawal-proof/LICENSE-MIT` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `...olana/solana-project/withdrawal-proof/README.md` | <span className="text-green-500">+89</span> / <span className="text-red-500">-0</span> |
-  | `...olana-project/withdrawal-proof/get_vkey_hash.rs` | <span className="text-green-500">+23</span> / <span className="text-red-500">-0</span> |
-  | `...ana-project/withdrawal-proof/program/Cargo.toml` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `...na-project/withdrawal-proof/program/src/main.rs` | <span className="text-green-500">+193</span> / <span className="text-red-500">-0</span> |
-  | `.../solana-project/withdrawal-proof/rust-toolchain` | <span className="text-green-500">+3</span> / <span className="text-red-500">-0</span> |
-  | `...lana-project/withdrawal-proof/script/Cargo.toml` | <span className="text-green-500">+26</span> / <span className="text-red-500">-0</span> |
-  | `...solana-project/withdrawal-proof/script/build.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `...project/withdrawal-proof/script/src/bin/main.rs` | <span className="text-green-500">+205</span> / <span className="text-red-500">-0</span> |
-  | `...ct/withdrawal-proof/script/src/bin/vkey_hash.rs` | <span className="text-green-500">+29</span> / <span className="text-red-500">-0</span> |
-  | `...project/withdrawal-proof/script/verify_proof.rs` | <span className="text-green-500">+34</span> / <span className="text-red-500">-0</span> |
-  | `...ana-project/withdrawal-wasm-verifier/Cargo.toml` | <span className="text-green-500">+17</span> / <span className="text-red-500">-0</span> |
-  | `...ana-project/withdrawal-wasm-verifier/src/lib.rs` | <span className="text-green-500">+81</span> / <span className="text-red-500">-0</span> |
-  | `...ana-project/withdrawal-web-interface/index.html` | <span className="text-green-500">+470</span> / <span className="text-red-500">-0</span> |
-  | `...a-project/withdrawal-web-interface/package.json` | <span className="text-green-500">+20</span> / <span className="text-red-500">-0</span> |
-  | `...lana-project/withdrawal-web-interface/server.js` | <span className="text-green-500">+105</span> / <span className="text-red-500">-0</span> |
-  | `...lana-project/withdrawal-web-interface/server.py` | <span className="text-green-500">+126</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/verifier/.gitignore` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/verifier/Cargo.toml` | <span className="text-green-500">+28</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/verifier/src/lib.rs` | <span className="text-green-500">+107</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/verifier/src/test.rs` | <span className="text-green-500">+77</span> / <span className="text-red-500">-0</span> |
-  | `.context/sp1-solana/verifier/src/utils.rs` | <span className="text-green-500">+279</span> / <span className="text-red-500">-0</span> |
-  | `...hdrawal-proof-wasm-verifier/verifier/Cargo.lock` | <span className="text-green-500">+878</span> / <span className="text-red-500">-0</span> |
-
-  </details>
-- initialize project structure with Cargo.toml, LICENSE, and Makefile ([950af93](https://github.com/Machine-Labz/cloak/commit/950af93047213957e09f497c3a6e72d2c4d4feb7))
-  <details>
-  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+118</span> / <span className="text-red-500">-1</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.gitignore` | <span className="text-green-500">+2</span> / <span className="text-red-500">-1</span> |
-  | `Cargo.toml` | <span className="text-green-500">+69</span> / <span className="text-red-500">-0</span> |
-  | `LICENSE` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `Makefile` | <span className="text-green-500">+26</span> / <span className="text-red-500">-0</span> |
-
-  </details>
-- add vkey-generator package for SP1 withdraw circuit ([baae538](https://github.com/Machine-Labz/cloak/commit/baae538a983836a3df854f85aa9d6a80c13f0930))
-  <details>
-  <summary>📂 <strong>13 files changed</strong>: <span className="text-green-500">+646</span> / <span className="text-red-500">-352</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `packages/vkey-generator/Cargo.toml` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `packages/vkey-generator/src/main.rs` | <span className="text-green-500">+43</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `packages/zk-guest-sp1/guest/Cargo.toml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `packages/zk-guest-sp1/guest/src/encoding.rs` | <span className="text-green-500">+43</span> / <span className="text-red-500">-35</span> |
-  | `packages/zk-guest-sp1/guest/src/main.rs` | <span className="text-green-500">+22</span> / <span className="text-red-500">-21</span> |
-  | `packages/zk-guest-sp1/host/Cargo.toml` | <span className="text-green-500">+6</span> / <span className="text-red-500">-2</span> |
-  | `.../zk-guest-sp1/host/src/bin/generate_examples.rs` | <span className="text-green-500">+50</span> / <span className="text-red-500">-5</span> |
-  | `...ages/zk-guest-sp1/host/src/bin/get_vkey_hash.rs` | <span className="text-green-500">+33</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/src/encoding.rs` | <span className="text-green-500">+58</span> / <span className="text-red-500">-92</span> |
-  | `packages/zk-guest-sp1/host/src/main.rs` | <span className="text-green-500">+52</span> / <span className="text-red-500">-41</span> |
-  | `packages/zk-guest-sp1/out/proof.bin` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/tests/golden.rs` | <span className="text-green-500">+323</span> / <span className="text-red-500">-153</span> |
-
-  </details>
-- implement SP1 withdraw guest MVP with ZK circuit ([0ae471c](https://github.com/Machine-Labz/cloak/commit/0ae471c2fb98be6d615739bf7c223dc245f3c8a9))
-  <details>
-  <summary>📂 <strong>57 files changed</strong>: <span className="text-green-500">+2358</span> / <span className="text-red-500">-0</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.cursor/prompts/e2e-localnet.md` | <span className="text-green-500">+12</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/prompts/implement-indexer.md` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/prompts/implement-onchain-withdraw.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/prompts/implement-withdraw-guest-sp1.md` | <span className="text-green-500">+14</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/prompts/wire-relay-api.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/00-overview.md` | <span className="text-green-500">+23</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/10-zk-layer.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/20-encoding.md` | <span className="text-green-500">+29</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/30-merkle.md` | <span className="text-green-500">+15</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/40-circuit-withdraw.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/50-onchain.md` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/60-indexer.md` | <span className="text-green-500">+15</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/70-relay.md` | <span className="text-green-500">+18</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/80-frontend.md` | <span className="text-green-500">+18</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/90-roadmap.md` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `.cursor/rules/99-style-and-practices.md` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
-  | `.gitignore` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `README.md` | <span className="text-green-500">+23</span> / <span className="text-red-500">-0</span> |
-  | `apps/web/README.md` | <span className="text-green-500">+6</span> / <span className="text-red-500">-0</span> |
-  | `docs/README.md` | <span className="text-green-500">+8</span> / <span className="text-red-500">-0</span> |
-  | `docs/glossary.md` | <span className="text-green-500">+12</span> / <span className="text-red-500">-0</span> |
-  | `docs/nonzk/frontend.md` | <span className="text-green-500">+14</span> / <span className="text-red-500">-0</span> |
-  | `docs/nonzk/indexer.md` | <span className="text-green-500">+17</span> / <span className="text-red-500">-0</span> |
-  | `docs/nonzk/relayer.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `docs/roadmap.md` | <span className="text-green-500">+24</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/README.md` | <span className="text-green-500">+22</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/api-contracts.md` | <span className="text-green-500">+34</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/circuit-withdraw.md` | <span className="text-green-500">+25</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/design.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/encoding.md` | <span className="text-green-500">+51</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/merkle.md` | <span className="text-green-500">+34</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/onchain-verifier.md` | <span className="text-green-500">+24</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/prover-sp1.md` | <span className="text-green-500">+34</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/testing.md` | <span className="text-green-500">+22</span> / <span className="text-red-500">-0</span> |
-  | `docs/zk/threat-model.md` | <span className="text-green-500">+16</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/Cargo.toml` | <span className="text-green-500">+37</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/README.md` | <span className="text-green-500">+176</span> / <span className="text-red-500">-0</span> |
-  | `...ages/zk-guest-sp1/examples/outputs.example.json` | <span className="text-green-500">+10</span> / <span className="text-red-500">-0</span> |
-  | `...ages/zk-guest-sp1/examples/private.example.json` | <span className="text-green-500">+14</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/examples/public.example.json` | <span className="text-green-500">+7</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/guest/Cargo.toml` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/guest/src/encoding.rs` | <span className="text-green-500">+285</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/guest/src/main.rs` | <span className="text-green-500">+218</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/Cargo.toml` | <span className="text-green-500">+30</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/build.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `.../zk-guest-sp1/host/src/bin/generate_examples.rs` | <span className="text-green-500">+123</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/src/encoding.rs` | <span className="text-green-500">+194</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/src/lib.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/host/src/main.rs` | <span className="text-green-500">+253</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/out/proof.bin` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+7</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/tests/golden.rs` | <span className="text-green-500">+299</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-verifier-program/README.md` | <span className="text-green-500">+7</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/README.md` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/README.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `services/relay/README.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `tooling/README.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-
-  </details>
 
 ### 🐛 Bug Fixes
 
@@ -1410,22 +1240,6 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `services/relay/src/api/status.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
   | `services/relay/src/main.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-5</span> |
   | `services/relay/src/metrics.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-5</span> |
-
-  </details>
-- fix(mollusk): Fix dependency version issue ([4c7c1a4](https://github.com/Machine-Labz/cloak/commit/4c7c1a4fe77936b020a23539c492bd4b668b225d))
-  <details>
-  <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+29</span> / <span className="text-red-500">-48</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.gitignore` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-  | `Cargo.toml` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
-  | `docs/development/README.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `packages/vkey-generator/Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `packages/zk-guest-sp1/Cargo.toml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-24</span> |
-  | `packages/zk-guest-sp1/guest/Cargo.toml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `packages/zk-guest-sp1/host/Cargo.toml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `.../zk-guest-sp1/host/src/bin/generate_examples.rs` | <span className="text-green-500">+18</span> / <span className="text-red-500">-16</span> |
 
   </details>
 
@@ -1591,18 +1405,6 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `programs/shield-pool/src/state/roots_ring.rs` | <span className="text-green-500">+82</span> / <span className="text-red-500">-0</span> |
   | `programs/shield-pool/src/tests/withdraw.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-0</span> |
   | `programs/shield-pool/src/utils.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-17</span> |
-
-  </details>
-- refactor(indexer): update deposit handling to use route-based approach ([7d90cf3](https://github.com/Machine-Labz/cloak/commit/7d90cf3998e78ab3d0acfd3d50da211c4a241e36))
-  <details>
-  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+4</span> / <span className="text-red-500">-4</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.cursor/rules/60-indexer.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docs/nonzk/indexer.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docs/roadmap.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docs/zk/onchain-verifier.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
 
   </details>
 
