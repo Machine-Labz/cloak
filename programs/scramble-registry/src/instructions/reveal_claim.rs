@@ -27,13 +27,11 @@ pub fn process_reveal_claim_instruction(
 
     // Verify authority
     if claim.miner_authority() != miner_authority.key() {
-        msg!("Unauthorized: miner authority mismatch");
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
 
     // Verify status is Mined
     if claim.status() != ClaimStatus::Mined {
-        msg!("Claim not in Mined status");
         return Err(ScrambleError::InvalidClaimStatus.into());
     }
 
@@ -44,14 +42,11 @@ pub fn process_reveal_claim_instruction(
     // Check reveal window
     let elapsed = current_slot.saturating_sub(claim.mined_at_slot());
     if elapsed > registry.reveal_window() {
-        msg!("Reveal window expired");
         return Err(ScrambleError::ClaimExpired.into());
     }
 
     // Transition to Revealed
     claim.reveal(current_slot, registry.claim_window());
-
-    msg!("Claim revealed successfully");
 
     Ok(())
 }

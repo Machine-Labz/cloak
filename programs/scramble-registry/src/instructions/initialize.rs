@@ -7,7 +7,7 @@ use pinocchio::pubkey::{find_program_address, Pubkey};
 use pinocchio::sysvars::clock::Clock;
 use pinocchio::sysvars::rent::Rent;
 use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, seeds, ProgramResult};
+use pinocchio::{seeds, ProgramResult};
 use pinocchio_system::instructions::CreateAccount;
 
 /// Derive the registry PDA
@@ -82,7 +82,6 @@ pub fn process_initialize_registry_instruction(
 
     // Verify provided account matches PDA
     if registry_account.key() != &registry_pda {
-        msg!("Registry account mismatch");
         return Err(ProgramError::InvalidSeeds);
     }
 
@@ -93,8 +92,6 @@ pub fn process_initialize_registry_instruction(
 
     // Create PDA account if it doesn't exist
     if registry_account.data_is_empty() {
-        msg!("Creating registry PDA");
-
         // Create PDA account via system program CPI
         let bump_ref = &[bump];
         let registry_seeds = seeds!(b"registry", bump_ref);
@@ -108,10 +105,6 @@ pub fn process_initialize_registry_instruction(
             owner: &crate::ID,
         }
         .invoke_signed(&[signer])?;
-
-        msg!("Registry PDA created");
-    } else {
-        msg!("Registry account exists, reinitializing data");
     }
 
     // Initialize registry data
@@ -128,7 +121,6 @@ pub fn process_initialize_registry_instruction(
         max_k,
     );
 
-    msg!("ScrambleRegistry initialized");
 
     Ok(())
 }
@@ -159,7 +151,6 @@ pub fn process_register_miner_instruction(
 
     // Verify provided account matches PDA
     if miner_account.key() != &miner_pda {
-        msg!("Miner account mismatch");
         return Err(ProgramError::InvalidSeeds);
     }
 
@@ -174,7 +165,6 @@ pub fn process_register_miner_instruction(
 
     // Create PDA account if it doesn't exist
     if miner_account.data_is_empty() {
-        msg!("Creating miner PDA");
 
         // Create PDA account via system program CPI
         let bump_ref = &[bump];
@@ -189,17 +179,11 @@ pub fn process_register_miner_instruction(
             owner: &crate::ID,
         }
         .invoke_signed(&[signer])?;
-
-        msg!("Miner PDA created");
-    } else {
-        msg!("Miner account exists, reinitializing data");
     }
 
     // Initialize miner data
     let mut miner = Miner::from_account_info_unchecked(&miner_account);
     miner.initialize(miner_authority.key(), current_slot);
-
-    msg!("Miner registered successfully");
 
     Ok(())
 }

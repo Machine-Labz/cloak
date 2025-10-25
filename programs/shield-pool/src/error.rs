@@ -44,6 +44,7 @@ pub enum ShieldPoolError {
     InvalidAccountOwner = 0x1059,
     InvalidAccountSize = 0x105A,
     CommitmentsNotWritable = 0x105B,
+    InvalidAdminAuthority = 0x105C,
 
     // Instruction errors
     BadIxLength = 0x1060,

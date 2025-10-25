@@ -9,7 +9,7 @@ use pinocchio::sysvars::clock::Clock;
 use pinocchio::sysvars::rent::Rent;
 use pinocchio::sysvars::slot_hashes::SLOTHASHES_ID;
 use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, seeds, ProgramResult};
+use pinocchio::{seeds, ProgramResult};
 use pinocchio_system::instructions::CreateAccount;
 
 #[inline(always)]
@@ -56,7 +56,6 @@ pub fn process_mine_claim_instruction(
 
     // Verify SlotHashes sysvar
     if slot_hashes_sysvar.key() != &SLOTHASHES_ID {
-        msg!("Invalid SlotHashes sysvar");
         return Err(ScrambleError::InvalidSlotHashesSysvar.into());
     }
 
@@ -70,14 +69,12 @@ pub fn process_mine_claim_instruction(
 
     // Load miner
     if miner_account.data_is_empty() {
-        msg!("Miner PDA not initialized");
         return Err(ProgramError::UninitializedAccount);
     }
     let mut miner = Miner::from_account_info(miner_account)?;
 
     // Verify miner authority matches
     if miner.authority() != miner_authority.key() {
-        msg!("Miner authority mismatch");
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
 
@@ -87,7 +84,6 @@ pub fn process_mine_claim_instruction(
 
     // 1. Verify slot is recent (within SlotHashes range, ~300 slots)
     if current_slot.saturating_sub(slot) > 300 {
-        msg!("Slot too old");
         return Err(ScrambleError::SlotTooOld.into());
     }
 
@@ -95,7 +91,6 @@ pub fn process_mine_claim_instruction(
     // Note: In production, we'd parse the SlotHashes sysvar data here
     // For now, we trust the caller provides the correct hash and verify it exists
     if !verify_slot_hash(slot_hashes_sysvar, slot, &slot_hash)? {
-        msg!("SlotHash mismatch");
         return Err(ScrambleError::SlotHashMismatch.into());
     }
 
@@ -108,25 +103,21 @@ pub fn process_mine_claim_instruction(
         nonce,
         &proof_hash,
     ) {
-        msg!("PoW verification failed: hash mismatch");
         return Err(ScrambleError::InvalidProofHash.into());
     }
 
     // 4. Check difficulty: proof_hash < current_difficulty
     if !u256_lt(&proof_hash, registry.current_difficulty()) {
-        msg!("Difficulty not met");
         return Err(ScrambleError::DifficultyNotMet.into());
     }
 
     // 5. Verify max_consumes <= max_k
     if max_consumes > registry.max_k() {
-        msg!("Batch size exceeds max_k");
         return Err(ScrambleError::BatchSizeExceedsMaxK.into());
     }
 
     // 6. Verify max_consumes > 0
     if max_consumes == 0 {
-        msg!("Batch size must be > 0");
         return Err(ScrambleError::InvalidBatchSize.into());
     }
 
@@ -145,13 +136,11 @@ pub fn process_mine_claim_instruction(
 
     // Verify provided account matches PDA
     if claim_account.key() != &claim_pda {
-        msg!("Claim account mismatch");
         return Err(ProgramError::InvalidSeeds);
     }
 
     // Create PDA account if it doesn't exist
     if claim_account.data_is_empty() {
-        msg!("Creating claim PDA");
 
         // Calculate space and rent
         let space = Claim::SIZE;
@@ -178,7 +167,6 @@ pub fn process_mine_claim_instruction(
         }
         .invoke_signed(&[signer])?;
 
-        msg!("Claim PDA created");
     }
 
     // Initialize claim data
@@ -200,8 +188,6 @@ pub fn process_mine_claim_instruction(
     // Update miner stats
     miner.record_mine();
 
-    msg!("Claim mined successfully");
-
     Ok(())
 }
 
@@ -221,7 +207,6 @@ fn verify_slot_hash(
 
     // Parse entry count
     if data.len() < 8 {
-        msg!("SlotHashes sysvar data too short");
         return Err(ProgramError::InvalidAccountData);
     }
 
@@ -230,7 +215,6 @@ fn verify_slot_hash(
     // Each entry is 8 (slot) + 32 (hash) = 40 bytes
     let expected_len = 8 + (count as usize * 40);
     if data.len() < expected_len {
-        msg!("SlotHashes sysvar malformed");
         return Err(ProgramError::InvalidAccountData);
     }
 
@@ -248,7 +232,6 @@ fn verify_slot_hash(
     }
 
     // Slot not found in SlotHashes
-    msg!("Slot not found in SlotHashes sysvar");
     Err(ScrambleError::SlotNotFound.into())
 }
 

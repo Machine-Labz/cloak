@@ -39,7 +39,6 @@ pub fn process_consume_claim_instruction(
     // In a CPI, we just verify the pubkey matches the expected program
     // We don't need to check executable() because if it wasn't a valid program, the CPI would fail
     if shield_pool_program.key().as_ref() != &EXPECTED_SHIELD_POOL {
-        msg!("consume_claim must be called from authorized shield-pool program");
         return Err(ProgramError::IncorrectProgramId);
     }
 
@@ -54,24 +53,16 @@ pub fn process_consume_claim_instruction(
 
     // Anti-replay: verify miner_authority matches
     if claim.miner_authority().as_ref() != expected_miner_authority {
-        msg!("Miner authority mismatch");
         return Err(ScrambleError::UnauthorizedMiner.into());
     }
 
     // Anti-replay: verify batch_hash matches (unless wildcard)
     if !claim.is_wildcard() && claim.batch_hash() != &expected_batch_hash {
-        msg!("Batch hash mismatch (claim is not wildcard)");
         return Err(ScrambleError::BatchHashMismatch.into());
-    }
-
-    if claim.is_wildcard() {
-        msg!("Using wildcard claim (batch_hash check skipped)");
     }
 
     // Verify claim is consumable
     if !claim.is_consumable(current_slot) {
-        msg!("Claim not consumable");
-
         // Check if expired
         if claim.is_expired(current_slot) {
             return Err(ScrambleError::ClaimExpired.into());
@@ -94,8 +85,6 @@ pub fn process_consume_claim_instruction(
     if is_now_fully_consumed && !was_fully_consumed {
         registry.decrement_active();
     }
-
-    msg!("Claim consumed successfully");
 
     Ok(())
 }

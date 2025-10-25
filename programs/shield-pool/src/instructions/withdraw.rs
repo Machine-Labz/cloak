@@ -193,7 +193,6 @@ fn process_withdraw_pow_mode(
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
     if !shield_pool_program_info.executable() {
-        msg!("Shield pool program account is not executable!");
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
     if pool_info.owner() != &program_id {
@@ -258,8 +257,7 @@ fn process_withdraw_pow_mode(
         return Err(ShieldPoolError::InvalidAmount.into());
     }
 
-    let expected_fee =
-        2_500_000u64.saturating_add((parsed.public_amount.saturating_mul(5)) / 1_000);
+    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
     let total_fee = parsed.public_amount - parsed.recipient_amount;
     if total_fee != expected_fee {
         return Err(ShieldPoolError::Conservation.into());
@@ -321,17 +319,17 @@ fn process_withdraw_pow_mode(
     )?;
 
     let registry_data = registry_pda_info.try_borrow_data()?;
-    if registry_data.len() < 98 {
+    if registry_data.len() < 90 {
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
     let fee_share_bps = u16::from_le_bytes(
-        registry_data[96..98]
+        registry_data[88..90]
             .try_into()
             .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
     );
 
     let scrambler_share = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
-    let protocol_share = total_fee.saturating_sub(scrambler_share);
+    let protocol_share = total_fee - scrambler_share;
 
     let pool_lamports = pool_info.lamports();
     let recipient_lamports = recipient_account.lamports();
@@ -340,13 +338,13 @@ fn process_withdraw_pow_mode(
 
     unsafe {
         *pool_info.borrow_mut_lamports_unchecked() =
-            pool_lamports.saturating_sub(parsed.public_amount);
+            pool_lamports - parsed.public_amount;
         *recipient_account.borrow_mut_lamports_unchecked() =
-            recipient_lamports.saturating_add(parsed.recipient_amount);
+            recipient_lamports + parsed.recipient_amount;
         *treasury_info.borrow_mut_lamports_unchecked() =
-            treasury_lamports.saturating_add(protocol_share);
+            treasury_lamports + protocol_share;
         *miner_authority_account.borrow_mut_lamports_unchecked() =
-            miner_lamports.saturating_add(scrambler_share);
+            miner_lamports + scrambler_share;
     }
 
     Ok(())
@@ -420,8 +418,7 @@ fn process_withdraw_legacy_mode(
         return Err(ShieldPoolError::InvalidAmount.into());
     }
 
-    let expected_fee =
-        2_500_000u64.saturating_add((parsed.public_amount.saturating_mul(5)) / 1_000);
+    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
     let total_fee = parsed.public_amount - parsed.recipient_amount;
     if total_fee != expected_fee {
         return Err(ShieldPoolError::Conservation.into());
@@ -439,11 +436,11 @@ fn process_withdraw_legacy_mode(
 
     unsafe {
         *pool_info.borrow_mut_lamports_unchecked() =
-            pool_lamports.saturating_sub(parsed.public_amount);
+            pool_lamports - parsed.public_amount;
         *recipient_account.borrow_mut_lamports_unchecked() =
-            recipient_lamports.saturating_add(parsed.recipient_amount);
+            recipient_lamports + parsed.recipient_amount;
         *treasury_info.borrow_mut_lamports_unchecked() =
-            treasury_lamports.saturating_add(protocol_share);
+            treasury_lamports + protocol_share;
     }
 
     Ok(())

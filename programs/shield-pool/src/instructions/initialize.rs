@@ -1,7 +1,5 @@
 use crate::{
-    error::ShieldPoolError,
-    state::{CommitmentQueue, NullifierShard, RootsRing},
-    ID,
+    constants::ADMIN_AUTHORITY, error::ShieldPoolError, state::{CommitmentQueue, NullifierShard, RootsRing}, ID
 };
 use pinocchio::sysvars::rent::Rent;
 use pinocchio::{
@@ -27,60 +25,15 @@ pub fn process_initialize_instruction(
         unsafe { *(accounts.as_ptr() as *const [AccountInfo; 7]) };
 
     // Check admin authority
-    let expected_admin = Pubkey::from(five8_const::decode_32_const(
-        "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",
-    ));
-    if admin.key() != &expected_admin {
+    if admin.key() != &ADMIN_AUTHORITY {
         return Err(ShieldPoolError::BadAccounts.into());
     }
-
     if !admin.is_signer() {
-        return Err(ShieldPoolError::BadAccounts.into());
+        return Err(ShieldPoolError::InvalidAdminAuthority.into());
     }
 
     let program_id = Pubkey::from(ID);
     let rent = Rent::get()?;
-
-    #[inline(always)]
-    fn create_pda_account(
-        admin: &AccountInfo,
-        target: &AccountInfo,
-        program_id: &Pubkey,
-        seed: &'static [u8],
-        space: usize,
-        rent: &Rent,
-    ) -> ProgramResult {
-        let (expected_address, bump) = find_program_address(&[seed], &ID);
-        if target.key() != &expected_address {
-            return Err(ShieldPoolError::BadAccounts.into());
-        }
-
-        if target.lamports() > 0 {
-            if target.owner() != program_id {
-                return Err(ShieldPoolError::BadAccounts.into());
-            }
-
-            if target.data_len() != space {
-                return Err(ShieldPoolError::BadAccounts.into());
-            }
-
-            return Ok(());
-        }
-
-        let lamports = rent.minimum_balance(space);
-        let bump_seed = [bump];
-        let seeds = [Seed::from(seed), Seed::from(bump_seed.as_ref())];
-        let signer = Signer::from(&seeds);
-
-        CreateAccount {
-            from: admin,
-            to: target,
-            lamports,
-            space: space as u64,
-            owner: program_id,
-        }
-        .invoke_signed(&[signer])
-    }
 
     create_pda_account(&admin, &pool, &program_id, b"pool", 0, &rent)?;
     create_pda_account(
@@ -111,4 +64,45 @@ pub fn process_initialize_instruction(
     )?;
     create_pda_account(&admin, &treasury, &program_id, b"treasury", 0, &rent)?;
     Ok(())
+}
+
+#[inline(always)]
+fn create_pda_account(
+    admin: &AccountInfo,
+    target: &AccountInfo,
+    program_id: &Pubkey,
+    seed: &'static [u8],
+    space: usize,
+    rent: &Rent,
+) -> ProgramResult {
+    let (expected_address, bump) = find_program_address(&[seed], &ID);
+    if target.key() != &expected_address {
+        return Err(ShieldPoolError::BadAccounts.into());
+    }
+
+    if target.lamports() > 0 {
+        if target.owner() != program_id {
+            return Err(ShieldPoolError::BadAccounts.into());
+        }
+
+        if target.data_len() != space {
+            return Err(ShieldPoolError::BadAccounts.into());
+        }
+
+        return Ok(());
+    }
+
+    let lamports = rent.minimum_balance(space);
+    let bump_seed = [bump];
+    let seeds = [Seed::from(seed), Seed::from(bump_seed.as_ref())];
+    let signer = Signer::from(&seeds);
+
+    CreateAccount {
+        from: admin,
+        to: target,
+        lamports,
+        space: space as u64,
+        owner: program_id,
+    }
+    .invoke_signed(&[signer])
 }
