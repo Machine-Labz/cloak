@@ -88,8 +88,8 @@ fn main() -> Result<()> {
     let target_interval_slots = 10u64;
     init_data.extend_from_slice(&target_interval_slots.to_le_bytes());
 
-    // Fee share bps (10% = 1000)
-    let fee_share_bps = 1000u16;
+    // Fee share bps (50% = 5000)
+    let fee_share_bps = 5000u16;
     init_data.extend_from_slice(&fee_share_bps.to_le_bytes());
 
     // Reveal window (10 slots)
