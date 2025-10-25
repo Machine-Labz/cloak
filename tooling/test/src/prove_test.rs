@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::system_instruction;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::str::FromStr;
@@ -1160,7 +1161,7 @@ fn create_program_accounts(
     program_id: &Pubkey,
     admin_keypair: &Keypair,
 ) -> Result<ProgramAccounts> {
-    use solana_sdk::{system_instruction, transaction::Transaction};
+    use solana_sdk::transaction::Transaction;
     use test_complete_flow_rust::shared::get_pda_addresses;
 
     println!("   Deriving PDA addresses...");
@@ -1182,24 +1183,10 @@ fn create_program_accounts(
     const COMMITMENTS_SIZE: usize = CommitmentQueue::SIZE;
     const NULLIFIER_SHARD_SIZE: usize = 4;
 
-    // Use allocate + assign for PDAs (simplified approach)
-    // For now, we'll use the existing keypair approach but document that PDAs should be used
-
-    // Create using keypairs that match PDA addresses (not possible with pure PDAs yet)
-    // TODO: Implement proper PDA-based initialization in the program
-
-    // For now, derive PDAs and use them (frontend will work)
-    // But create temporary accounts for testing
-    let pool_keypair = Keypair::new();
-    let commitments_keypair = Keypair::new();
-    let roots_ring_keypair = Keypair::new();
-    let nullifier_shard_keypair = Keypair::new();
-    let treasury_keypair = Keypair::new();
-
     let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(0)?;
     let create_pool_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
-        &pool_keypair.pubkey(),
+        &pool_pda,
         pool_rent_exempt,
         0,
         &program_id,
@@ -1207,7 +1194,7 @@ fn create_program_accounts(
 
     let create_commitments_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
-        &commitments_keypair.pubkey(),
+        &commitments_pda,
         client.get_minimum_balance_for_rent_exemption(COMMITMENTS_SIZE)?,
         COMMITMENTS_SIZE as u64,
         program_id,
@@ -1215,7 +1202,7 @@ fn create_program_accounts(
 
     let create_roots_ring_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
-        &roots_ring_keypair.pubkey(),
+        &roots_ring_pda,
         client.get_minimum_balance_for_rent_exemption(ROOTS_RING_SIZE)?,
         ROOTS_RING_SIZE as u64,
         program_id,
@@ -1223,7 +1210,7 @@ fn create_program_accounts(
 
     let create_nullifier_shard_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
-        &nullifier_shard_keypair.pubkey(),
+        &nullifier_shard_pda,
         client.get_minimum_balance_for_rent_exemption(NULLIFIER_SHARD_SIZE)?,
         NULLIFIER_SHARD_SIZE as u64,
         program_id,
@@ -1231,7 +1218,7 @@ fn create_program_accounts(
 
     let create_treasury_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
-        &treasury_keypair.pubkey(),
+        &treasury_pda,
         0,
         0,
         &solana_sdk::system_program::id(),
@@ -1249,41 +1236,25 @@ fn create_program_accounts(
     );
 
     create_accounts_tx.sign(
-        &[
-            &admin_keypair,
-            &pool_keypair,
-            &commitments_keypair,
-            &roots_ring_keypair,
-            &nullifier_shard_keypair,
-            &treasury_keypair,
-        ],
+        &[&admin_keypair],
         client.get_latest_blockhash()?,
     );
 
     client.send_and_confirm_transaction(&create_accounts_tx)?;
 
-    println!("   ✅ Program accounts created (using temp keypairs for now)");
-    println!("   📝 Note: Frontend will use PDA derivation");
-    println!("   - Pool: {}", pool_keypair.pubkey());
-    println!("   - Commitments log: {}", commitments_keypair.pubkey());
-    println!("   - Roots ring: {}", roots_ring_keypair.pubkey());
-    println!("   - Nullifier shard: {}", nullifier_shard_keypair.pubkey());
-    println!("   - Treasury: {}", treasury_keypair.pubkey());
-
-    // Return both actual addresses AND PDA addresses for reference
-    println!("\n   📍 Expected PDA addresses (for frontend):");
-    println!("   - Pool PDA: {}", pool_pda);
-    println!("   - Commitments PDA: {}", commitments_pda);
-    println!("   - Roots ring PDA: {}", roots_ring_pda);
-    println!("   - Nullifier shard PDA: {}", nullifier_shard_pda);
-    println!("   - Treasury PDA: {}", treasury_pda);
+    println!("   ✅ Program accounts created at PDA addresses");
+    println!("   - Pool: {}", pool_pda);
+    println!("   - Commitments log: {}", commitments_pda);
+    println!("   - Roots ring: {}", roots_ring_pda);
+    println!("   - Nullifier shard: {}", nullifier_shard_pda);
+    println!("   - Treasury: {}", treasury_pda);
 
     Ok(ProgramAccounts {
-        pool: pool_keypair.pubkey(),
-        commitments: commitments_keypair.pubkey(),
-        roots_ring: roots_ring_keypair.pubkey(),
-        nullifier_shard: nullifier_shard_keypair.pubkey(),
-        treasury: treasury_keypair.pubkey(),
+        pool: pool_pda,
+        commitments: commitments_pda,
+        roots_ring: roots_ring_pda,
+        nullifier_shard: nullifier_shard_pda,
+        treasury: treasury_pda,
     })
 }
 

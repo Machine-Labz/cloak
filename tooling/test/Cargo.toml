@@ -28,3 +28,4 @@ dotenvy = "0.15"
 cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
 bincode = "1"
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
+solana-system-interface = "2.0.0"
