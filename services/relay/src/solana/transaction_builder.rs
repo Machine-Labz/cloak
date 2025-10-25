@@ -202,9 +202,9 @@ pub fn derive_scramble_registry_pdas(
     batch_hash: &[u8; 32],
     slot: u64,
 ) -> (Pubkey, Pubkey, Pubkey) {
-    // Registry PDA: ["scramble_registry"]
+    // Registry PDA: ["registry"]
     let (registry_pda, _) =
-        Pubkey::find_program_address(&[b"scramble_registry"], registry_program_id);
+        Pubkey::find_program_address(&[b"registry"], registry_program_id);
 
     // Miner PDA: ["miner", authority]
     let (miner_pda, _) =

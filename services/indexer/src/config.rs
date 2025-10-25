@@ -28,6 +28,8 @@ pub struct DatabaseConfig {
 pub struct SolanaConfig {
     pub rpc_url: String,
     pub shield_pool_program_id: String,
+    pub admin_keypair: Option<Vec<u8>>,
+    pub roots_ring_address: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +90,8 @@ impl Config {
             solana: SolanaConfig {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://127.0.0.1:8899"),
                 shield_pool_program_id: get_env_var("SHIELD_POOL_PROGRAM_ID", ""),
+                admin_keypair: get_admin_keypair_from_env(),
+                roots_ring_address: get_env_var("ROOTS_RING_ADDRESS", "GNVDHdhhr9qgqtispqVXU2CWFAXkp9Wo7cE7adYTdcs5"),
             },
             server: ServerConfig {
                 port: get_env_var_as_number("PORT", 3001)?,
@@ -255,6 +259,30 @@ where
             .map_err(|e| anyhow::anyhow!("Failed to parse environment variable {}: {}", key, e)),
         Err(_) => Ok(default),
     }
+}
+
+fn get_admin_keypair_from_env() -> Option<Vec<u8>> {
+    // Try to get admin keypair from environment variable as JSON array
+    if let Ok(keypair_json) = std::env::var("ADMIN_KEYPAIR") {
+        if let Ok(keypair_bytes) = serde_json::from_str::<Vec<u8>>(&keypair_json) {
+            if keypair_bytes.len() == 64 {
+                return Some(keypair_bytes);
+            }
+        }
+    }
+    
+    // Try to get from file path
+    if let Ok(keypair_path) = std::env::var("ADMIN_KEYPAIR_PATH") {
+        if let Ok(keypair_data) = std::fs::read_to_string(&keypair_path) {
+            if let Ok(keypair_bytes) = serde_json::from_str::<Vec<u8>>(&keypair_data) {
+                if keypair_bytes.len() == 64 {
+                    return Some(keypair_bytes);
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 fn get_cors_origins() -> Vec<String> {

@@ -6,6 +6,7 @@ pub mod error;
 pub mod logging;
 pub mod merkle;
 pub mod server;
+pub mod solana;
 pub mod sp1_tee_client;
 
 pub use config::Config;

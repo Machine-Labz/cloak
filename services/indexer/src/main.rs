@@ -6,6 +6,7 @@ mod error;
 mod logging;
 mod merkle;
 mod server;
+pub mod solana;
 mod sp1_tee_client;
 
 use crate::config::Config;

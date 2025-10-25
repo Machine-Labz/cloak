@@ -2,6 +2,7 @@ use crate::artifacts::ArtifactManager;
 use crate::database::PostgresTreeStorage;
 use crate::merkle::{MerkleTree, TreeStorage};
 use crate::server::rate_limiter::RateLimiter;
+use crate::solana::push_root_to_chain;
 use crate::sp1_tee_client::Sp1TeeClient;
 use axum::{
     extract::{Path, Query, State},
@@ -203,6 +204,20 @@ pub async fn deposit(
                         new_root = new_root,
                         "✅ Successfully inserted leaf into Merkle tree"
                     );
+                    
+                    // Push new root to on-chain roots ring asynchronously (non-blocking)
+                    tracing::info!("🔗 Scheduling root push to on-chain roots ring");
+                    let solana_config = state.config.solana.clone();
+                    let root_to_push = new_root.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = push_root_to_chain(&root_to_push, &solana_config).await {
+                            tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                            // The root will be available for manual push later
+                        } else {
+                            tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+                        }
+                    });
+                    
                     tracing::info!("🎉 Deposit request completed successfully");
                     (
                         StatusCode::CREATED,

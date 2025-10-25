@@ -86,6 +86,10 @@ sha2 = { workspace = true }
 # HTTP client for health checks and testing
 reqwest = { version = "0.11", features = ["json"] }
 
+# Solana client for on-chain operations
+solana-client = "2.0"
+solana-sdk = "2.0"
+
 # File system operations
 tokio-fs = "0.1"
 
