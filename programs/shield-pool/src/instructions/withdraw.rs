@@ -7,8 +7,9 @@ use crate::ID;
 use core::convert::TryInto;
 use pinocchio::cpi::invoke_signed;
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, msg, pubkey::Pubkey, ProgramResult,
+    account_info::AccountInfo, instruction::{AccountMeta, Seed, Signer}, pubkey::Pubkey, ProgramResult,
 };
+use pinocchio_token::instructions::Transfer as TokenTransfer;
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 const BASE_TAIL_LEN: usize =
@@ -128,45 +129,107 @@ fn parse_withdraw_data<'a>(
 }
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    let is_pow_mode = accounts.len() >= 13;
+    // Determine mode based on account count:
+    // SOL legacy: 6 accounts
+    // SOL + POW: 13 accounts
+    // SPL: 9 accounts (adds token_program, pool_token_account, recipient_token_account)
+    // SPL + POW: 16 accounts (adds same 3 + treasury_token_account, miner_token_account)
+    
+    let account_count = accounts.len();
+    let is_pow_mode = account_count >= 13;
+    let is_spl_mode = account_count == 9 || account_count >= 16;
 
     if is_pow_mode {
-        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, miner_authority_account, shield_pool_program_info, ..] =
-            accounts
-        else {
-            return Err(ShieldPoolError::MissingAccounts.into());
-        };
+        if is_spl_mode {
+            // SPL + POW mode (16+ accounts)
+            let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, 
+                 scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, 
+                 miner_authority_account, shield_pool_program_info, _token_program, pool_token_account, 
+                 recipient_token_account, treasury_token_account, miner_token_account, ..] = accounts
+            else {
+                return Err(ShieldPoolError::MissingAccounts.into());
+            };
 
-        process_withdraw_pow_mode(
-            pool_info,
-            treasury_info,
-            roots_ring_info,
-            nullifier_shard_info,
-            recipient_account,
-            scramble_program_info,
-            claim_pda_info,
-            miner_pda_info,
-            registry_pda_info,
-            clock_sysvar_info,
-            miner_authority_account,
-            shield_pool_program_info,
-            data,
-        )
+            process_withdraw_pow_mode_spl(
+                pool_info,
+                treasury_info,
+                roots_ring_info,
+                nullifier_shard_info,
+                recipient_account,
+                scramble_program_info,
+                claim_pda_info,
+                miner_pda_info,
+                registry_pda_info,
+                clock_sysvar_info,
+                miner_authority_account,
+                shield_pool_program_info,
+                pool_token_account,
+                recipient_token_account,
+                treasury_token_account,
+                miner_token_account,
+                data,
+            )
+        } else {
+            // SOL + POW mode (13 accounts)
+            let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, 
+                 scramble_program_info, claim_pda_info, miner_pda_info, registry_pda_info, clock_sysvar_info, 
+                 miner_authority_account, shield_pool_program_info, ..] = accounts
+            else {
+                return Err(ShieldPoolError::MissingAccounts.into());
+            };
+
+            process_withdraw_pow_mode(
+                pool_info,
+                treasury_info,
+                roots_ring_info,
+                nullifier_shard_info,
+                recipient_account,
+                scramble_program_info,
+                claim_pda_info,
+                miner_pda_info,
+                registry_pda_info,
+                clock_sysvar_info,
+                miner_authority_account,
+                shield_pool_program_info,
+                data,
+            )
+        }
     } else {
-        let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, ..] =
-            accounts
-        else {
-            return Err(ShieldPoolError::MissingAccounts.into());
-        };
+        if is_spl_mode {
+            // SPL legacy mode (9 accounts)
+            let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program,
+                 _token_program, pool_token_account, recipient_token_account, treasury_token_account, ..] = accounts
+            else {
+                return Err(ShieldPoolError::MissingAccounts.into());
+            };
 
-        process_withdraw_legacy_mode(
-            pool_info,
-            treasury_info,
-            roots_ring_info,
-            nullifier_shard_info,
-            recipient_account,
-            data,
-        )
+            process_withdraw_legacy_mode_spl(
+                pool_info,
+                treasury_info,
+                roots_ring_info,
+                nullifier_shard_info,
+                recipient_account,
+                pool_token_account,
+                recipient_token_account,
+                treasury_token_account,
+                data,
+            )
+        } else {
+            // SOL legacy mode (6 accounts)
+            let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, recipient_account, _system_program, ..] = accounts
+            else {
+                return Err(ShieldPoolError::MissingAccounts.into());
+            };
+
+            process_withdraw_legacy_mode(
+                pool_info,
+                treasury_info,
+                roots_ring_info,
+                nullifier_shard_info,
+                recipient_account,
+                data,
+            )
+        }
     }
 }
 
@@ -445,3 +508,318 @@ fn process_withdraw_legacy_mode(
 
     Ok(())
 }
+
+#[allow(clippy::too_many_arguments)]
+fn process_withdraw_legacy_mode_spl(
+    pool_info: &AccountInfo,
+    treasury_info: &AccountInfo,
+    roots_ring_info: &AccountInfo,
+    nullifier_shard_info: &AccountInfo,
+    recipient_account: &AccountInfo,
+    pool_token_account: &AccountInfo,
+    recipient_token_account: &AccountInfo,
+    treasury_token_account: &AccountInfo,
+    data: &[u8],
+) -> ProgramResult {
+    let program_id = Pubkey::from(ID);
+    if pool_info.owner() != &program_id {
+        return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
+    }
+    if !pool_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !treasury_info.is_writable() {
+        return Err(ShieldPoolError::TreasuryNotWritable.into());
+    }
+    if roots_ring_info.owner() != &program_id {
+        return Err(ShieldPoolError::RootsRingOwnerNotProgramId.into());
+    }
+    if nullifier_shard_info.owner() != &program_id {
+        return Err(ShieldPoolError::NullifierShardOwnerNotProgramId.into());
+    }
+    if !nullifier_shard_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !recipient_account.is_writable() {
+        return Err(ShieldPoolError::RecipientNotWritable.into());
+    }
+
+    let parsed = parse_withdraw_data(data, false)?;
+
+    verify_proof(
+        parsed.proof,
+        &parsed.public_inputs[..SP1_PUB_LEN],
+        WITHDRAW_VKEY_HASH,
+        GROTH16_VK_5_0_0_BYTES,
+    )
+    .map_err(|_| ShieldPoolError::ProofInvalid)?;
+
+    {
+        let roots_ring = crate::state::RootsRing::from_account_info(roots_ring_info)?;
+        if !roots_ring.contains_root(&parsed.root) {
+            return Err(ShieldPoolError::RootNotFound.into());
+        }
+    }
+
+    {
+        let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
+        if shard.contains_nullifier(&parsed.nullifier) {
+            return Err(ShieldPoolError::DoubleSpend.into());
+        }
+        shard.add_nullifier(&parsed.nullifier)?;
+    }
+
+    let mut hash_input = [0u8; RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN];
+    hash_input[..RECIPIENT_ADDR_LEN].copy_from_slice(&parsed.recipient_address);
+    hash_input[RECIPIENT_ADDR_LEN..].copy_from_slice(&parsed.recipient_amount.to_le_bytes());
+    let outputs_hash_local = blake3::hash(&hash_input);
+    if outputs_hash_local.as_bytes() != &parsed.outputs_hash {
+        return Err(ShieldPoolError::InvalidOutputsHash.into());
+    }
+
+    if parsed.recipient_amount > parsed.public_amount {
+        return Err(ShieldPoolError::InvalidAmount.into());
+    }
+
+    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
+    let total_fee = parsed.public_amount - parsed.recipient_amount;
+    if total_fee != expected_fee {
+        return Err(ShieldPoolError::Conservation.into());
+    }
+
+    let protocol_share = total_fee;
+
+    // Read mint from pool to derive correct PDA
+    let pool_state = crate::state::Pool::from_account_info(pool_info)?;
+    let mint = pool_state.mint();
+
+    // Get pool PDA seeds for signing
+    let (pool_pda, pool_bump) = pinocchio::pubkey::find_program_address(&[b"pool", mint.as_ref()], &ID);
+    if pool_info.key() != &pool_pda {
+        return Err(ShieldPoolError::BadAccounts.into());
+    }
+
+    let pool_bump_seed = [pool_bump];
+    let pool_seeds = [Seed::from(b"pool".as_ref()), Seed::from(mint.as_ref()), Seed::from(pool_bump_seed.as_ref())];
+
+    // Transfer tokens to recipient
+    TokenTransfer {
+        from: pool_token_account,
+        to: recipient_token_account,
+        authority: pool_info,
+        amount: parsed.recipient_amount,
+    }
+    .invoke_signed(&[Signer::from(&pool_seeds)])?;
+
+    // Transfer fee to treasury
+    TokenTransfer {
+        from: pool_token_account,
+        to: treasury_token_account,
+        authority: pool_info,
+        amount: protocol_share,
+    }
+    .invoke_signed(&[Signer::from(&pool_seeds)])?;
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_withdraw_pow_mode_spl(
+    pool_info: &AccountInfo,
+    treasury_info: &AccountInfo,
+    roots_ring_info: &AccountInfo,
+    nullifier_shard_info: &AccountInfo,
+    recipient_account: &AccountInfo,
+    scramble_program_info: &AccountInfo,
+    claim_pda_info: &AccountInfo,
+    miner_pda_info: &AccountInfo,
+    registry_pda_info: &AccountInfo,
+    clock_sysvar_info: &AccountInfo,
+    miner_authority_account: &AccountInfo,
+    shield_pool_program_info: &AccountInfo,
+    pool_token_account: &AccountInfo,
+    recipient_token_account: &AccountInfo,
+    treasury_token_account: &AccountInfo,
+    miner_token_account: &AccountInfo,
+    data: &[u8],
+) -> ProgramResult {
+    // Get shield-pool program ID (this program)
+    let program_id = Pubkey::from(ID);
+
+    // Verify shield_pool_program_info matches expected program ID and is executable
+    if shield_pool_program_info.key() != &program_id {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+    if !shield_pool_program_info.executable() {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+    if pool_info.owner() != &program_id {
+        return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
+    }
+    if !pool_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !treasury_info.is_writable() {
+        return Err(ShieldPoolError::TreasuryNotWritable.into());
+    }
+    if roots_ring_info.owner() != &program_id {
+        return Err(ShieldPoolError::RootsRingOwnerNotProgramId.into());
+    }
+    if nullifier_shard_info.owner() != &program_id {
+        return Err(ShieldPoolError::NullifierShardOwnerNotProgramId.into());
+    }
+    if !nullifier_shard_info.is_writable() {
+        return Err(ShieldPoolError::PoolNotWritable.into());
+    }
+    if !recipient_account.is_writable() {
+        return Err(ShieldPoolError::RecipientNotWritable.into());
+    }
+    if !miner_authority_account.is_writable() {
+        return Err(ShieldPoolError::InvalidMinerAccount.into());
+    }
+
+    let parsed = parse_withdraw_data(data, true)?;
+
+    verify_proof(
+        parsed.proof,
+        &parsed.public_inputs[..SP1_PUB_LEN],
+        WITHDRAW_VKEY_HASH,
+        GROTH16_VK_5_0_0_BYTES,
+    )
+    .map_err(|_| ShieldPoolError::ProofInvalid)?;
+
+    {
+        let roots_ring = crate::state::RootsRing::from_account_info(roots_ring_info)?;
+        if !roots_ring.contains_root(&parsed.root) {
+            return Err(ShieldPoolError::RootNotFound.into());
+        }
+    }
+
+    {
+        let mut shard = crate::state::NullifierShard::from_account_info(nullifier_shard_info)?;
+        if shard.contains_nullifier(&parsed.nullifier) {
+            return Err(ShieldPoolError::DoubleSpend.into());
+        }
+        shard.add_nullifier(&parsed.nullifier)?;
+    }
+
+    let mut hash_input = [0u8; RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN];
+    hash_input[..RECIPIENT_ADDR_LEN].copy_from_slice(&parsed.recipient_address);
+    hash_input[RECIPIENT_ADDR_LEN..].copy_from_slice(&parsed.recipient_amount.to_le_bytes());
+    let outputs_hash_local = blake3::hash(&hash_input);
+    if outputs_hash_local.as_bytes() != &parsed.outputs_hash {
+        return Err(ShieldPoolError::InvalidOutputsHash.into());
+    }
+
+    if parsed.recipient_amount > parsed.public_amount {
+        return Err(ShieldPoolError::InvalidAmount.into());
+    }
+
+    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
+    let total_fee = parsed.public_amount - parsed.recipient_amount;
+    if total_fee != expected_fee {
+        return Err(ShieldPoolError::Conservation.into());
+    }
+
+    let batch_hash = parsed
+        .batch_hash
+        .ok_or(ShieldPoolError::InvalidInstructionData)?;
+
+    // Read miner authority and drop borrow before CPI
+    let miner_authority: [u8; 32] = {
+        let miner_data = miner_pda_info.try_borrow_data()?;
+        if miner_data.len() < 32 {
+            return Err(ShieldPoolError::InvalidMinerAccount.into());
+        }
+        miner_data[0..32]
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidMinerAccount)?
+    };
+
+    let mut consume_ix_data = [0u8; 65];
+    consume_ix_data[0] = 4; // consume_claim discriminant
+    consume_ix_data[1..33].copy_from_slice(&miner_authority);
+    consume_ix_data[33..65].copy_from_slice(&batch_hash);
+
+    let account_metas = [
+        AccountMeta::writable(claim_pda_info.key()),
+        AccountMeta::writable(miner_pda_info.key()),
+        AccountMeta::writable(registry_pda_info.key()),
+        AccountMeta::readonly(shield_pool_program_info.key()),
+        AccountMeta::readonly(clock_sysvar_info.key()),
+    ];
+
+    let consume_ix = pinocchio::instruction::Instruction {
+        program_id: scramble_program_info.key(),
+        accounts: &account_metas,
+        data: &consume_ix_data,
+    };
+
+    invoke_signed(
+        &consume_ix,
+        &[
+            claim_pda_info,
+            miner_pda_info,
+            registry_pda_info,
+            shield_pool_program_info,
+            clock_sysvar_info,
+        ],
+        &[],
+    )?;
+
+    let registry_data = registry_pda_info.try_borrow_data()?;
+    if registry_data.len() < 90 {
+        return Err(ShieldPoolError::InvalidInstructionData.into());
+    }
+    let fee_share_bps = u16::from_le_bytes(
+        registry_data[88..90]
+            .try_into()
+            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+    );
+
+    let scrambler_share = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
+    let protocol_share = total_fee - scrambler_share;
+
+    // Read mint from pool to derive correct PDA
+    let pool_state = crate::state::Pool::from_account_info(pool_info)?;
+    let mint = pool_state.mint();
+
+    // Get pool PDA seeds for signing
+    let (pool_pda, pool_bump) = pinocchio::pubkey::find_program_address(&[b"pool", mint.as_ref()], &ID);
+    if pool_info.key() != &pool_pda {
+        return Err(ShieldPoolError::BadAccounts.into());
+    }
+
+    let pool_bump_seed = [pool_bump];
+    let pool_seeds = [Seed::from(b"pool".as_ref()), Seed::from(mint.as_ref()), Seed::from(pool_bump_seed.as_ref())];
+
+    // Transfer tokens to recipient
+    TokenTransfer {
+        from: pool_token_account,
+        to: recipient_token_account,
+        authority: pool_info,
+        amount: parsed.recipient_amount,
+    }
+    .invoke_signed(&[Signer::from(&pool_seeds)])?;
+
+    // Transfer protocol share to treasury
+    TokenTransfer {
+        from: pool_token_account,
+        to: treasury_token_account,
+        authority: pool_info,
+        amount: protocol_share,
+    }
+    .invoke_signed(&[Signer::from(&pool_seeds)])?;
+
+    // Transfer scrambler share to miner
+    TokenTransfer {
+        from: pool_token_account,
+        to: miner_token_account,
+        authority: pool_info,
+        amount: scrambler_share,
+    }
+    .invoke_signed(&[Signer::from(&pool_seeds)])?;
+
+    Ok(())
+}
+

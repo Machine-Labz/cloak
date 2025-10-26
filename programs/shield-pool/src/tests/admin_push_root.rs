@@ -14,9 +14,10 @@ fn test_admin_push_root_instruction() {
     let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
         "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",
     ));
+    let mint = Pubkey::default(); // Native SOL
 
-    // Create a roots ring PDA
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
+    // Create a roots ring PDA with mint
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
 
     // Create test root to push
     let new_root = [0x42u8; 32]; // Test root
@@ -104,8 +105,9 @@ fn test_admin_push_root_unauthorized() {
 
     // Create unauthorized admin account (not the correct ADMIN_AUTHORITY)
     let unauthorized_admin = Pubkey::new_from_array([0x99u8; 32]);
+    let mint = Pubkey::default(); // Native SOL
 
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
     let new_root = [0x42u8; 32];
 
     let instruction_data = [
@@ -164,8 +166,9 @@ fn test_admin_push_root_multiple_roots() {
     let admin_pubkey = Pubkey::new_from_array(five8_const::decode_32_const(
         "mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa",
     ));
+    let mint = Pubkey::default(); // Native SOL
 
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
 
     // Push first root
     let root1 = [0x42u8; 32];

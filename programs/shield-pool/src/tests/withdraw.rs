@@ -14,12 +14,13 @@ fn test_withdraw_instruction() {
 
     // Create accounts
     let recipient = Pubkey::new_from_array([0x33u8; 32]);
+    let mint = Pubkey::default(); // Native SOL
 
-    // Create PDAs
-    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], &program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], &program_id);
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
-    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], &program_id);
+    // Create PDAs with mint
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
+    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury", mint.as_ref()], &program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
+    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], &program_id);
 
     // Test data
     let withdraw_amount = 3_000_000_000u64; // 3 SOL
@@ -122,7 +123,7 @@ fn test_withdraw_instruction() {
             pool_pda,
             Account {
                 lamports: 5_000_000_000,
-                data: vec![],
+                data: vec![0u8; 32], // Pool::SIZE - all zeros = native SOL (Pubkey::default())
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,

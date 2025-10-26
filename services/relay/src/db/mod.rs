@@ -40,11 +40,47 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
 
     let migration_sql = include_str!("../../migrations/001_init.sql");
 
-    // Split by semicolon and execute each statement
-    for statement in migration_sql.split(';') {
-        let statement = statement.trim();
-        if !statement.is_empty() && !statement.starts_with("--") {
-            sqlx::query(statement)
+    // Parse SQL statements, handling dollar-quoted strings
+    let mut statements = Vec::new();
+    let mut current_statement = String::new();
+    let mut in_dollar_quote = false;
+    let mut dollar_tag = String::new();
+    
+    for line in migration_sql.lines() {
+        let trimmed = line.trim();
+        
+        // Skip comment-only lines when not in dollar quote
+        if !in_dollar_quote && (trimmed.starts_with("--") || trimmed.is_empty()) {
+            continue;
+        }
+        
+        current_statement.push_str(line);
+        current_statement.push('\n');
+        
+        // Check for dollar-quoted string delimiters
+        if trimmed.contains("$$") {
+            if !in_dollar_quote {
+                // Starting a dollar-quoted block
+                in_dollar_quote = true;
+                dollar_tag = "$$".to_string();
+            } else if trimmed.contains(&format!("END {}", dollar_tag)) {
+                // Ending a dollar-quoted block
+                in_dollar_quote = false;
+                dollar_tag.clear();
+            }
+        }
+        
+        // If line ends with semicolon and we're not in a dollar-quoted block, statement is complete
+        if !in_dollar_quote && trimmed.ends_with(';') {
+            statements.push(current_statement.trim().to_string());
+            current_statement.clear();
+        }
+    }
+    
+    // Execute each statement
+    for statement in statements {
+        if !statement.is_empty() {
+            sqlx::query(&statement)
                 .execute(pool)
                 .await
                 .map_err(|e| Error::DatabaseError(format!("Migration failed: {}", e)))?;

@@ -1,5 +1,52 @@
 use crate::{error::ShieldPoolError, ID};
-use pinocchio::{account_info::AccountInfo, program_error::ProgramError};
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
+
+/// Pool: Stores the token mint for this shield pool
+/// Layout: [mint: 32 bytes]
+/// If mint == Pubkey::default() (all zeros), pool handles native SOL
+/// Otherwise, pool handles the specified SPL token
+pub struct Pool(*mut u8);
+
+impl Pool {
+    pub const SIZE: usize = 32; // Just the mint pubkey
+
+    #[inline(always)]
+    pub fn from_account_info(account_info: &AccountInfo) -> Result<Self, ProgramError> {
+        if account_info.owner() != &ID {
+            return Err(ShieldPoolError::InvalidAccountOwner.into());
+        }
+        if account_info.data_len() != Self::SIZE {
+            return Err(ShieldPoolError::InvalidAccountSize.into());
+        }
+        Ok(Self::from_account_info_unchecked(account_info))
+    }
+
+    #[inline(always)]
+    fn from_account_info_unchecked(account_info: &AccountInfo) -> Self {
+        unsafe { Self(account_info.borrow_mut_data_unchecked().as_mut_ptr()) }
+    }
+
+    #[inline(always)]
+    pub fn mint(&self) -> Pubkey {
+        unsafe {
+            let mut mint_bytes = [0u8; 32];
+            core::ptr::copy_nonoverlapping(self.0, mint_bytes.as_mut_ptr(), 32);
+            Pubkey::from(mint_bytes)
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_mint(&mut self, mint: &Pubkey) {
+        unsafe {
+            core::ptr::copy_nonoverlapping(mint.as_ref().as_ptr(), self.0, 32);
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_native(&self) -> bool {
+        self.mint() == Pubkey::default()
+    }
+}
 
 /// CommitmentQueue: Fixed-size ring buffer storing recent deposit commitments.
 /// Layout:
