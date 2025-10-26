@@ -7,7 +7,7 @@ use crate::ID;
 use core::convert::TryInto;
 use pinocchio::cpi::invoke_signed;
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, msg, pubkey::Pubkey, ProgramResult,
+    account_info::AccountInfo, instruction::AccountMeta, pubkey::Pubkey, ProgramResult,
 };
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 

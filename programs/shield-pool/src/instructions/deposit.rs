@@ -1,8 +1,5 @@
 use crate::{error::ShieldPoolError, state::CommitmentQueue};
 use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
-
-use pinocchio_system::instructions::Transfer;
-#[cfg(target_arch = "bpf")]
 use pinocchio_system::instructions::Transfer;
 
 #[inline(always)]
@@ -48,13 +45,6 @@ pub fn process_deposit_instruction(
 
     commitment_queue.append(&commit_bytes)?;
 
-    // unsafe {
-    //     *user.borrow_mut_lamports_unchecked() = user
-    //         .lamports()
-    //         .checked_sub(amount)
-    //         .ok_or(ShieldPoolError::InsufficientLamports)?;
-    //     *pool.borrow_mut_lamports_unchecked() += amount;
-    // }
     Transfer {
         from: &user,
         to: &pool,
