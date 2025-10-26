@@ -36,6 +36,19 @@ impl TestConfig {
         }
     }
 
+    /// Create configuration for localnet testing
+    pub fn localnet() -> Self {
+        Self {
+            rpc_url: "http://127.0.0.1:8899".to_string(),
+            program_id: "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".to_string(),
+            amount: 100_000_000, // 0.1 SOL
+            user_keypair_path: "user-keypair.json".to_string(),
+            recipient_keypair_path: "recipient-keypair.json".to_string(),
+            program_keypair_path: "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json".to_string(),
+            indexer_url: "http://localhost:3001".to_string(),
+        }
+    }
+
     /// Check if this is a testnet configuration
     pub fn is_testnet(&self) -> bool {
         self.rpc_url.contains("testnet.solana.com")
@@ -47,8 +60,11 @@ pub const SOL_TO_LAMPORTS: u64 = 1_000_000_000;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MerkleProof {
+    #[serde(rename = "pathElements")]
     pub path_elements: Vec<String>,
+    #[serde(rename = "pathIndices")]
     pub path_indices: Vec<u8>,
+    pub root: String,
 }
 
 /// Get PDA addresses for Shield Pool program with mint support
