@@ -5,7 +5,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    signature::{read_keypair_file, Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };
@@ -158,9 +158,14 @@ pub fn create_withdraw_instruction(
 
 /// Load keypair from file
 pub fn load_keypair(path: &str) -> Result<Keypair> {
-    let keypair_data = std::fs::read(path)?;
-    let keypair = Keypair::try_from(&keypair_data[..])?;
-    Ok(keypair)
+    match read_keypair_file(path) {
+        Ok(keypair) => Ok(keypair),
+        Err(_) => {
+            let keypair_data = std::fs::read(path)?;
+            let keypair = Keypair::try_from(&keypair_data[..])?;
+            Ok(keypair)
+        }
+    }
 }
 
 /// Print test configuration
