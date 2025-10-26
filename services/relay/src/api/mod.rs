@@ -1,3 +1,4 @@
+pub mod backlog;
 pub mod prove_local;
 pub mod status;
 pub mod validator_agent;

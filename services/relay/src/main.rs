@@ -148,6 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_check))
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
+        // Miners API - backlog status
+        .route("/backlog", get(api::backlog::get_backlog_status))
         // Validator Agent API
         .route(
             "/jobs/withdraw",

@@ -38,17 +38,73 @@ pub async fn connect(database_url: &str) -> Result<DatabasePool, Error> {
 pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
     info!("Running database migrations");
 
-    let migration_sql = include_str!("../../migrations/001_init.sql");
+    // Split migration into statements that can be executed individually
+    // This approach works around sqlx's limitation with multiple statements
+    
+    // First statement: Create enum type
+    sqlx::query(
+        r#"
+        DO $$ BEGIN
+            CREATE TYPE job_status AS ENUM ('queued', 'processing', 'completed', 'failed', 'cancelled');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        "#
+    ).execute(pool).await
+    .map_err(|e| Error::DatabaseError(format!("Failed to create enum: {}", e)))?;
 
-    // Split by semicolon and execute each statement
-    for statement in migration_sql.split(';') {
-        let statement = statement.trim();
-        if !statement.is_empty() && !statement.starts_with("--") {
-            sqlx::query(statement)
-                .execute(pool)
-                .await
-                .map_err(|e| Error::DatabaseError(format!("Migration failed: {}", e)))?;
-        }
+    // Second statement: Create jobs table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            request_id UUID NOT NULL UNIQUE,
+            status job_status NOT NULL DEFAULT 'queued',
+            proof_bytes BYTEA NOT NULL,
+            public_inputs BYTEA NOT NULL,
+            outputs_json JSONB NOT NULL,
+            fee_bps SMALLINT NOT NULL,
+            root_hash BYTEA NOT NULL,
+            nullifier BYTEA NOT NULL,
+            amount BIGINT NOT NULL,
+            outputs_hash BYTEA NOT NULL,
+            tx_id TEXT,
+            solana_signature TEXT,
+            error_message TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            started_at TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ
+        )
+        "#
+    ).execute(pool).await
+    .map_err(|e| Error::DatabaseError(format!("Failed to create jobs table: {}", e)))?;
+
+    // Third statement: Create nullifiers table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS nullifiers (
+            nullifier BYTEA PRIMARY KEY,
+            job_id UUID NOT NULL REFERENCES jobs(id),
+            block_height BIGINT,
+            tx_signature TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        "#
+    ).execute(pool).await
+    .map_err(|e| Error::DatabaseError(format!("Failed to create nullifiers table: {}", e)))?;
+
+    // Create indexes
+    for index_sql in &[
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id)",
+        "CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON nullifiers(created_at)",
+    ] {
+        sqlx::query(index_sql).execute(pool).await
+            .map_err(|e| Error::DatabaseError(format!("Failed to create index: {}", e)))?;
     }
 
     info!("Database migrations completed");

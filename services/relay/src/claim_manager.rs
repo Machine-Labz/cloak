@@ -174,7 +174,7 @@ impl ClaimFinder {
                     if is_wildcard {
                         wildcard_found += 1;
                         info!(
-                            "🎯 Found wildcard claim {} (status: {}, consumed: {}/{}, expires: {}, current_slot: {})",
+                            "🌟 WILDCARD claim {} (status: {}, consumed: {}/{}, expires: {}, current_slot: {})",
                             pubkey, claim.status, claim.consumed_count, claim.max_consumes, claim.expires_at_slot, current_slot
                         );
                     }
@@ -254,7 +254,7 @@ impl ClaimFinder {
         let total_duration = start_time.elapsed();
         warn!(
             "❌ [METRICS] No available claims found for batch_hash: {:?} (searched {} accounts in {:?})\n   \
-             Filter breakdown: size_filtered={}, parse_failed={}, batch_mismatch={}, wildcard_found={}, \
+             Filter breakdown: size_filtered={}, parse_failed={}, batch_mismatch={}, wildcard_found={} 🌟, \
              not_revealed={}, expired={}, fully_consumed={}, account_verification_failed={}",
             hex::encode(&batch_hash[0..8]),
             accounts.len(),
