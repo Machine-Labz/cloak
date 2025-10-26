@@ -125,9 +125,9 @@ async fn main() -> Result<()> {
     // Create program accounts only on localnet; on testnet, they should already exist
     let accounts = if config.is_testnet() {
         println!("\n✅ Using existing program accounts on testnet...");
-        use test_complete_flow_rust::shared::get_pda_addresses;
+        use test_complete_flow_rust::shared::get_pda_addresses_sol;
         let (pool, commitments, roots_ring, nullifier_shard, treasury) =
-            get_pda_addresses(&program_id);
+            get_pda_addresses_sol(&program_id);
 
         println!("   - Pool (derived PDA): {}", pool);
         println!("   - Commitments log (derived PDA): {}", commitments);
@@ -1162,11 +1162,11 @@ fn create_program_accounts(
     admin_keypair: &Keypair,
 ) -> Result<ProgramAccounts> {
     use solana_sdk::transaction::Transaction;
-    use test_complete_flow_rust::shared::get_pda_addresses;
+    use test_complete_flow_rust::shared::get_pda_addresses_sol;
 
     println!("   Deriving PDA addresses...");
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
-        get_pda_addresses(program_id);
+        get_pda_addresses_sol(program_id);
 
     println!("   - Pool PDA: {}", pool_pda);
     println!("   - Commitments PDA: {}", commitments_pda);

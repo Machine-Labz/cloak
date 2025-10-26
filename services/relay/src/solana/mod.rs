@@ -184,6 +184,18 @@ impl SolanaService {
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
 
+        // Parse mint address (empty = native SOL)
+        let mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default() // Native SOL
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default() // Default to native SOL
+        };
+
         // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
         let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
             Some(pool_addr),
@@ -216,9 +228,9 @@ impl SolanaService {
 
             (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
         } else {
-            // Fallback to PDA derivation
-            warn!("Account addresses not configured, deriving PDAs (this may cause errors if accounts don't exist)");
-            transaction_builder::derive_shield_pool_pdas(&self.program_id)
+            // Fallback to PDA derivation with mint
+            warn!("Account addresses not configured, deriving PDAs with mint (this may cause errors if accounts don't exist)");
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
         };
 
         // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
@@ -389,6 +401,18 @@ impl SolanaService {
                 let mut public_104 = [0u8; 104];
                 public_104.copy_from_slice(&job.public_inputs);
 
+                // Parse mint address (empty = native SOL)
+                let mint = if let Some(mint_str) = &self.config.mint_address {
+                    if mint_str.is_empty() {
+                        Pubkey::default() // Native SOL
+                    } else {
+                        Pubkey::from_str(mint_str)
+                            .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+                    }
+                } else {
+                    Pubkey::default() // Default to native SOL
+                };
+
                 let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
                     Some(pool_addr),
                     Some(treasury_addr),
@@ -420,8 +444,8 @@ impl SolanaService {
 
                     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
                 } else {
-                    // Fallback to PDA derivation
-                    transaction_builder::derive_shield_pool_pdas(&self.program_id)
+                    // Fallback to PDA derivation with mint
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
                 };
 
                 let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
@@ -567,6 +591,7 @@ mod tests {
             scramble_registry_program_id: Some(
                 "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
             ),
+            mint_address: None, // Default to native SOL
             pool_address: Some("11111111111111111111111111111111".to_string()),
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),

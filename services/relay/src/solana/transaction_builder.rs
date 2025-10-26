@@ -176,12 +176,19 @@ pub fn build_withdraw_instruction_with_pow(
 }
 
 /// Derive Shield Pool PDAs according to the on-chain program seeds.
-pub(crate) fn derive_shield_pool_pdas(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
-    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
-    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
+/// Now includes mint for multi-token support.
+pub(crate) fn derive_shield_pool_pdas(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], program_id);
+    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury", mint.as_ref()], program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], program_id);
+    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], program_id);
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+}
+
+/// Derive commitments PDA for a specific mint.
+pub(crate) fn derive_commitments_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
+    let (commitments_pda, _) = Pubkey::find_program_address(&[b"commitments", mint.as_ref()], program_id);
+    commitments_pda
 }
 
 /// Derive Scramble Registry PDAs according to the on-chain program seeds.
@@ -504,6 +511,7 @@ pub async fn simulate(
 // Back-compat wrapper used by SolanaService; extracts fragments and builds a basic transaction.
 pub fn build_withdraw_instruction_legacy(
     program_id: &Pubkey,
+    mint: &Pubkey,
     proof_bytes: &[u8],
     public_inputs_104: &[u8],
     outputs: &[Output],
@@ -528,9 +536,9 @@ pub fn build_withdraw_instruction_legacy(
         ));
     }
 
-    // Derive PDAs using canonical seeds
+    // Derive PDAs using canonical seeds with mint
     let (pool_pda, treasury, roots_ring_pda, nullifier_shard_pda) =
-        derive_shield_pool_pdas(program_id);
+        derive_shield_pool_pdas(program_id, mint);
     // Use recipient as fee payer by default (unsigned; caller can replace/sign appropriately)
     let fee_payer = recipient;
 
@@ -611,6 +619,7 @@ mod tests {
     fn test_legacy_builder_derives_pdas_and_accounts_order() {
         // Program id and PDAs
         let program_id = Pubkey::new_unique();
+        let mint = Pubkey::default(); // Native SOL for test
 
         // Minimal fake SP1 proof bundle
         let bundle = vec![0xABu8; 1506];
@@ -627,6 +636,7 @@ mod tests {
         let blockhash = solana_sdk::hash::Hash::new_unique();
         let tx = build_withdraw_instruction_legacy(
             &program_id,
+            &mint,
             &bundle,
             &public_inputs,
             &outputs,
@@ -647,7 +657,7 @@ mod tests {
 
         // Resolve accounts by index and verify order
         let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
-            derive_shield_pool_pdas(&program_id);
+            derive_shield_pool_pdas(&program_id, &mint);
         let resolve = |ix: u8| msg.account_keys[ix as usize];
         assert_eq!(resolve(ci.accounts[0]), exp_pool);
         assert_eq!(resolve(ci.accounts[1]), exp_treasury);

@@ -29,7 +29,7 @@ pub struct SolanaConfig {
     pub rpc_url: String,
     pub shield_pool_program_id: String,
     pub admin_keypair: Option<Vec<u8>>,
-    pub roots_ring_address: String,
+    pub mint_address: String, // Token mint address (empty = native SOL)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +91,7 @@ impl Config {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://127.0.0.1:8899"),
                 shield_pool_program_id: get_env_var("SHIELD_POOL_PROGRAM_ID", ""),
                 admin_keypair: get_admin_keypair_from_env(),
-                roots_ring_address: get_env_var("ROOTS_RING_ADDRESS", "GNVDHdhhr9qgqtispqVXU2CWFAXkp9Wo7cE7adYTdcs5"),
+                mint_address: get_env_var("MINT_ADDRESS", ""), // Empty = native SOL
             },
             server: ServerConfig {
                 port: get_env_var_as_number("PORT", 3001)?,

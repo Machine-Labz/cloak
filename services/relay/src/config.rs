@@ -34,6 +34,9 @@ pub struct SolanaConfig {
     // Relay queries on-chain for available claims from independent miners
     pub scramble_registry_program_id: Option<String>,
 
+    // Token mint address (empty = native SOL)
+    pub mint_address: Option<String>,
+
     // Shield Pool Account Addresses (optional - if not set, will calculate PDAs)
     pub pool_address: Option<String>,
     pub treasury_address: Option<String>,

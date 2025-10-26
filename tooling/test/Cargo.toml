@@ -7,6 +7,10 @@ edition.workspace = true
 name = "prove-test"
 path = "src/prove_test.rs"
 
+[[bin]]
+name = "prove-test-spl"
+path = "src/prove_test_spl.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
@@ -29,3 +33,4 @@ cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = 
 bincode = "1"
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
 solana-system-interface = "2.0.0"
+spl-token = "4.0"

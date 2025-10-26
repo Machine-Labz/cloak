@@ -51,13 +51,13 @@ pub struct MerkleProof {
     pub path_indices: Vec<u8>,
 }
 
-/// Get PDA addresses for Shield Pool program
-pub fn get_pda_addresses(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
-    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
-    let (commitments_pda, _) = Pubkey::find_program_address(&[b"commitments"], program_id);
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
-    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
+/// Get PDA addresses for Shield Pool program with mint support
+pub fn get_pda_addresses(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], program_id);
+    let (commitments_pda, _) = Pubkey::find_program_address(&[b"commitments", mint.as_ref()], program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], program_id);
+    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], program_id);
+    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury", mint.as_ref()], program_id);
     (
         pool_pda,
         commitments_pda,
@@ -65,6 +65,11 @@ pub fn get_pda_addresses(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey
         nullifier_shard_pda,
         treasury_pda,
     )
+}
+
+/// Get PDA addresses for native SOL (backward compatibility)
+pub fn get_pda_addresses_sol(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
+    get_pda_addresses(program_id, &Pubkey::default())
 }
 
 /// Create deposit instruction
