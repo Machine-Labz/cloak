@@ -1,7 +1,11 @@
 -- Initial schema for relay service
 
 -- Job status enum
-CREATE TYPE job_status AS ENUM ('queued', 'processing', 'completed', 'failed', 'cancelled');
+DO $$ BEGIN
+    CREATE TYPE job_status AS ENUM ('queued', 'processing', 'completed', 'failed', 'cancelled');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Jobs table for withdraw requests
 CREATE TABLE IF NOT EXISTS jobs (
