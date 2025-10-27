@@ -199,22 +199,37 @@ async fn main() -> Result<()> {
     println!("\n✅ Step 10: Validating Proof Artifacts...");
     validate_proof_artifacts(&prove_result)?;
 
+    // Capture miner balance BEFORE withdrawal
+    let miner_balance_before_withdraw = client.get_balance(&miner_keypair.pubkey())?;
+
     // Execute withdraw via relay
     println!("\n💸 Step 11: Executing Withdraw Transaction via Relay...");
     let withdraw_signature =
         execute_withdraw_via_relay(&prove_result, &test_data, &recipient_keypair).await?;
 
-    // Verify miner reward
+    // Verify miner reward (wait for RPC to update balance)
     println!("\n⛏️  Verifying Miner Reward...");
-    let miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
-    let miner_reward = miner_balance_after.saturating_sub(miner_balance);
+    
+    // Poll for balance update with retries (RPC lag)
+    let mut miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
+    let mut attempts = 0;
+    const MAX_RETRIES: u32 = 5;
+    
+    while miner_balance_after == miner_balance_before_withdraw && attempts < MAX_RETRIES {
+        attempts += 1;
+        println!("   ⏳ Waiting for balance to update (attempt {}/{})...", attempts, MAX_RETRIES);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
+    }
+    
+    let miner_reward = miner_balance_after.saturating_sub(miner_balance_before_withdraw);
 
     println!(
-        "   📊 Miner balance before: {} SOL",
-        miner_balance / SOL_TO_LAMPORTS
+        "   📊 Miner balance before withdrawal: {} SOL",
+        miner_balance_before_withdraw / SOL_TO_LAMPORTS
     );
     println!(
-        "   📊 Miner balance after: {} SOL",
+        "   📊 Miner balance after withdrawal: {} SOL",
         miner_balance_after / SOL_TO_LAMPORTS
     );
 
@@ -269,11 +284,11 @@ async fn main() -> Result<()> {
     println!("\n⛏️  Miner Reward Summary:");
     println!("   - Miner address: {}", miner_keypair.pubkey());
     println!(
-        "   - Balance before: {} SOL",
-        miner_balance / SOL_TO_LAMPORTS
+        "   - Balance before withdrawal: {} SOL",
+        miner_balance_before_withdraw / SOL_TO_LAMPORTS
     );
     println!(
-        "   - Balance after: {} SOL",
+        "   - Balance after withdrawal: {} SOL",
         miner_balance_after / SOL_TO_LAMPORTS
     );
     if miner_reward > 0 {
@@ -393,6 +408,7 @@ async fn reset_relay_database() -> Result<()> {
     println!("   🔄 Resetting relay database...");
 
     // Use docker exec to run SQL command in the postgres container
+    // Use DO block to handle case where tables might not exist
     let truncate_cmd = std::process::Command::new("docker")
         .args(&[
             "exec",
@@ -403,7 +419,7 @@ async fn reset_relay_database() -> Result<()> {
             "-d",
             "cloak_relay",
             "-c",
-            "TRUNCATE TABLE jobs, nullifiers CASCADE;",
+            "DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'jobs') THEN TRUNCATE TABLE jobs CASCADE; END IF; IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'nullifiers') THEN TRUNCATE TABLE nullifiers CASCADE; END IF; END $$;",
         ])
         .output();
 
@@ -414,7 +430,13 @@ async fn reset_relay_database() -> Result<()> {
                 Ok(())
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("   ⚠️  Failed to reset relay database: {}", stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Check if error is just that tables don't exist
+                if stderr.contains("does not exist") || stderr.contains("relation") || stdout.contains("does not exist") {
+                    println!("   ℹ️  Relay tables don't exist yet (will be created on first use)");
+                } else if !stderr.is_empty() {
+                    println!("   ⚠️  Failed to reset relay database: {}", stderr);
+                }
                 // Don't fail the test if we can't reset
                 Ok(())
             }
@@ -659,15 +681,15 @@ fn validate_circuit_constraints_local(
     let mut current_hash = commitment.as_bytes().to_vec();
     let root_hex = public_inputs["root"].as_str().unwrap();
 
-    for (sibling_hex, &is_left) in path_elements.iter().zip(path_indices.iter()) {
+    for (sibling_hex, &is_left_child) in path_elements.iter().zip(path_indices.iter()) {
         let sibling = hex::decode(sibling_hex)?;
         let mut hasher = Hasher::new();
-        if is_left == 0 {
-            // Current is left, sibling is right
+        if is_left_child == 0 {
+            // Current value is left child, sibling is right
             hasher.update(&current_hash);
             hasher.update(&sibling);
         } else {
-            // Current is right, sibling is left
+            // Current value is right child, sibling is left
             hasher.update(&sibling);
             hasher.update(&current_hash);
         }

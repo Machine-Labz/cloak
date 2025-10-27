@@ -47,7 +47,9 @@ pub const SOL_TO_LAMPORTS: u64 = 1_000_000_000;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MerkleProof {
+    #[serde(rename = "pathElements")]
     pub path_elements: Vec<String>,
+    #[serde(rename = "pathIndices")]
     pub path_indices: Vec<u8>,
 }
 
@@ -153,8 +155,26 @@ pub fn create_withdraw_instruction(
 
 /// Load keypair from file
 pub fn load_keypair(path: &str) -> Result<Keypair> {
-    let keypair_data = std::fs::read(path)?;
-    let keypair = Keypair::try_from(&keypair_data[..])?;
+    let keypair_data = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair file '{}': {}", path, e))?;
+    
+    if keypair_data.is_empty() {
+        return Err(anyhow::anyhow!("Keypair file '{}' is empty", path));
+    }
+    
+    // Try to parse as JSON array first (Solana CLI format)
+    if let Ok(json_bytes) = serde_json::from_slice::<Vec<u8>>(&keypair_data) {
+        if json_bytes.len() == 64 {
+            let keypair = Keypair::try_from(&json_bytes[..])
+                .map_err(|e| anyhow::anyhow!("Failed to parse keypair from JSON array in '{}': {}", path, e))?;
+            return Ok(keypair);
+        }
+    }
+    
+    // Fallback to raw bytes (other formats)
+    let keypair = Keypair::try_from(&keypair_data[..])
+        .map_err(|e| anyhow::anyhow!("Failed to parse keypair from '{}': {}. File size: {} bytes", path, e, keypair_data.len()))?;
+    
     Ok(keypair)
 }
 

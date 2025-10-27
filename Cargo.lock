@@ -2364,6 +2364,7 @@ dependencies = [
  "config 0.13.4",
  "ctrlc",
  "dotenvy",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "shellexpand",
