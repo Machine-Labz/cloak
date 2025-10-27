@@ -9,9 +9,32 @@ use solana_sdk::{
 };
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
+use spl_token;
 
 use super::Output;
 use crate::error::Error;
+
+// Manual implementation of associated token account derivation
+// This avoids dependency conflicts with spl-associated-token-account
+fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
+    // Associated Token Account Program ID
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+    
+    // Token Program ID
+    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    
+    // Find the associated token account address
+    let (ata, _) = Pubkey::find_program_address(
+        &[
+            wallet.as_ref(),
+            TOKEN_PROGRAM_ID.as_ref(),
+            mint.as_ref(),
+        ],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    
+    ata
+}
 
 const PUBLIC_INPUTS_LEN: usize = 104;
 const DUPLICATE_NULLIFIER_LEN: usize = 32;
@@ -85,7 +108,26 @@ pub fn build_withdraw_ix_body_with_pow(
     Ok(data)
 }
 
-/// Build an Instruction for shield-pool::Withdraw with discriminant = 2 (legacy, no PoW)
+/// Build an Instruction for shield-pool::Withdraw with discriminant = 2
+///
+/// Accounts layout for native SOL:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+///
+/// Accounts layout for SPL tokens:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+/// 6. token_program (readonly)
+/// 7. pool_token_account (writable)
+/// 8. recipient_token_account (writable)
 pub fn build_withdraw_instruction(
     program_id: Pubkey,
     body: &[u8],
@@ -94,12 +136,15 @@ pub fn build_withdraw_instruction(
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
     recipient: Pubkey,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_account: Option<Pubkey>,
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + body.len());
     data.push(2u8); // ShieldPoolInstruction::Withdraw
     data.extend_from_slice(body);
 
-    let accounts = vec![
+    let mut accounts = vec![
         AccountMeta::new(pool_pda, false),                // pool (writable)
         AccountMeta::new(treasury, false),                // treasury (writable)
         AccountMeta::new_readonly(roots_ring_pda, false), // roots ring (readonly)
@@ -107,6 +152,13 @@ pub fn build_withdraw_instruction(
         AccountMeta::new(recipient, false),               // recipient (writable)
         AccountMeta::new_readonly(system_program::id(), false),
     ];
+
+    // Add SPL token accounts if mint is provided
+    if let (Some(_mint), Some(pool_token), Some(recipient_token)) = (mint, pool_token_account, recipient_token_account) {
+        accounts.push(AccountMeta::new_readonly(spl_token::id(), false)); // token_program (readonly)
+        accounts.push(AccountMeta::new(pool_token, false)); // pool_token_account (writable)
+        accounts.push(AccountMeta::new(recipient_token, false)); // recipient_token_account (writable)
+    }
 
     Instruction {
         program_id,
@@ -117,19 +169,40 @@ pub fn build_withdraw_instruction(
 
 /// Build an Instruction for shield-pool::Withdraw with PoW accounts (discriminant = 2)
 ///
-/// Accounts layout:
+/// Accounts layout for native SOL:
 /// 0. pool_pda (writable)
 /// 1. treasury (writable)
 /// 2. roots_ring_pda (readonly)
 /// 3. nullifier_shard_pda (writable)
 /// 4. recipient (writable)
 /// 5. system_program (readonly)
-/// 6. scramble_registry_program (readonly) - NEW
-/// 7. claim_pda (writable) - NEW
-/// 8. miner_pda (writable) - NEW
-/// 9. registry_pda (writable) - NEW
-/// 10. clock_sysvar (readonly) - NEW
-/// 11. miner_authority (writable) - NEW (receives fee share)
+/// 6. scramble_registry_program (readonly)
+/// 7. claim_pda (writable)
+/// 8. miner_pda (writable)
+/// 9. registry_pda (writable)
+/// 10. clock_sysvar (readonly)
+/// 11. miner_authority (writable)
+/// 12. shield_pool_program (readonly)
+///
+/// Accounts layout for SPL tokens:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+/// 6. scramble_registry_program (readonly)
+/// 7. claim_pda (writable)
+/// 8. miner_pda (writable)
+/// 9. registry_pda (writable)
+/// 10. clock_sysvar (readonly)
+/// 11. miner_authority (writable)
+/// 12. shield_pool_program (readonly)
+/// 13. token_program (readonly)
+/// 14. pool_token_account (writable)
+/// 15. recipient_token_account (writable)
+/// 16. treasury_token_account (writable)
+/// 17. miner_token_account (writable)
 pub fn build_withdraw_instruction_with_pow(
     program_id: Pubkey,
     body: &[u8],
@@ -143,6 +216,11 @@ pub fn build_withdraw_instruction_with_pow(
     miner_pda: Pubkey,
     registry_pda: Pubkey,
     miner_authority: Pubkey,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_account: Option<Pubkey>,
+    treasury_token_account: Option<Pubkey>,
+    miner_token_account: Option<Pubkey>,
 ) -> Instruction {
     use solana_sdk::sysvar;
 
@@ -150,7 +228,7 @@ pub fn build_withdraw_instruction_with_pow(
     data.push(2u8); // ShieldPoolInstruction::Withdraw
     data.extend_from_slice(body);
 
-    let accounts = vec![
+    let mut accounts = vec![
         // Standard withdraw accounts
         AccountMeta::new(pool_pda, false),
         AccountMeta::new(treasury, false),
@@ -167,6 +245,16 @@ pub fn build_withdraw_instruction_with_pow(
         AccountMeta::new(miner_authority, false), // Receives scrambler fee share
         AccountMeta::new_readonly(program_id, false), // Shield-pool program ID (for CPI signer)
     ];
+
+    // Add SPL token accounts if mint is provided
+    if let (Some(_mint), Some(pool_token), Some(recipient_token), Some(treasury_token), Some(miner_token)) = 
+        (mint, pool_token_account, recipient_token_account, treasury_token_account, miner_token_account) {
+        accounts.push(AccountMeta::new_readonly(spl_token::id(), false)); // token_program (readonly)
+        accounts.push(AccountMeta::new(pool_token, false)); // pool_token_account (writable)
+        accounts.push(AccountMeta::new(recipient_token, false)); // recipient_token_account (writable)
+        accounts.push(AccountMeta::new(treasury_token, false)); // treasury_token_account (writable)
+        accounts.push(AccountMeta::new(miner_token, false)); // miner_token_account (writable)
+    }
 
     Instruction {
         program_id,
@@ -246,6 +334,9 @@ pub fn build_withdraw_transaction(
     fee_payer: Pubkey,
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_account: Option<Pubkey>,
 ) -> Result<Transaction, Error> {
     let body = build_withdraw_ix_body(
         proof_bytes.as_slice(),
@@ -261,6 +352,9 @@ pub fn build_withdraw_transaction(
         roots_ring_pda,
         nullifier_shard_pda,
         recipient,
+        mint,
+        pool_token_account,
+        recipient_token_account,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -296,6 +390,11 @@ pub fn build_withdraw_transaction_with_pow(
     fee_payer: Pubkey,
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_account: Option<Pubkey>,
+    treasury_token_account: Option<Pubkey>,
+    miner_token_account: Option<Pubkey>,
 ) -> Result<Transaction, Error> {
     let body = build_withdraw_ix_body_with_pow(
         proof_bytes.as_slice(),
@@ -317,6 +416,11 @@ pub fn build_withdraw_transaction_with_pow(
         miner_pda,
         registry_pda,
         miner_authority,
+        mint,
+        pool_token_account,
+        recipient_token_account,
+        treasury_token_account,
+        miner_token_account,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -548,6 +652,24 @@ pub fn build_withdraw_instruction_legacy(
     let mut recipient_addr_32 = [0u8; RECIPIENT_ADDR_LEN];
     recipient_addr_32.copy_from_slice(recipient.as_ref());
 
+    // Derive token accounts if mint is not native SOL
+    let (pool_token_account, recipient_token_account) = 
+        if *mint != Pubkey::default() {
+            // Derive token accounts for SPL tokens
+            let pool_token_account = get_associated_token_address(
+                &pool_pda,
+                mint,
+            );
+            let recipient_token_account = get_associated_token_address(
+                &recipient,
+                mint,
+            );
+            
+            (Some(pool_token_account), Some(recipient_token_account))
+        } else {
+            (None, None)
+        };
+
     build_withdraw_transaction(
         proof_bytes.to_vec(),
         public_104_arr,
@@ -562,6 +684,9 @@ pub fn build_withdraw_instruction_legacy(
         fee_payer,
         recent_blockhash,
         1_000, // default priority fee (micro-lamports per CU)
+        Some(*mint),
+        pool_token_account,
+        recipient_token_account,
     )
 }
 

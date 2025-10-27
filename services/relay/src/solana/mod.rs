@@ -21,6 +21,28 @@ use crate::claim_manager::{compute_batch_hash, ClaimFinder};
 use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
+
+// Manual implementation of associated token account derivation
+// This avoids dependency conflicts with spl-associated-token-account
+fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
+    // Associated Token Account Program ID
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+    
+    // Token Program ID
+    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    
+    // Find the associated token account address
+    let (ata, _) = Pubkey::find_program_address(
+        &[
+            wallet.as_ref(),
+            TOKEN_PROGRAM_ID.as_ref(),
+            mint.as_ref(),
+        ],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    
+    ata
+}
 // Removed external TransactionResult dependency; we return Signature to callers.
 
 #[async_trait]
@@ -282,6 +304,32 @@ impl SolanaService {
                             )
                         })?;
 
+                    // Derive token accounts if mint is not native SOL
+                    let (pool_token_account, recipient_token_account, treasury_token_account, miner_token_account) = 
+                        if mint != Pubkey::default() {
+                            // Derive token accounts for SPL tokens
+                            let pool_token_account = get_associated_token_address(
+                                &pool_pda,
+                                &mint,
+                            );
+                            let recipient_token_account = get_associated_token_address(
+                                &recipient_pubkey,
+                                &mint,
+                            );
+                            let treasury_token_account = get_associated_token_address(
+                                &treasury_pda,
+                                &mint,
+                            );
+                            let miner_token_account = get_associated_token_address(
+                                &claim.miner_authority,
+                                &mint,
+                            );
+                            
+                            (Some(pool_token_account), Some(recipient_token_account), Some(treasury_token_account), Some(miner_token_account))
+                        } else {
+                            (None, None, None, None)
+                        };
+
                     // Build PoW-enabled transaction
                     transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
@@ -303,6 +351,11 @@ impl SolanaService {
                         fee_payer_pubkey,
                         recent_blockhash,
                         priority_micro_lamports,
+                        Some(mint),
+                        pool_token_account,
+                        recipient_token_account,
+                        treasury_token_account,
+                        miner_token_account,
                     )?
                 }
                 Ok(None) => {
@@ -330,6 +383,24 @@ impl SolanaService {
             // Legacy path (no PoW)
             debug!("PoW disabled: using legacy transaction builder");
 
+                // Derive token accounts if mint is not native SOL
+                let (pool_token_account, recipient_token_account) = 
+                    if mint != Pubkey::default() {
+                        // Derive token accounts for SPL tokens
+                        let pool_token_account = get_associated_token_address(
+                            &pool_pda,
+                            &mint,
+                        );
+                        let recipient_token_account = get_associated_token_address(
+                            &recipient_pubkey,
+                            &mint,
+                        );
+                        
+                        (Some(pool_token_account), Some(recipient_token_account))
+                    } else {
+                        (None, None)
+                    };
+
             transaction_builder::build_withdraw_transaction(
                 proof_bytes.clone(),
                 public_104,
@@ -344,6 +415,9 @@ impl SolanaService {
                 fee_payer_pubkey,
                 recent_blockhash,
                 priority_micro_lamports,
+                Some(mint),
+                pool_token_account,
+                recipient_token_account,
             )?
         };
 

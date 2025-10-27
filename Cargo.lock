@@ -7245,6 +7245,7 @@ dependencies = [
  "serde_json",
  "solana-client",
  "solana-sdk",
+ "spl-token 4.0.2",
  "sqlx 0.6.3",
  "tempfile",
  "thiserror 1.0.69",
