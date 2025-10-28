@@ -9,13 +9,19 @@ use serde_json;
 use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::system_instruction;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
+use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+    signature::Keypair,
+    signer::Signer,
+    transaction::Transaction,
+};
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
-    check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
-    SOL_TO_LAMPORTS,
+    check_cluster_health, create_withdraw_instruction, ensure_user_funding, load_keypair,
+    print_config, MerkleProof, TestConfig, SOL_TO_LAMPORTS,
 };
 use tokio::time::timeout;
 use zk_guest_sp1_host::{
@@ -106,6 +112,9 @@ async fn main() -> Result<()> {
     // Ensure user has sufficient SOL
     ensure_user_funding(&config.rpc_url, &user_keypair, &admin_keypair)?;
 
+    // Ensure miner has sufficient SOL
+    ensure_user_funding(&config.rpc_url, &miner_keypair, &admin_keypair)?;
+
     // Verify miner is running and has claims available
     println!("\n⛏️  Verifying Miner Status...");
     verify_miner_status(&client, &miner_keypair).await?;
@@ -182,12 +191,13 @@ async fn main() -> Result<()> {
 
     // Prepare proof inputs
     println!("\n🔐 Step 8: Preparing Proof Inputs...");
-    let (private_inputs, public_inputs, outputs) = prepare_proof_inputs(
+    let (private_inputs, public_inputs, outputs, output_details) = prepare_proof_inputs(
         &test_data,
         &merkle_proof,
         &merkle_root,
         leaf_index,
         &recipient_keypair,
+        &miner_keypair,
     )?;
 
     // Generate proof locally or via TEE
@@ -199,51 +209,75 @@ async fn main() -> Result<()> {
     println!("\n✅ Step 10: Validating Proof Artifacts...");
     validate_proof_artifacts(&prove_result)?;
 
-    // Capture miner balance BEFORE withdrawal
-    let miner_balance_before_withdraw = client.get_balance(&miner_keypair.pubkey())?;
+    // Execute withdraw directly on Solana
+    println!("\n💸 Step 11: Executing Withdraw Transaction On-Chain...");
+    let withdraw_signature = execute_withdraw_direct(
+        &client,
+        &program_id,
+        &accounts,
+        &prove_result,
+        &output_details,
+        &user_keypair,
+    )?;
 
-    // Execute withdraw via relay
-    println!("\n💸 Step 11: Executing Withdraw Transaction via Relay...");
-    let withdraw_signature =
-        execute_withdraw_via_relay(&prove_result, &test_data, &recipient_keypair).await?;
+    println!("   ✅ Withdraw transaction submitted: {}", withdraw_signature);
 
-    // Verify miner reward (wait for RPC to update balance)
-    println!("\n⛏️  Verifying Miner Reward...");
+    // Verify recipient balances
+    let recipient_balance_after = client.get_balance(&recipient_keypair.pubkey())?;
+    let miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
+    let recipient_delta = recipient_balance_after.saturating_sub(recipient_balance);
+    let miner_delta = miner_balance_after.saturating_sub(miner_balance);
 
-    // Poll for balance update with retries (RPC lag)
-    let mut miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
-    let mut attempts = 0;
-    const MAX_RETRIES: u32 = 5;
-
-    while miner_balance_after == miner_balance_before_withdraw && attempts < MAX_RETRIES {
-        attempts += 1;
-        println!(
-            "   ⏳ Waiting for balance to update (attempt {}/{})...",
-            attempts, MAX_RETRIES
-        );
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        miner_balance_after = client.get_balance(&miner_keypair.pubkey())?;
-    }
-
-    let miner_reward = miner_balance_after.saturating_sub(miner_balance_before_withdraw);
+    let recipient_expected = output_details
+        .iter()
+        .find(|(pk, _)| *pk == recipient_keypair.pubkey())
+        .map(|(_, amount)| *amount)
+        .unwrap_or(0);
+    let miner_expected = output_details
+        .iter()
+        .find(|(pk, _)| *pk == miner_keypair.pubkey())
+        .map(|(_, amount)| *amount)
+        .unwrap_or(0);
 
     println!(
-        "   📊 Miner balance before withdrawal: {} SOL",
-        miner_balance_before_withdraw / SOL_TO_LAMPORTS
+        "\n📊 Recipient balance before: {} SOL",
+        recipient_balance / SOL_TO_LAMPORTS
     );
     println!(
-        "   📊 Miner balance after withdrawal: {} SOL",
+        "   📊 Recipient balance after: {} SOL",
+        recipient_balance_after / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   📊 Recipient delta: {} lamports (expected {})",
+        recipient_delta,
+        recipient_expected
+    );
+
+    println!(
+        "\n📊 Second recipient (miner) before: {} SOL",
+        miner_balance / SOL_TO_LAMPORTS
+    );
+    println!(
+        "   📊 Second recipient (miner) after: {} SOL",
         miner_balance_after / SOL_TO_LAMPORTS
     );
+    println!(
+        "   📊 Second recipient delta: {} lamports (expected {})",
+        miner_delta,
+        miner_expected
+    );
 
-    if miner_reward > 0 {
+    if recipient_delta != recipient_expected {
         println!(
-            "   ✅ Miner received reward: {} lamports ({} SOL)",
-            miner_reward,
-            miner_reward as f64 / SOL_TO_LAMPORTS as f64
+            "   ⚠️  Recipient amount mismatch! expected {} got {}",
+            recipient_expected, recipient_delta
         );
-    } else {
-        println!("   ⚠️  No miner reward detected (balance unchanged)");
+    }
+    if miner_delta != miner_expected {
+        println!(
+            "   ⚠️  Second recipient amount mismatch! expected {} got {}",
+            miner_expected, miner_delta
+        );
     }
 
     let total_time = start_time.elapsed();
@@ -284,26 +318,22 @@ async fn main() -> Result<()> {
         println!("   - Total syscalls: {}", syscalls);
     }
 
-    println!("\n⛏️  Miner Reward Summary:");
-    println!("   - Miner address: {}", miner_keypair.pubkey());
-    println!(
-        "   - Balance before withdrawal: {} SOL",
-        miner_balance_before_withdraw / SOL_TO_LAMPORTS
-    );
-    println!(
-        "   - Balance after withdrawal: {} SOL",
-        miner_balance_after / SOL_TO_LAMPORTS
-    );
-    if miner_reward > 0 {
+    println!("\n💸 Outputs Summary:");
+    for (index, (pk, amount)) in output_details.iter().enumerate() {
+        let delta = if *pk == recipient_keypair.pubkey() {
+            recipient_delta
+        } else if *pk == miner_keypair.pubkey() {
+            miner_delta
+        } else {
+            0
+        };
         println!(
-            "   - Reward received: {} lamports ({} SOL)",
-            miner_reward,
-            miner_reward as f64 / SOL_TO_LAMPORTS as f64
+            "   - Output #{} -> {}: {} lamports (delta {})",
+            index,
+            pk,
+            amount,
+            delta
         );
-        println!("   - PoW claim consumption: ✅ Successful");
-    } else {
-        println!("   - Reward received: 0 lamports");
-        println!("   - PoW claim consumption: ⚠️  No reward detected");
     }
 
     // Print full execution report if available
@@ -411,7 +441,6 @@ async fn reset_relay_database() -> Result<()> {
     println!("   🔄 Resetting relay database...");
 
     // Use docker exec to run SQL command in the postgres container
-    // Use DO block to handle case where tables might not exist
     let truncate_cmd = std::process::Command::new("docker")
         .args(&[
             "exec",
@@ -422,7 +451,7 @@ async fn reset_relay_database() -> Result<()> {
             "-d",
             "cloak",
             "-c",
-            "DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'jobs') THEN TRUNCATE TABLE jobs CASCADE; END IF; IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'nullifiers') THEN TRUNCATE TABLE nullifiers CASCADE; END IF; END $$;",
+            "TRUNCATE TABLE jobs, nullifiers CASCADE;",
         ])
         .output();
 
@@ -433,16 +462,7 @@ async fn reset_relay_database() -> Result<()> {
                 Ok(())
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // Check if error is just that tables don't exist
-                if stderr.contains("does not exist")
-                    || stderr.contains("relation")
-                    || stdout.contains("does not exist")
-                {
-                    println!("   ℹ️  Relay tables don't exist yet (will be created on first use)");
-                } else if !stderr.is_empty() {
-                    println!("   ⚠️  Failed to reset relay database: {}", stderr);
-                }
+                println!("   ⚠️  Failed to reset relay database: {}", stderr);
                 // Don't fail the test if we can't reset
                 Ok(())
             }
@@ -551,7 +571,8 @@ fn prepare_proof_inputs(
     merkle_root: &str,
     leaf_index: u32,
     recipient_keypair: &Keypair,
-) -> Result<(String, String, String)> {
+    miner_keypair: &Keypair,
+) -> Result<(String, String, String, Vec<(Pubkey, u64)>)> {
     use blake3::Hasher;
 
     println!("   🔐 Preparing proof inputs...");
@@ -582,30 +603,43 @@ fn prepare_proof_inputs(
         let variable_fee = (test_data.amount * 5) / 1_000; // 0.5%
         fixed_fee + variable_fee
     };
-    let recipient_amount = test_data.amount - fee;
+    let distributable_amount = test_data.amount - fee;
 
     println!("   - Amount: {} lamports", test_data.amount);
     println!("   - Fee: {} lamports", fee);
-    println!("   - Recipient amount: {} lamports", recipient_amount);
+    println!("   - Distributable amount: {} lamports", distributable_amount);
 
-    // Use actual recipient keypair
-    let recipient_pubkey = recipient_keypair.pubkey();
-    let recipient_address_hex = hex::encode(recipient_pubkey.to_bytes());
-    println!("   - Recipient address: {}", recipient_pubkey);
-    println!("   - Recipient address (hex): {}", recipient_address_hex);
+    // Use actual recipient keypairs
+    let primary_pubkey = recipient_keypair.pubkey();
+    let secondary_pubkey = miner_keypair.pubkey();
 
-    // Create outputs
+    // Split amounts deterministically (2/3 and remainder)
+    let primary_amount = distributable_amount * 2 / 3;
+    let secondary_amount = distributable_amount - primary_amount;
+
+    println!("   - Primary recipient: {} ({} lamports)", primary_pubkey, primary_amount);
+    println!("   - Secondary recipient: {} ({} lamports)", secondary_pubkey, secondary_amount);
+
+    let outputs_details = vec![(primary_pubkey, primary_amount), (secondary_pubkey, secondary_amount)];
+
+    // Create outputs JSON structure
     let outputs = serde_json::json!([
         {
-            "address": recipient_address_hex,
-            "amount": recipient_amount
+            "address": hex::encode(primary_pubkey.to_bytes()),
+            "amount": primary_amount
+        },
+        {
+            "address": hex::encode(secondary_pubkey.to_bytes()),
+            "amount": secondary_amount
         }
     ]);
 
     // Compute outputs hash exactly like SP1 guest program
     let mut hasher = Hasher::new();
-    hasher.update(&recipient_pubkey.to_bytes());
-    hasher.update(&recipient_amount.to_le_bytes());
+    for (pk, amount) in &outputs_details {
+        hasher.update(&pk.to_bytes());
+        hasher.update(&amount.to_le_bytes());
+    }
     let outputs_hash = hasher.finalize();
     let outputs_hash_hex = hex::encode(outputs_hash.as_bytes());
     println!("   - Outputs hash: {}", outputs_hash_hex);
@@ -641,6 +675,7 @@ fn prepare_proof_inputs(
         serde_json::to_string(&private_inputs)?,
         serde_json::to_string(&public_inputs)?,
         serde_json::to_string(&outputs)?,
+        outputs_details,
     ))
 }
 
@@ -687,19 +722,27 @@ fn validate_circuit_constraints_local(
     let mut current_hash = commitment.as_bytes().to_vec();
     let root_hex = public_inputs["root"].as_str().unwrap();
 
-    for (sibling_hex, &is_left_child) in path_elements.iter().zip(path_indices.iter()) {
+    println!("         Starting hash (commitment): {}", hex::encode(&current_hash));
+    println!("         Expected root: {}", root_hex);
+    println!("         Number of path elements: {}", path_elements.len());
+
+    for (i, (sibling_hex, &is_left)) in path_elements.iter().zip(path_indices.iter()).enumerate() {
         let sibling = hex::decode(sibling_hex)?;
+        println!("         Level {}: is_left={}, sibling={}", i, is_left, sibling_hex);
         let mut hasher = Hasher::new();
-        if is_left_child == 0 {
-            // Current value is left child, sibling is right
+        if is_left == 0 {
+            // Current is left, sibling is right
+            println!("           -> hash(current || sibling)");
             hasher.update(&current_hash);
             hasher.update(&sibling);
         } else {
-            // Current value is right child, sibling is left
+            // Current is right, sibling is left
+            println!("           -> hash(sibling || current)");
             hasher.update(&sibling);
             hasher.update(&current_hash);
         }
         current_hash = hasher.finalize().as_bytes().to_vec();
+        println!("           = {}", hex::encode(&current_hash));
     }
 
     let computed_root_hex = hex::encode(&current_hash);
@@ -1191,10 +1234,13 @@ fn create_program_accounts(
 ) -> Result<ProgramAccounts> {
     use solana_sdk::transaction::Transaction;
     use test_complete_flow_rust::shared::get_pda_addresses;
+    let mint = Pubkey::new_unique();
 
     println!("   Deriving PDA addresses...");
+    // Use the exact same program ID as the program expects
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
-        get_pda_addresses(program_id);
+        get_pda_addresses(&program_id_bytes);
 
     println!("   - Pool PDA: {}", pool_pda);
     println!("   - Commitments PDA: {}", commitments_pda);
@@ -1206,17 +1252,25 @@ fn create_program_accounts(
     // We'll use a base key + seed approach to create accounts at deterministic addresses
 
     println!("   Creating accounts at PDA addresses...");
+    
+    // Debug: Print expected PDA addresses
+    println!("   Debug - Expected PDAs:");
+    println!("     Pool: {}", pool_pda);
+    println!("     Commitments: {}", commitments_pda);
+    println!("     Roots Ring: {}", roots_ring_pda);
+    println!("     Nullifier Shard: {}", nullifier_shard_pda);
+    println!("     Treasury: {}", treasury_pda);
 
     const ROOTS_RING_SIZE: usize = 2056;
     const COMMITMENTS_SIZE: usize = CommitmentQueue::SIZE;
     const NULLIFIER_SHARD_SIZE: usize = 4;
 
-    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(0)?;
+    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(32)?; // Pool now stores mint (32 bytes)
     let create_pool_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
         &pool_pda,
         pool_rent_exempt,
-        0,
+        32, // Pool now stores mint
         &program_id,
     );
 
@@ -1252,18 +1306,45 @@ fn create_program_accounts(
         &solana_sdk::system_program::id(),
     );
 
-    let mut create_accounts_tx = Transaction::new_with_payer(
-        &[
-            create_pool_ix,
-            create_commitments_ix,
-            create_roots_ring_ix,
-            create_nullifier_shard_ix,
-            create_treasury_ix,
+    // Initialize pool with mint data
+    // Ensure we use the exact same program ID as the program expects
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
+    let initialize_pool_ix = Instruction {
+        program_id: program_id_bytes,
+        accounts: vec![
+            AccountMeta::new(admin_keypair.pubkey(), true),
+            AccountMeta::new(pool_pda, false),
+            AccountMeta::new(commitments_pda, false),
+            AccountMeta::new(roots_ring_pda, false),
+            AccountMeta::new(nullifier_shard_pda, false),
+            AccountMeta::new(treasury_pda, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
         ],
+        data: {
+            let mut data = vec![3u8]; // Initialize discriminator (ShieldPoolInstruction::Initialize = 3)
+            data.extend_from_slice(&mint.to_bytes()); // Mint pubkey (32 bytes)
+            data
+        },
+    };
+    
+    // Debug: Print instruction details
+    println!("   Debug - Instruction details:");
+    println!("     Program ID: {}", program_id);
+    println!("     Admin: {}", admin_keypair.pubkey());
+    println!("     Pool: {}", pool_pda);
+    println!("     Mint: {}", mint);
+    println!("     Data length: {}", initialize_pool_ix.data.len());
+
+    // Use only the initialize instruction - the program will create the accounts
+    let mut create_accounts_tx = Transaction::new_with_payer(
+        &[initialize_pool_ix],
         Some(&admin_keypair.pubkey()),
     );
 
-    create_accounts_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
+    create_accounts_tx.sign(
+        &[&admin_keypair],
+        client.get_latest_blockhash()?,
+    );
 
     client.send_and_confirm_transaction(&create_accounts_tx)?;
 
@@ -1393,16 +1474,21 @@ fn push_root_to_program(
     }
 }
 
-/// Execute withdraw transaction via relay service
-async fn execute_withdraw_via_relay(
+fn execute_withdraw_direct(
+    client: &RpcClient,
+    program_id: &Pubkey,
+    accounts: &ProgramAccounts,
     prove_result: &ProofArtifacts,
-    test_data: &TestData,
-    recipient_keypair: &Keypair,
-) -> Result<String, anyhow::Error> {
-    println!("   💸 Executing Withdraw Transaction via Relay...");
+    outputs: &[(Pubkey, u64)],
+    fee_payer: &Keypair,
+) -> Result<String> {
+    println!(
+        "   🔧 Building withdraw instruction with {} outputs",
+        outputs.len()
+    );
 
-    // Decode hex-encoded public_inputs from the prover
-    // Format: root (32 bytes) + nf (32 bytes) + outputs_hash (32 bytes) + amount (8 bytes) = 104 bytes
+    let proof_bytes = hex::decode(&prove_result.proof_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode proof hex: {}", e))?;
     let public_inputs_bytes = hex::decode(&prove_result.public_inputs_hex)
         .map_err(|e| anyhow::anyhow!("Failed to decode public_inputs hex: {}", e))?;
 
@@ -1413,232 +1499,58 @@ async fn execute_withdraw_via_relay(
         ));
     }
 
-    // Extract individual fields from the bytes
-    let root_bytes = &public_inputs_bytes[0..32];
-    let nf_bytes = &public_inputs_bytes[32..64];
-    let outputs_hash_bytes = &public_inputs_bytes[64..96];
-    let amount_bytes = &public_inputs_bytes[96..104];
+    let mut public_inputs_array = [0u8; 104];
+    public_inputs_array.copy_from_slice(&public_inputs_bytes);
 
-    // Convert to hex strings for the relay API
-    let root_hex = hex::encode(root_bytes);
-    let nf_hex = hex::encode(nf_bytes);
-    let outputs_hash_hex = hex::encode(outputs_hash_bytes);
+    let mut nullifier = [0u8; 32];
+    nullifier.copy_from_slice(&public_inputs_array[32..64]);
 
-    // Amount is stored as little-endian u64
-    let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
+    for (index, (pk, amount)) in outputs.iter().enumerate() {
+        println!(
+            "   - Output #{} -> {} ({} lamports)",
+            index, pk, amount
+        );
+    }
 
-    println!("   ✅ Decoded public inputs:");
-    println!("      - root: {}", root_hex);
-    println!("      - nf: {}", nf_hex);
-    println!("      - outputs_hash: {}", outputs_hash_hex);
-    println!("      - amount: {} lamports", amount);
+    let recipient_accounts: Vec<Pubkey> = outputs.iter().map(|(pk, _)| *pk).collect();
 
-    // Prepare the withdraw request for the relay using current fee policy
-    let fixed_fee = 2_500_000u64;
-    let variable_fee = (test_data.amount.saturating_mul(5)) / 1_000; // 0.5%
-    let total_fee = fixed_fee.saturating_add(variable_fee);
-    let relay_recipient_amount = test_data.amount.saturating_sub(total_fee);
-    let effective_fee_bps = if test_data.amount == 0 {
-        0u16
-    } else {
-        let bps = ((total_fee.saturating_mul(10_000)) + test_data.amount - 1) / test_data.amount;
-        bps.min(u16::MAX as u64) as u16
-    };
-
-    let outputs = vec![Output {
-        recipient: recipient_keypair.pubkey().to_string(),
-        amount: relay_recipient_amount,
-    }];
-
-    let policy = Policy {
-        fee_bps: effective_fee_bps,
-    };
-
-    let public_inputs_for_relay = PublicInputs {
-        root: root_hex.to_string(),
-        nf: nf_hex.to_string(),
-        amount: test_data.amount,
-        fee_bps: effective_fee_bps,
-        outputs_hash: outputs_hash_hex.to_string(),
-    };
-
-    // Convert hex proof to base64 for relay
-    use base64::Engine as _;
-    let proof_bytes = hex::decode(&prove_result.proof_hex).unwrap();
-    let proof_base64 = base64::engine::general_purpose::STANDARD.encode(&proof_bytes);
-
-    println!("   📡 Preparing withdraw request for relay...");
-    println!("   🔍 DEBUG: Request data:");
-    println!(
-        "      - outputs[0].recipient: {}",
-        recipient_keypair.pubkey()
-    );
-    println!("      - outputs[0].amount: {}", relay_recipient_amount);
-    println!("      - policy.fee_bps: {}", effective_fee_bps);
-    println!("      - public_inputs.root: {}", root_hex);
-    println!("      - public_inputs.nf: {}", nf_hex);
-    println!("      - public_inputs.amount: {}", test_data.amount);
-    println!("      - public_inputs.fee_bps: {}", effective_fee_bps);
-    println!("      - public_inputs.outputs_hash: {}", outputs_hash_hex);
-    println!("      - proof_bytes length: {}", proof_base64.len());
-
-    let withdraw_request = WithdrawRequest {
+    let withdraw_ix = create_withdraw_instruction(
+        &accounts.pool,
+        &accounts.treasury,
+        &accounts.roots_ring,
+        &accounts.nullifier_shard,
+        &recipient_accounts,
+        program_id,
+        &proof_bytes,
+        &public_inputs_array,
+        &nullifier,
         outputs,
-        policy,
-        public_inputs: public_inputs_for_relay,
-        proof_bytes: proof_base64,
-    };
-
-    // Try to serialize the request to see if that's where the error is
-    let request_json = serde_json::to_string(&withdraw_request)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize withdraw request: {}", e))?;
-    println!(
-        "   ✅ Request JSON serialized successfully ({} bytes)",
-        request_json.len()
     );
 
-    // Send request to relay
-    let response: Result<WithdrawResponse, anyhow::Error> = {
-        let client = reqwest::Client::new();
-        let response = client
-            .post("http://localhost:3002/withdraw")
-            .json(&withdraw_request)
-            .send()
-            .await?;
+    let compute_unit_limit_ix =
+        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let compute_unit_price_ix =
+        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1_000);
 
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(anyhow::anyhow!("Relay request failed: {}", error_text));
+    println!("   🔍 Getting latest blockhash for withdraw...");
+    let blockhash = client.get_latest_blockhash()?;
+
+    let mut withdraw_tx = Transaction::new_with_payer(
+        &[compute_unit_price_ix, compute_unit_limit_ix, withdraw_ix],
+        Some(&fee_payer.pubkey()),
+    );
+    withdraw_tx.sign(&[fee_payer], blockhash);
+
+    match client.send_and_confirm_transaction(&withdraw_tx) {
+        Ok(signature) => {
+            println!("   ✅ Withdraw transaction confirmed");
+            Ok(signature.to_string())
         }
-
-        let response_text = response.text().await?;
-        println!("   📡 Relay response: {}", response_text);
-        println!("   🔍 Response length: {} bytes", response_text.len());
-        println!(
-            "   🔍 First 100 chars: {:?}",
-            &response_text.chars().take(100).collect::<String>()
-        );
-
-        let withdraw_response: WithdrawResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to parse relay response: {}\nResponse: {}",
-                    e,
-                    response_text
-                )
-            })?;
-        Ok(withdraw_response)
-    };
-
-    let response = response?;
-
-    println!("   ✅ Withdraw request queued successfully!");
-    println!("   📝 Request ID: {}", response.data.request_id);
-    println!("   📝 Status: {}", response.data.status);
-
-    // Poll for job completion
-    println!("   ⏳ Waiting for job to be processed...");
-    let client = reqwest::Client::new();
-    let mut attempts = 0;
-    let max_attempts = 60; // 5 minutes max
-
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        attempts += 1;
-
-        if attempts > max_attempts {
-            return Err(anyhow::anyhow!(
-                "Job processing timeout after {} attempts",
-                max_attempts
-            ));
-        }
-
-        println!(
-            "   🔍 Checking job status (attempt {}/{})...",
-            attempts, max_attempts
-        );
-
-        // Check job status using the status endpoint
-        let status_response = client
-            .get(&format!(
-                "http://localhost:3002/status/{}",
-                response.data.request_id
-            ))
-            .send()
-            .await?;
-
-        if status_response.status().is_success() {
-            let api_response: serde_json::Value = status_response.json().await?;
-            let job_status = &api_response["data"];
-            let status = job_status["status"].as_str().unwrap_or("unknown");
-
-            println!("   📊 Job status: {}", status);
-
-            match status {
-                "completed" => {
-                    let signature = job_status["tx_id"]
-                        .as_str()
-                        .ok_or_else(|| anyhow::anyhow!("No signature in completed job"))?;
-                    println!("   ✅ Job completed successfully!");
-                    println!("   📝 Transaction signature: {}", signature);
-                    return Ok(signature.to_string());
-                }
-                "failed" => {
-                    let error = job_status["error"].as_str().unwrap_or("Unknown error");
-                    return Err(anyhow::anyhow!("Job failed: {}", error));
-                }
-                "processing" | "queued" => {
-                    // Continue waiting
-                    continue;
-                }
-                _ => {
-                    return Err(anyhow::anyhow!("Unknown job status: {}", status));
-                }
-            }
-        } else {
-            println!("   ⚠️  Could not check job status, continuing to wait...");
+        Err(e) => {
+            println!("   ❌ Withdraw transaction failed: {}", e);
+            Err(anyhow::anyhow!("Withdraw transaction failed: {}", e))
         }
     }
-}
-
-// Relay API types
-#[derive(Debug, Serialize)]
-struct WithdrawRequest {
-    outputs: Vec<Output>,
-    policy: Policy,
-    public_inputs: PublicInputs,
-    proof_bytes: String,
-}
-
-#[derive(Debug, Serialize)]
-struct Output {
-    recipient: String,
-    amount: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct Policy {
-    fee_bps: u16,
-}
-
-#[derive(Debug, Serialize)]
-struct PublicInputs {
-    root: String,
-    nf: String,
-    amount: u64,
-    fee_bps: u16,
-    outputs_hash: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WithdrawResponse {
-    data: WithdrawData,
-}
-
-#[derive(Debug, Deserialize)]
-struct WithdrawData {
-    request_id: String,
-    status: String,
 }
 
 async fn verify_miner_status(client: &RpcClient, miner_keypair: &Keypair) -> Result<()> {

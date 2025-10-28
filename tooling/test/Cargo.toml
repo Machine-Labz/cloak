@@ -8,8 +8,8 @@ name = "prove-test"
 path = "src/prove_test.rs"
 
 [[bin]]
-name = "high-scale-test"
-path = "src/high_scale_test.rs"
+name = "prove-test-multiple-outputs"
+path = "src/prove_test_multiple_outputs.rs"
 
 [dependencies]
 blake3 = "1.5"
