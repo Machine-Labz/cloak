@@ -30,7 +30,6 @@ const config: Config = {
           editUrl: 'https://github.com/cloak-labz/cloak/edit/master/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
-          homePageId: 'overview/introduction',
           exclude: [
             '**/node_modules/**',
             '**/build/**',
@@ -68,7 +67,7 @@ const config: Config = {
         src: 'img/cloaklogo.svg',
       },
       items: [
-        { to: '/overview/introduction', label: 'Documentation', position: 'left' },
+        { to: '/', label: 'Home', position: 'left' },
         { href: 'https://github.com/cloak-labz/cloak', label: 'GitHub', position: 'right' },
       ],
     },
