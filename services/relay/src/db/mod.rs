@@ -10,7 +10,7 @@ pub type DatabasePool = PgPool;
 
 /// Connect to PostgreSQL database
 pub async fn connect(database_url: &str) -> Result<DatabasePool, Error> {
-    info!("Connecting to database: {}", database_url);
+    info!("Connecting to database");
 
     // Create database if it doesn't exist
     if !sqlx::Postgres::database_exists(database_url)

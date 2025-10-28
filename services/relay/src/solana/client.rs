@@ -5,7 +5,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::SolanaClient;
 use crate::config::SolanaConfig;
@@ -35,9 +35,10 @@ impl RpcSolanaClient {
                 info!("Connected to Solana RPC, version: {}", version.solana_core);
             }
             Err(e) => {
+                error!("Solana RPC connection error details: {:?}", e);
                 return Err(Error::InternalServerError(format!(
-                    "Failed to connect to Solana RPC: {}",
-                    e
+                    "Failed to connect to Solana RPC: {} - {:?}",
+                    e, e
                 )));
             }
         }

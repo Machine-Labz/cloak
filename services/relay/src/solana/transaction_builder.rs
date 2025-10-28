@@ -10,8 +10,8 @@ use solana_sdk::{
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 
-use super::Output;
 use crate::error::Error;
+use crate::planner::Output;
 
 const PUBLIC_INPUTS_LEN: usize = 104;
 const DUPLICATE_NULLIFIER_LEN: usize = 32;
@@ -20,65 +20,77 @@ const RECIPIENT_ADDR_LEN: usize = 32;
 const RECIPIENT_AMOUNT_LEN: usize = 8;
 const POW_BATCH_HASH_LEN: usize = 32;
 
-/// Build the withdraw instruction body (legacy, no PoW)
-/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8]
+/// Build the withdraw instruction body (supports 1-N outputs)
+/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][(recipient:32, amount:8)...]
 pub fn build_withdraw_ix_body(
     proof: &[u8],
     public_104: &[u8; PUBLIC_INPUTS_LEN],
-    recipient_addr_32: &[u8; RECIPIENT_ADDR_LEN],
-    recipient_amount: u64,
+    outputs: &[Output], // Vec of (address: [u8;32], amount: u64)
 ) -> Result<Vec<u8>, Error> {
     if proof.is_empty() {
         return Err(Error::ValidationError("proof must be non-empty".into()));
     }
 
+    let num_outputs = outputs.len();
+    if num_outputs == 0 || num_outputs > 10 {
+        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+    }
+
+    let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
     let expected_len = proof.len()
         + PUBLIC_INPUTS_LEN
         + DUPLICATE_NULLIFIER_LEN
         + NUM_OUTPUTS_LEN
-        + RECIPIENT_ADDR_LEN
-        + RECIPIENT_AMOUNT_LEN;
+        + (per_output_len * num_outputs);
 
     let mut data = Vec::with_capacity(expected_len);
     data.extend_from_slice(proof);
     data.extend_from_slice(public_104);
     data.extend_from_slice(&public_104[32..64]); // duplicate nullifier
-    data.push(1u8); // single output (MVP)
-    data.extend_from_slice(recipient_addr_32);
-    data.extend_from_slice(&recipient_amount.to_le_bytes());
+    data.push(num_outputs as u8); // number of outputs
+    for output in outputs {
+        data.extend_from_slice(&output.address);
+        data.extend_from_slice(&output.amount.to_le_bytes());
+    }
 
     debug_assert_eq!(data.len(), expected_len);
     Ok(data)
 }
 
 /// Build the withdraw instruction body with PoW batch hash appended
-/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][recipient:32][amount:8][batch_hash:32]
+/// Layout: [proof][public:104][nf-dup:32][num_outputs:1][(recipient:32, amount:8)...][batch_hash:32]
 pub fn build_withdraw_ix_body_with_pow(
     proof: &[u8],
     public_104: &[u8; PUBLIC_INPUTS_LEN],
-    recipient_addr_32: &[u8; RECIPIENT_ADDR_LEN],
-    recipient_amount: u64,
+    outputs: &[Output], // Vec of (address: [u8;32], amount: u64)
     batch_hash: &[u8; POW_BATCH_HASH_LEN],
 ) -> Result<Vec<u8>, Error> {
     if proof.is_empty() {
         return Err(Error::ValidationError("proof must be non-empty".into()));
     }
 
+    let num_outputs = outputs.len();
+    if num_outputs == 0 || num_outputs > 10 {
+        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+    }
+
+    let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
     let expected_len = proof.len()
         + PUBLIC_INPUTS_LEN
         + DUPLICATE_NULLIFIER_LEN
         + NUM_OUTPUTS_LEN
-        + RECIPIENT_ADDR_LEN
-        + RECIPIENT_AMOUNT_LEN
+        + (per_output_len * num_outputs)
         + POW_BATCH_HASH_LEN;
 
     let mut data = Vec::with_capacity(expected_len);
     data.extend_from_slice(proof);
     data.extend_from_slice(public_104);
     data.extend_from_slice(&public_104[32..64]);
-    data.push(1u8);
-    data.extend_from_slice(recipient_addr_32);
-    data.extend_from_slice(&recipient_amount.to_le_bytes());
+    data.push(num_outputs as u8); // number of outputs
+    for output in outputs {
+        data.extend_from_slice(&output.address);
+        data.extend_from_slice(&output.amount.to_le_bytes());
+    }
     data.extend_from_slice(batch_hash);
 
     debug_assert_eq!(data.len(), expected_len);
@@ -93,20 +105,25 @@ pub fn build_withdraw_instruction(
     treasury: Pubkey,
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
-    recipient: Pubkey,
+    recipients: &[Pubkey], // 1-N recipient accounts
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + body.len());
     data.push(2u8); // ShieldPoolInstruction::Withdraw
     data.extend_from_slice(body);
 
-    let accounts = vec![
-        AccountMeta::new(pool_pda, false),                // pool (writable)
-        AccountMeta::new(treasury, false),                // treasury (writable)
-        AccountMeta::new_readonly(roots_ring_pda, false), // roots ring (readonly)
-        AccountMeta::new(nullifier_shard_pda, false),     // nullifier shard (writable)
-        AccountMeta::new(recipient, false),               // recipient (writable)
-        AccountMeta::new_readonly(system_program::id(), false),
-    ];
+    let mut accounts = Vec::with_capacity(5 + recipients.len());
+    accounts.push(AccountMeta::new(pool_pda, false));                      // pool (writable)
+    accounts.push(AccountMeta::new(treasury, false));                      // treasury (writable)
+    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false));       // roots ring (readonly)
+    accounts.push(AccountMeta::new(nullifier_shard_pda, false));           // nullifier shard (writable)
+    
+    // Add all recipient accounts
+    for recipient in recipients {
+        accounts.push(AccountMeta::new(*recipient, false));
+    }
+    
+    // Add system program at the end
+    accounts.push(AccountMeta::new_readonly(system_program::id(), false));
 
     Instruction {
         program_id,
@@ -122,14 +139,15 @@ pub fn build_withdraw_instruction(
 /// 1. treasury (writable)
 /// 2. roots_ring_pda (readonly)
 /// 3. nullifier_shard_pda (writable)
-/// 4. recipient (writable)
-/// 5. system_program (readonly)
-/// 6. scramble_registry_program (readonly) - NEW
-/// 7. claim_pda (writable) - NEW
-/// 8. miner_pda (writable) - NEW
-/// 9. registry_pda (writable) - NEW
-/// 10. clock_sysvar (readonly) - NEW
-/// 11. miner_authority (writable) - NEW (receives fee share)
+/// 4..4+N. recipients (writable) - 1 to 10 recipient accounts
+/// 4+N. system_program (readonly)
+/// 4+N+1. scramble_registry_program (readonly) - NEW
+/// 4+N+2. claim_pda (writable) - NEW
+/// 4+N+3. miner_pda (writable) - NEW
+/// 4+N+4. registry_pda (writable) - NEW
+/// 4+N+5. clock_sysvar (readonly) - NEW
+/// 4+N+6. miner_authority (writable) - NEW (receives fee share)
+/// 4+N+7. shield_pool_program (readonly) - NEW (for CPI signer)
 pub fn build_withdraw_instruction_with_pow(
     program_id: Pubkey,
     body: &[u8],
@@ -137,7 +155,7 @@ pub fn build_withdraw_instruction_with_pow(
     treasury: Pubkey,
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
-    recipient: Pubkey,
+    recipients: &[Pubkey],
     scramble_registry_program: Pubkey,
     claim_pda: Pubkey,
     miner_pda: Pubkey,
@@ -150,23 +168,27 @@ pub fn build_withdraw_instruction_with_pow(
     data.push(2u8); // ShieldPoolInstruction::Withdraw
     data.extend_from_slice(body);
 
-    let accounts = vec![
-        // Standard withdraw accounts
-        AccountMeta::new(pool_pda, false),
-        AccountMeta::new(treasury, false),
-        AccountMeta::new_readonly(roots_ring_pda, false),
-        AccountMeta::new(nullifier_shard_pda, false),
-        AccountMeta::new(recipient, false),
-        AccountMeta::new_readonly(system_program::id(), false),
-        // PoW scrambler accounts
-        AccountMeta::new_readonly(scramble_registry_program, false),
-        AccountMeta::new(claim_pda, false),
-        AccountMeta::new(miner_pda, false),
-        AccountMeta::new(registry_pda, false),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
-        AccountMeta::new(miner_authority, false), // Receives scrambler fee share
-        AccountMeta::new_readonly(program_id, false), // Shield-pool program ID (for CPI signer)
-    ];
+    let mut accounts = Vec::with_capacity(12 + recipients.len());
+    // Standard withdraw accounts
+    accounts.push(AccountMeta::new(pool_pda, false));
+    accounts.push(AccountMeta::new(treasury, false));
+    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false));
+    accounts.push(AccountMeta::new(nullifier_shard_pda, false));
+
+    // Add all recipient accounts
+    for recipient in recipients {
+        accounts.push(AccountMeta::new(*recipient, false));
+    }
+
+    // System program and PoW accounts
+    accounts.push(AccountMeta::new_readonly(system_program::id(), false));
+    accounts.push(AccountMeta::new_readonly(scramble_registry_program, false));
+    accounts.push(AccountMeta::new(claim_pda, false));
+    accounts.push(AccountMeta::new(miner_pda, false));
+    accounts.push(AccountMeta::new(registry_pda, false));
+    accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
+    accounts.push(AccountMeta::new(miner_authority, false)); // Receives scrambler fee share
+    accounts.push(AccountMeta::new_readonly(program_id, false)); // Shield-pool program ID (for CPI signer)
 
     Instruction {
         program_id,
@@ -228,14 +250,13 @@ pub fn derive_scramble_registry_pdas(
 pub fn build_withdraw_transaction(
     proof_bytes: Vec<u8>,
     public_104: [u8; PUBLIC_INPUTS_LEN],
-    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
-    recipient_amount: u64,
+    outputs: &[Output],
     program_id: Pubkey,
     pool_pda: Pubkey,
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
     treasury: Pubkey,
-    recipient: Pubkey,
+    recipients: &[Pubkey],
     fee_payer: Pubkey,
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
@@ -243,8 +264,7 @@ pub fn build_withdraw_transaction(
     let body = build_withdraw_ix_body(
         proof_bytes.as_slice(),
         &public_104,
-        &recipient_addr_32,
-        recipient_amount,
+        outputs,
     )?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
@@ -253,7 +273,7 @@ pub fn build_withdraw_transaction(
         treasury,
         roots_ring_pda,
         nullifier_shard_pda,
-        recipient,
+        recipients,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -272,15 +292,14 @@ pub fn build_withdraw_transaction(
 pub fn build_withdraw_transaction_with_pow(
     proof_bytes: Vec<u8>,
     public_104: [u8; PUBLIC_INPUTS_LEN],
-    recipient_addr_32: [u8; RECIPIENT_ADDR_LEN],
-    recipient_amount: u64,
+    outputs: &[Output],
     batch_hash: [u8; POW_BATCH_HASH_LEN],
     program_id: Pubkey,
     pool_pda: Pubkey,
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
     treasury: Pubkey,
-    recipient: Pubkey,
+    recipients: &[Pubkey],
     scramble_registry_program: Pubkey,
     claim_pda: Pubkey,
     miner_pda: Pubkey,
@@ -293,8 +312,7 @@ pub fn build_withdraw_transaction_with_pow(
     let body = build_withdraw_ix_body_with_pow(
         proof_bytes.as_slice(),
         &public_104,
-        &recipient_addr_32,
-        recipient_amount,
+        outputs,
         &batch_hash,
     )?;
     let withdraw_ix = build_withdraw_instruction_with_pow(
@@ -304,7 +322,7 @@ pub fn build_withdraw_transaction_with_pow(
         treasury,
         roots_ring_pda,
         nullifier_shard_pda,
-        recipient,
+        recipients,
         scramble_registry_program,
         claim_pda,
         miner_pda,
@@ -514,13 +532,11 @@ pub fn build_withdraw_instruction_legacy(
             "public inputs must be 104 bytes".into(),
         ));
     }
-    if outputs.len() != 1 {
+    if outputs.is_empty() || outputs.len() > 10 {
         return Err(Error::ValidationError(
-            "exactly 1 output required in MVP".into(),
+            "number of outputs must be between 1 and 10".into(),
         ));
     }
-    let out = &outputs[0];
-    let recipient = out.to_pubkey()?;
 
     if proof_bytes.is_empty() {
         return Err(Error::ValidationError(
@@ -531,26 +547,29 @@ pub fn build_withdraw_instruction_legacy(
     // Derive PDAs using canonical seeds
     let (pool_pda, treasury, roots_ring_pda, nullifier_shard_pda) =
         derive_shield_pool_pdas(program_id);
-    // Use recipient as fee payer by default (unsigned; caller can replace/sign appropriately)
-    let fee_payer = recipient;
+
+    // Convert outputs to recipient pubkeys
+    let recipients: Vec<Pubkey> = outputs
+        .iter()
+        .map(|o| Pubkey::new_from_array(o.address))
+        .collect();
+
+    // Use first recipient as fee payer by default (unsigned; caller can replace/sign appropriately)
+    let fee_payer = recipients[0];
 
     let mut public_104_arr = [0u8; PUBLIC_INPUTS_LEN];
     public_104_arr.copy_from_slice(public_inputs_104);
 
-    let mut recipient_addr_32 = [0u8; RECIPIENT_ADDR_LEN];
-    recipient_addr_32.copy_from_slice(recipient.as_ref());
-
     build_withdraw_transaction(
         proof_bytes.to_vec(),
         public_104_arr,
-        recipient_addr_32,
-        out.amount,
+        outputs,
         *program_id,
         pool_pda,
         roots_ring_pda,
         nullifier_shard_pda,
         treasury,
-        recipient,
+        &recipients,
         fee_payer,
         recent_blockhash,
         1_000, // default priority fee (micro-lamports per CU)
@@ -576,8 +595,12 @@ mod tests {
 
         let recip = [0x44u8; RECIPIENT_ADDR_LEN];
         let out_amt: u64 = 123_456u64;
+        let outputs = vec![Output {
+            address: recip,
+            amount: out_amt,
+        }];
         let body =
-            build_withdraw_ix_body(proof.as_slice(), &public, &recip, out_amt).expect("body");
+            build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
         let expected_len = PROOF_LEN
             + PUBLIC_INPUTS_LEN
             + DUPLICATE_NULLIFIER_LEN
@@ -618,9 +641,10 @@ mod tests {
         // Public inputs 104 bytes (zeros are acceptable for building)
         let public_inputs = vec![0u8; 104];
 
-        // Single output as required (recipient base58 example)
-        let outputs = vec![super::Output {
-            recipient: "11111111111111111111111111111112".to_string(),
+        // Single output as required
+        let recipient_pubkey = Pubkey::new_unique();
+        let outputs = vec![Output {
+            address: recipient_pubkey.to_bytes(),
             amount: 1_000_000,
         }];
 

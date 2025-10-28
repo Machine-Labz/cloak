@@ -152,15 +152,28 @@ impl SolanaService {
     ) -> Result<Transaction, Error> {
         let recent_blockhash = self.client.get_latest_blockhash().await?;
 
-        // Enforce MVP single output
-        if outputs.len() != 1 {
+        // Validate outputs (1-10 allowed)
+        if outputs.len() == 0 || outputs.len() > 10 {
             return Err(Error::ValidationError(
-                "exactly 1 output required in MVP".into(),
+                "Number of outputs must be between 1 and 10".into(),
             ));
         }
+        
+        // Convert API Output to planner Output
+        use crate::planner::Output as PlannerOutput;
+        let planner_outputs: Result<Vec<PlannerOutput>, Error> = outputs.iter()
+            .map(|o| {
+                let pubkey = o.to_pubkey()?;
+                Ok(PlannerOutput {
+                    address: pubkey.to_bytes(),
+                    amount: o.amount,
+                })
+            })
+            .collect();
+        let planner_outputs = planner_outputs?;
+        
+        // Get first recipient for fee payer fallback
         let recipient_pubkey = outputs[0].to_pubkey()?;
-        let recipient_amount = outputs[0].amount;
-        let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
 
         if job.proof_bytes.is_empty() {
             return Err(Error::ValidationError(
@@ -270,19 +283,26 @@ impl SolanaService {
                             )
                         })?;
 
+                    // Extract recipient pubkeys for accounts
+                    let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
+                        .iter()
+                        .map(|o| Pubkey::new_from_array(o.address))
+                        .map(Ok)
+                        .collect();
+                    let recipient_pubkeys = recipient_pubkeys?;
+
                     // Build PoW-enabled transaction
                     transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
                         public_104,
-                        recipient_addr_32,
-                        recipient_amount,
+                        &planner_outputs,
                         batch_hash,
                         self.program_id,
                         pool_pda,
                         roots_ring_pda,
                         nullifier_shard_pda,
                         treasury_pda,
-                        recipient_pubkey,
+                        &recipient_pubkeys,
                         scramble_registry_program_id,
                         claim.claim_pda,
                         claim.miner_pda,
@@ -318,17 +338,24 @@ impl SolanaService {
             // Legacy path (no PoW)
             debug!("PoW disabled: using legacy transaction builder");
 
+            // Extract recipient pubkeys for accounts
+            let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
+                .iter()
+                .map(|o| Pubkey::new_from_array(o.address))
+                .map(Ok)
+                .collect();
+            let recipient_pubkeys = recipient_pubkeys?;
+
             transaction_builder::build_withdraw_transaction(
                 proof_bytes.clone(),
                 public_104,
-                recipient_addr_32,
-                recipient_amount,
+                &planner_outputs,
                 self.program_id,
                 pool_pda,
                 roots_ring_pda,
                 nullifier_shard_pda,
                 treasury_pda,
-                recipient_pubkey,
+                &recipient_pubkeys,
                 fee_payer_pubkey,
                 recent_blockhash,
                 priority_micro_lamports,
