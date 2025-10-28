@@ -60,7 +60,7 @@ ENV CARGO_TARGET_DIR=/tmp/target
 # Clean any stale build artifacts that might cause "File exists" errors
 RUN rm -rf /tmp/target/release/build/sp1-* || true
 # Build with a single job to avoid parallel build race conditions in SP1
-RUN cargo build --release -p indexer -j 1
+RUN cargo build --release -p indexer -j 4
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime
@@ -95,9 +95,6 @@ WORKDIR /app
 
 # Copy the built binary from builder stage
 COPY --from=builder --chown=indexer:indexer /tmp/target/release/indexer /app/indexer
-
-# Copy config files
-COPY --chown=indexer:indexer services/indexer/init.sql /app/init.sql
 
 # Switch to non-root user
 USER indexer
