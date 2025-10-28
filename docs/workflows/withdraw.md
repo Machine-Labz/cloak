@@ -402,7 +402,7 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove \
 # 🔑 Generating proving key (this may take 1-2 minutes)...
 # ✅ Proving key generated
 # 📝 Preparing circuit inputs...
-# 🔨 Generating Groth16 proof (this may take 10-15 minutes)...
+# 🔨 Generating Groth16 proof (this may take ~2 minutes)...
 # 📊 Total cycles: 1,234,567
 # ✅ Proof generated!
 # 💾 Saving proof to disk...
@@ -412,8 +412,8 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove \
 ```
 
 **Proof Time:**
-- Local CPU: 10-15 minutes
-- SP1 Network (TEE): 2-5 minutes
+- Local CPU: ~2 minutes (120 seconds)
+- SP1 Network (TEE): ~30-45 seconds
 
 ### Network Proving (TEE)
 
@@ -430,7 +430,7 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove \
   --proof out/proof.bin \
   --pubout out/public.bin
 
-# Proof generation: 2-5 minutes via TEE
+# Proof generation: ~30-45 seconds via TEE
 ```
 
 ### Programmatic Proving
@@ -801,7 +801,7 @@ async function withdrawFromShieldPool(
 
   // 3. Generate proof
   console.log('🔨 Step 3: Generating ZK proof...');
-  console.log('⏳ This may take 10-15 minutes locally, or 2-5 minutes with SP1 network');
+  console.log('⏳ This may take ~2 minutes locally, or ~30-45 seconds with SP1 network');
 
   const proofResult = await generateProof(privateInputs, publicInputs, recipients);
 
