@@ -96,8 +96,8 @@ fn main() -> Result<()> {
     let reveal_window = 10u64;
     init_data.extend_from_slice(&reveal_window.to_le_bytes());
 
-    // Claim window (10_000 slots ~ 2 hours)
-    let claim_window = 10_000u64;
+    // Claim window (10 slots ~ 2 seconds for testing)
+    let claim_window = 10u64;
     init_data.extend_from_slice(&claim_window.to_le_bytes());
 
     // Max k (max jobs per claim)

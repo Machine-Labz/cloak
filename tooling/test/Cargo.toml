@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "prove-test"
-path = "src/prove_test.rs"
-
-[[bin]]
 name = "prove-test-spl"
 path = "src/prove_test_spl.rs"
+
+[[bin]]
+name = "prove-test-multiple-outputs"
+path = "src/prove_test_multiple_outputs.rs"
 
 [dependencies]
 blake3 = "1.5"
@@ -34,3 +34,4 @@ bincode = "1"
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
 solana-system-interface = "2.0.0"
 spl-token = "4.0"
+num_cpus = "1.0"

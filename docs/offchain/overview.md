@@ -143,12 +143,12 @@ The relay interacts with Solana via RPC:
 
 ### PostgreSQL
 
-**Indexer Database (`cloak_indexer`):**
+**Indexer Database (`cloak`):**
 - `merkle_nodes` - Tree structure and hashes
 - `encrypted_outputs` - User note discovery data
 - Schema: `services/indexer/migrations/001_initial_schema.sql`
 
-**Relay Database (`cloak_relay`):**
+**Relay Database (`cloak`):**
 - `jobs` - Withdraw job state and metadata
 - `nullifiers` - Pre-commit nullifier tracking
 - Schema: `services/relay/migrations/001_init.sql`

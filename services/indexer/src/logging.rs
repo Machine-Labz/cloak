@@ -43,7 +43,7 @@ fn init_logging_standard(config: &Config) -> anyhow::Result<()> {
     let level = parse_level(&config.server.log_level);
     let level_str = level_to_str(level);
 
-    let fallback_directives = format!("indexer={level},cloak_indexer={level}", level = level_str);
+    let fallback_directives = format!("indexer={level},cloak={level}", level = level_str);
 
     let combined_directives = match std::env::var("RUST_LOG") {
         Ok(existing) if !existing.trim().is_empty() => {
@@ -106,7 +106,7 @@ fn level_to_str(level: LevelFilter) -> &'static str {
 fn has_indexer_directive(value: &str) -> bool {
     value.split(',').any(|directive| {
         let directive = directive.trim();
-        directive.starts_with("indexer") || directive.starts_with("cloak_indexer")
+        directive.starts_with("indexer") || directive.starts_with("cloak")
     })
 }
 
@@ -212,9 +212,6 @@ pub fn log_startup_info(config: &Config) {
         port = config.server.port,
         environment = config.server.node_env,
         tree_height = config.merkle.tree_height,
-        database_host = config.database.host,
-        database_port = config.database.port,
-        database_name = config.database.name,
         solana_rpc = config.solana.rpc_url,
         "Cloak Indexer starting up"
     );

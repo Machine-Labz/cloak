@@ -283,7 +283,7 @@ pub async fn init_logging_with_cloudwatch(
             // Fall back to console-only logging, excluding AWS SDK debug logs
             let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
                 format!(
-                    "{},indexer={},cloak_indexer={},sqlx=warn",
+                    "{},indexer={},cloak={},sqlx=warn",
                     log_level, log_level, log_level
                 )
             });
@@ -301,7 +301,8 @@ pub async fn init_logging_with_cloudwatch(
                         .with_timer(SystemTime::default())
                         .with_span_events(FmtSpan::CLOSE),
                 )
-                .init();
+                .try_init()
+                .map_err(|e| anyhow::anyhow!("Failed to initialize fallback logging: {}", e))?;
             return Ok(());
         }
     }
@@ -320,7 +321,7 @@ pub async fn init_logging_with_cloudwatch(
     // Create env filter with log level and common directives, excluding AWS SDK debug logs
     let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
         format!(
-            "{},indexer={},cloak_indexer={},sqlx=warn",
+            "{},indexer={},cloak={},sqlx=warn",
             log_level, log_level, log_level
         )
     });
@@ -342,7 +343,8 @@ pub async fn init_logging_with_cloudwatch(
                 .with_span_events(FmtSpan::CLOSE),
         )
         .with(CloudWatchLayer::new(tx))
-        .init();
+        .try_init()
+        .map_err(|e| anyhow::anyhow!("Failed to initialize CloudWatch logging: {}", e))?;
 
     tracing::info!(
         stream = %log_stream_name,

@@ -136,7 +136,7 @@ Copy `env.example` to `.env` and adjust the following:
 ```env
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=cloak_indexer
+DB_NAME=cloak
 DB_USER=cloak
 DB_PASSWORD=secret
 PORT=3001
@@ -273,7 +273,7 @@ cp env.example .env
 # Edit .env with your configuration
 # DB_HOST=localhost
 # DB_PORT=5434
-# DB_NAME=cloak_indexer
+# DB_NAME=cloak
 # ...
 
 # Run the service
@@ -409,7 +409,7 @@ Error: Failed to connect to database
 **Solutions:**
 - Verify PostgreSQL is running: `docker compose ps`
 - Check connection string in `.env`
-- Ensure database exists: `psql -U cloak -d cloak_indexer`
+- Ensure database exists: `psql -U cloak -d cloak`
 - Check firewall/network settings
 
 ### Migration Failures

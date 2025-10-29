@@ -319,7 +319,7 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove \
 # 🔑 Generating proving key (this may take 1-2 minutes)...
 # ✅ Proving key generated
 # 📝 Preparing circuit inputs...
-# 🔨 Generating Groth16 proof (this may take 10-15 minutes)...
+# 🔨 Generating Groth16 proof (this may take ~2 minutes)...
 # 📊 Total cycles: 1,234,567
 # ✅ Proof generated!
 # 💾 Saving proof to disk...
@@ -383,8 +383,8 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove \
 - All values in little-endian byte order
 
 **Performance:**
-- Proof generation: 10-15 minutes (local prover)
-- Proof generation: 2-5 minutes (SP1 network TEE)
+- Proof generation: ~2 minutes (local prover)
+- Proof generation: ~30-45 seconds (SP1 network TEE)
 - Cycle count: ~1-2M cycles (varies by Merkle depth)
 - Memory: ~4 GB RAM recommended
 
@@ -655,7 +655,7 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove ...
 ```
 
 **Characteristics:**
-- Proof generation: 10-15 minutes
+- Proof generation: ~2 minutes
 - Memory: ~4 GB RAM
 - CPU-intensive (100% core utilization)
 - Free (no network costs)
@@ -679,7 +679,7 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove ...
 ```
 
 **Characteristics:**
-- Proof generation: 2-5 minutes
+- Proof generation: ~30-45 seconds
 - No local resource requirements
 - Network costs apply (check SP1 pricing)
 - Requires internet connection
@@ -717,9 +717,9 @@ cargo run --package zk-guest-sp1-host --bin cloak-zk -- prove ...
 
 | Merkle Depth | Cycles | Proof Time (Local) | Proof Time (Network) |
 |--------------|--------|--------------------|---------------------|
-| 10 levels    | ~800K  | 8 minutes          | 2 minutes           |
-| 20 levels    | ~1.2M  | 12 minutes         | 3 minutes           |
-| 32 levels    | ~1.8M  | 15 minutes         | 5 minutes           |
+| 10 levels    | ~800K  | ~90 seconds        | ~25 seconds         |
+| 20 levels    | ~1.2M  | ~120 seconds       | ~35 seconds         |
+| 32 levels    | ~1.8M  | ~180 seconds       | ~45 seconds         |
 
 **Cycle Breakdown:**
 
@@ -741,7 +741,7 @@ The majority of cycles are spent on:
 - Maximum: 10 outputs supported
 
 **3. Use SP1 Network for Production:**
-- 3-5x faster than local proving
+- ~2.5x faster than local proving
 - Offloads computation from user devices
 - Better UX for end users
 
@@ -763,7 +763,7 @@ cargo prove build
 **Local Prover:**
 - Minimum: 2 GB RAM
 - Recommended: 4 GB RAM
-- Optimal: 8 GB+ RAM (for faster proving)
+- Optimal: 8 GB+ RAM (for faster proving, typically completes in ~2 minutes)
 
 **Guest Program:**
 - Stack: ~512 KB

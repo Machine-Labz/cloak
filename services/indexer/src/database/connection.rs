@@ -14,10 +14,6 @@ impl Database {
         let database_url = config.database_url();
 
         tracing::info!(
-            host = config.database.host,
-            port = config.database.port,
-            database = config.database.name,
-            max_connections = config.database.max_connections,
             "Connecting to database"
         );
 
@@ -38,9 +34,7 @@ impl Database {
         .map_err(|_| {
             tracing::error!("Database connection timeout after {:?}", connection_timeout);
             tracing::error!(
-                "Make sure PostgreSQL is running on {}:{}",
-                config.database.host,
-                config.database.port
+                "Make sure PostgreSQL is running",
             );
             IndexerError::internal("Database connection timeout")
         })?
@@ -50,7 +44,7 @@ impl Database {
             tracing::error!("  1. PostgreSQL is not running");
             tracing::error!("  2. Wrong host/port");
             tracing::error!("  3. Wrong username/password");
-            tracing::error!("  4. Database '{}' does not exist", config.database.name);
+            tracing::error!("  4. Database does not exist");
             IndexerError::Database(e)
         })?;
 

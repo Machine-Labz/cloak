@@ -38,10 +38,18 @@ fn compute_batch_hash(job_id: &str) -> [u8; 32] {
 pub struct ClaimState {
     pub pda: Pubkey,
     pub batch_hash: [u8; 32],
+    pub slot: u64,  // Add slot for unique key
     pub revealed_at_slot: u64,
     pub expires_at_slot: u64,
     pub consumed_count: u16,
     pub max_consumes: u16,
+}
+
+/// Unique key for claim tracking (batch_hash + slot for wildcards)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ClaimKey {
+    batch_hash: [u8; 32],
+    slot: u64,
 }
 
 /// Claim manager
@@ -54,8 +62,8 @@ pub struct ClaimManager {
     program_id: Pubkey,
     /// Mining timeout
     mining_timeout: Duration,
-    /// Active claims (batch_hash -> ClaimState)
-    active_claims: HashMap<Vec<u8>, ClaimState>,
+    /// Active claims ((batch_hash, slot) -> ClaimState)
+    active_claims: HashMap<ClaimKey, ClaimState>,
 }
 
 impl ClaimManager {
@@ -122,8 +130,8 @@ impl ClaimManager {
         &mut self,
         batch_hash: [u8; 32],
     ) -> Result<(Pubkey, super::engine::MiningSolution)> {
-        // Check if we have a usable claim
-        if let Some(state) = self.active_claims.get(&batch_hash.to_vec()) {
+        // Check if we have a usable claim (search by batch_hash)
+        if let Some((key, state)) = self.active_claims.iter().find(|(k, _)| k.batch_hash == batch_hash) {
             if self.is_claim_usable(state).await? {
                 tracing::debug!(
                     "Using existing claim: {} ({}/{} consumed)",
@@ -138,10 +146,11 @@ impl ClaimManager {
                     attempts: 0,
                     mining_time: std::time::Duration::from_secs(0),
                 };
-                return Ok((state.pda, dummy_solution));
+                return Ok((state.pda.clone(), dummy_solution));
             } else {
                 tracing::info!("Existing claim expired or fully consumed, mining new one");
-                self.active_claims.remove(&batch_hash.to_vec());
+                let key_to_remove = key.clone();
+                self.active_claims.remove(&key_to_remove);
             }
         }
 
@@ -241,17 +250,19 @@ impl ClaimManager {
         let current_slot = get_current_slot(&self.rpc_client)?;
         let expires_at_slot = current_slot + registry.claim_window;
 
-        // 6. Track claim
+        // 6. Track claim with unique key (batch_hash + slot)
         let claim_state = ClaimState {
             pda: claim_pda,
             batch_hash,
+            slot,
             revealed_at_slot: current_slot,
             expires_at_slot,
             consumed_count: 0,
             max_consumes,
         };
 
-        self.active_claims.insert(batch_hash.to_vec(), claim_state);
+        let key = ClaimKey { batch_hash, slot };
+        self.active_claims.insert(key, claim_state);
 
         tracing::info!(
             "Claim ready: {} (expires at slot {})",
@@ -291,43 +302,70 @@ impl ClaimManager {
         Ok(true)
     }
 
-    /// Get the number of active claims
-    pub fn get_active_claims_count(&self) -> usize {
-        self.active_claims.len()
+    /// Get the number of active claims (checks validity)
+    pub async fn get_active_claims_count(&mut self) -> Result<usize> {
+        // Clean up expired/consumed claims first
+        let current_slot = get_current_slot(&self.rpc_client)?;
+        
+        self.active_claims.retain(|_, state| {
+            let not_expired = current_slot <= state.expires_at_slot;
+            let not_fully_consumed = state.consumed_count < state.max_consumes;
+            not_expired && not_fully_consumed
+        });
+        
+        Ok(self.active_claims.len())
     }
 
     /// Check if we have a usable claim for the given batch_hash
     ///
     /// Returns true if a claim exists and is still valid
     pub fn has_usable_claim(&self, batch_hash: &[u8; 32]) -> bool {
-        if let Some(state) = self.active_claims.get(&batch_hash.to_vec()) {
-            // Simple check without async slot fetch
-            // This is a quick check; actual usability is verified in is_claim_usable
-            state.consumed_count < state.max_consumes
-        } else {
-            false
-        }
+        // Search for any claim with matching batch_hash
+        self.active_claims.iter()
+            .any(|(k, state)| k.batch_hash == *batch_hash && state.consumed_count < state.max_consumes)
     }
 
     /// Record that a claim was consumed
     ///
     /// Called after successful withdraw to track claim usage.
     pub fn record_consume(&mut self, batch_hash: &[u8; 32]) {
-        if let Some(state) = self.active_claims.get_mut(&batch_hash.to_vec()) {
-            state.consumed_count += 1;
-            tracing::debug!(
-                "Claim {} consumed: {}/{}",
-                state.pda,
-                state.consumed_count,
-                state.max_consumes
-            );
+        // Find the claim key by searching for matching batch_hash
+        if let Some(key) = self.active_claims.keys()
+            .find(|k| k.batch_hash == *batch_hash)
+            .cloned()
+        {
+            if let Some(state) = self.active_claims.get_mut(&key) {
+                state.consumed_count += 1;
+                tracing::debug!(
+                    "Claim {} consumed: {}/{}",
+                    state.pda,
+                    state.consumed_count,
+                    state.max_consumes
+                );
 
-            // Remove if fully consumed
-            if state.consumed_count >= state.max_consumes {
-                tracing::info!("Claim {} fully consumed, removing from cache", state.pda);
-                self.active_claims.remove(&batch_hash.to_vec());
+                // Remove if fully consumed
+                if state.consumed_count >= state.max_consumes {
+                    tracing::info!("Claim {} fully consumed, removing from cache", state.pda);
+                    self.active_claims.remove(&key);
+                }
             }
         }
+    }
+
+    /// Clean up expired claims
+    ///
+    /// Removes claims that have expired or are fully consumed
+    pub async fn cleanup_expired_claims(&mut self) -> Result<usize> {
+        let current_slot = get_current_slot(&self.rpc_client)?;
+        let before = self.active_claims.len();
+        
+        self.active_claims.retain(|_, state| {
+            let not_expired = current_slot <= state.expires_at_slot;
+            let not_fully_consumed = state.consumed_count < state.max_consumes;
+            not_expired && not_fully_consumed
+        });
+        
+        Ok(before - self.active_claims.len())
     }
 
     /// Get miner public key
@@ -353,6 +391,7 @@ mod tests {
         let state = ClaimState {
             pda,
             batch_hash,
+            slot: 1000,
             revealed_at_slot: 1000,
             expires_at_slot: 1300,
             consumed_count: 0,

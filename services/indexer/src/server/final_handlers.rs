@@ -63,13 +63,13 @@ pub async fn api_info() -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Merkle tree indexer for Cloak privacy protocol",
         "endpoints": endpoints,
-        "documentation": "https://docs.cloak.network/indexer",
+        "documentation": "https://docs.cloaklabz.xyz/offchain/indexer",
         "deprecated_endpoints": {
             "prove": {
                 "endpoint": "/api/v1/prove",
                 "reason": "Server-side proof generation will be removed. Use client-side proof generation instead.",
                 "sunset_date": "2025-06-01",
-                "migration_guide": "https://docs.cloak.network/architecture/proving"
+                "migration_guide": "https://docs.cloaklabz.xyz/offchain/indexer"
             }
         },
         "timestamp": chrono::Utc::now()

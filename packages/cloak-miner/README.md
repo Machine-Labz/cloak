@@ -280,6 +280,35 @@ Fund your keypair with more SOL:
 solana airdrop 1 <YOUR_PUBKEY> --url devnet
 ```
 
+## Demand-Gated Mining
+
+Cloak Miner now implements **demand-gated mining** to prevent wasteful claim production.
+
+### How It Works
+
+The miner automatically checks the relay backend for pending withdrawal requests before mining:
+- **Mines actively** when withdrawals are pending
+- **Mines for buffer** when active claims < 2 (maintains minimum liquidity)
+- **Holds off** when no demand and buffer is sufficient (saves fees)
+
+### Configuration
+
+```bash
+# Default: uses http://localhost:3002
+cloak-miner --keypair ./miner.json mine
+
+# Custom relay URL
+export RELAY_URL=http://your-relay:3002
+cloak-miner --keypair ./miner.json mine
+```
+
+### Benefits
+
+- **Reduced Waste**: No mining when there's no demand
+- **Better Economics**: Lower transaction fees from wasted claims
+- **Responsive**: Mines reactively when users need withdrawals
+- **Fail-Safe**: Works even if relay is unreachable (maintains backward compatibility)
+
 ## Comparison to Ore
 
 | Feature | Ore | Cloak Miner |
@@ -290,12 +319,14 @@ solana airdrop 1 <YOUR_PUBKEY> --url devnet
 | Revenue | Token rewards | Fee distribution |
 | Anti-precomp | Recent hash | SlotHash sysvar |
 | Claim lifecycle | N/A | Mine → Reveal → Consume |
+| **Demand-gating** | ❌ No | ✅ **Yes** |
 
 ## Roadmap
 
 - [ ] Claim enumeration and status tracking
 - [ ] Fee distribution mechanism
 - [ ] Pool mining support
+- [x] **Demand-gated mining** ✅
 - [ ] Multi-threaded mining engine
 - [ ] GPU acceleration
 - [ ] Difficulty estimation and profitability calculator

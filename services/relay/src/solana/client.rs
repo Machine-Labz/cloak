@@ -5,7 +5,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::SolanaClient;
 use crate::config::SolanaConfig;
@@ -35,9 +35,10 @@ impl RpcSolanaClient {
                 info!("Connected to Solana RPC, version: {}", version.solana_core);
             }
             Err(e) => {
+                error!("Solana RPC connection error details: {:?}", e);
                 return Err(Error::InternalServerError(format!(
-                    "Failed to connect to Solana RPC: {}",
-                    e
+                    "Failed to connect to Solana RPC: {} - {:?}",
+                    e, e
                 )));
             }
         }
@@ -59,7 +60,6 @@ impl SolanaClient for RpcSolanaClient {
         &self,
         transaction: &Transaction,
     ) -> Result<Signature, Error> {
-        debug!("Sending transaction to Solana");
 
         // First send the transaction
         let signature = self
@@ -68,7 +68,6 @@ impl SolanaClient for RpcSolanaClient {
             .await
             .map_err(|e| Error::InternalServerError(e.to_string()))?;
 
-        debug!("Transaction sent: {}, waiting for confirmation", signature);
 
         // Then confirm it with retries
         let mut retries = 0;
@@ -86,7 +85,6 @@ impl SolanaClient for RpcSolanaClient {
                 .await
             {
                 Ok(_) => {
-                    debug!("Transaction confirmed: {}", signature);
                     return Ok(signature);
                 }
                 Err(e) => {
@@ -136,7 +134,6 @@ mod tests {
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
             withdraw_authority: None,
-            withdraw_keypair_path: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
             max_retries: 3,
@@ -154,7 +151,6 @@ mod tests {
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
             withdraw_authority: None,
-            withdraw_keypair_path: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
             max_retries: 3,
@@ -172,7 +168,6 @@ mod tests {
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
             withdraw_authority: None,
-            withdraw_keypair_path: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
             max_retries: 3,

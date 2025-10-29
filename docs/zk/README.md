@@ -310,7 +310,7 @@ fn main() {
 **TEE Proving:**
 - Remote proving services
 - Hardware acceleration
-- Reduced generation time (2-5 minutes)
+- Reduced generation time (~30-45 seconds)
 
 **On-Chain Optimization:**
 - Efficient verification key storage

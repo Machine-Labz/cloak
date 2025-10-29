@@ -1,6 +1,7 @@
 ---
 title: Introduction to Cloak
 description: High-level overview of the Cloak privacy-preserving exit router on Solana and its core building blocks.
+slug: /
 ---
 
 # What is Cloak?

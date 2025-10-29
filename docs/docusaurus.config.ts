@@ -25,7 +25,7 @@ const config: Config = {
       {
         docs: {
           path: './',
-          routeBasePath: 'docs',
+          routeBasePath: '/',
           sidebarPath: require.resolve('./sidebars.ts'),
           editUrl: 'https://github.com/cloak-labz/cloak/edit/master/docs',
           showLastUpdateAuthor: true,
@@ -55,6 +55,11 @@ const config: Config = {
     ],
   ],
   themeConfig: {
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: true,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       // title: 'Cloak Docs',
       logo: {
@@ -62,7 +67,7 @@ const config: Config = {
         src: 'img/cloaklogo.svg',
       },
       items: [
-        { to: '/docs/overview/introduction', label: 'Documentation', position: 'left' },
+        { to: '/', label: 'Home', position: 'left' },
         { href: 'https://github.com/cloak-labz/cloak', label: 'GitHub', position: 'right' },
       ],
     },
@@ -73,14 +78,14 @@ const config: Config = {
           title: 'Project',
           items: [
             { label: 'Repository', href: 'https://github.com/cloak-labz/cloak' },
-            { label: 'Roadmap', to: '/docs/roadmap' },
+            { label: 'Roadmap', to: '/roadmap' },
           ],
         },
         {
           title: 'Resources',
           items: [
-            { label: 'Architecture', to: '/docs/overview/system-architecture' },
-            { label: 'Zero-Knowledge', to: '/docs/zk/' },
+            { label: 'Architecture', to: '/overview/system-architecture' },
+            { label: 'Zero-Knowledge', to: '/zk/' },
           ],
         },
       ],

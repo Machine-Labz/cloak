@@ -16,7 +16,7 @@ fn create_deprecation_headers() -> HeaderMap {
     headers.insert(
         "Link",
         HeaderValue::from_static(
-            "<https://docs.cloak.network/architecture/proving>; rel=\"deprecation\"",
+            "<https://docs.cloaklabz.xyz/zk>; rel=\"deprecation\"",
         ),
     );
     headers
@@ -65,7 +65,7 @@ pub async fn generate_proof(
 ) -> Response {
     // Log deprecation warning
     tracing::warn!("⚠️ DEPRECATED: /api/v1/prove endpoint called. This endpoint is deprecated and will be removed in a future version.");
-    tracing::warn!("📋 Migration: Generate SP1 proofs client-side and submit to relay. See: https://docs.cloak.network/architecture/proving");
+    tracing::warn!("📋 Migration: Generate SP1 proofs client-side and submit to relay. See: https://docs.cloaklabz.xyz/zk");
 
     tracing::info!("🔐 Received proof generation request");
     tracing::info!(

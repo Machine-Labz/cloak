@@ -44,7 +44,7 @@ impl AppState {
         // Database connection
         let database_url = relay_config.database.url.clone();
 
-        let db_pool = db::connect(&database_url).await?;
+        let db_pool = db::connect(&database_url, relay_config.database.max_connections).await?;
         db::run_migrations(&db_pool).await?;
 
         // Create repositories
@@ -148,6 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_check))
         .route("/withdraw", post(api::withdraw::handle_withdraw))
         .route("/status/:id", get(api::status::get_status))
+        // Miners API - backlog status
+        .route("/backlog", get(api::backlog::get_backlog_status))
         // Validator Agent API
         .route(
             "/jobs/withdraw",

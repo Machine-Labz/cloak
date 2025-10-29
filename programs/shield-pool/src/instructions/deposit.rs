@@ -1,7 +1,6 @@
 use crate::{error::ShieldPoolError, state::{CommitmentQueue, Pool}};
 use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
-
-use pinocchio_system::instructions::Transfer as SystemTransfer;
+use pinocchio_system::instructions::Transfer;
 use pinocchio_token::instructions::Transfer as TokenTransfer;
 
 #[inline(always)]
@@ -88,7 +87,7 @@ fn process_native_deposit(
 
     commitment_queue.append(commit_bytes)?;
 
-    SystemTransfer {
+    Transfer {
         from: user,
         to: pool,
         lamports: amount,

@@ -18,7 +18,6 @@ pub async fn get_status(
     Path(request_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, Error> {
     info!("Status endpoint called for request: {}", request_id);
-    debug!("Getting status for request: {}", request_id);
 
     // Look up job by request ID
     info!("Querying database for job with request_id: {}", request_id);

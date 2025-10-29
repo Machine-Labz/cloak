@@ -7,7 +7,7 @@ use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signature, Signer},
+    signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
 #[cfg(feature = "jito")]
@@ -21,29 +21,41 @@ use crate::claim_manager::{compute_batch_hash, ClaimFinder};
 use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
+use serde_json;
 
 // Manual implementation of associated token account derivation
 // This avoids dependency conflicts with spl-associated-token-account
 fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
     // Associated Token Account Program ID
-    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-    
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
     // Token Program ID
-    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-    
+    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    );
+
     // Find the associated token account address
     let (ata, _) = Pubkey::find_program_address(
-        &[
-            wallet.as_ref(),
-            TOKEN_PROGRAM_ID.as_ref(),
-            mint.as_ref(),
-        ],
+        &[wallet.as_ref(), TOKEN_PROGRAM_ID.as_ref(), mint.as_ref()],
         &ASSOCIATED_TOKEN_PROGRAM_ID,
     );
-    
+
     ata
 }
+
 // Removed external TransactionResult dependency; we return Signature to callers.
+
+// Helper function to parse keypair from environment variable
+// Supports both JSON array format [66,197,...] and base58 string format
+fn parse_keypair_from_env(keypair_str: &str) -> Result<Keypair, Error> {
+    let bytes: Vec<u8> = serde_json::from_str(keypair_str).map_err(|e| {
+        Error::ValidationError(format!("Failed to parse keypair JSON array: {}", e))
+    })?;
+    Ok(Keypair::try_from(bytes.as_slice()).map_err(|e| {
+        Error::ValidationError(format!("Failed to create keypair from bytes: {}", e))
+    })?)
+}
 
 #[async_trait]
 pub trait SolanaClient: Send + Sync {
@@ -72,14 +84,8 @@ impl SolanaService {
         let client = Box::new(client::RpcSolanaClient::new(&config).await?);
 
         // Optionally load fee payer keypair
-        let fee_payer = if let Some(ref path) = config.withdraw_keypair_path {
-            match read_keypair_file(path) {
-                Ok(kp) => Some(kp),
-                Err(e) => {
-                    warn!("Failed to read withdraw keypair from {}: {}", path, e);
-                    None
-                }
-            }
+        let fee_payer = if let Some(ref authority) = config.withdraw_authority {
+            Some(parse_keypair_from_env(authority)?)
         } else {
             None
         };
@@ -89,7 +95,7 @@ impl SolanaService {
             program_id,
             config,
             fee_payer,
-            claim_finder: None, // Will be set later
+            claim_finder: None,
         })
     }
 
@@ -174,15 +180,34 @@ impl SolanaService {
     ) -> Result<Transaction, Error> {
         let recent_blockhash = self.client.get_latest_blockhash().await?;
 
-        // Enforce MVP single output
-        if outputs.len() != 1 {
+        // Validate outputs (1-10 allowed)
+        if outputs.is_empty() || outputs.len() > 10 {
             return Err(Error::ValidationError(
-                "exactly 1 output required in MVP".into(),
+                "Number of outputs must be between 1 and 10".into(),
             ));
         }
+
+        // Convert API Output to planner Output
+        use crate::planner::Output as PlannerOutput;
+        let planner_outputs: Vec<PlannerOutput> = outputs
+            .iter()
+            .map(|o| {
+                let pubkey = o.to_pubkey()?;
+                Ok(PlannerOutput {
+                    address: pubkey.to_bytes(),
+                    amount: o.amount,
+                })
+            })
+            .collect::<Result<_, Error>>()?;
+
+        // Collect recipient pubkeys (1..N)
+        let recipient_pubkeys: Vec<Pubkey> = planner_outputs
+            .iter()
+            .map(|o| Pubkey::new_from_array(o.address))
+            .collect();
+
+        // Get first recipient for fee payer fallback
         let recipient_pubkey = outputs[0].to_pubkey()?;
-        let recipient_amount = outputs[0].amount;
-        let recipient_addr_32: [u8; 32] = recipient_pubkey.to_bytes();
 
         if job.proof_bytes.is_empty() {
             return Err(Error::ValidationError(
@@ -217,6 +242,7 @@ impl SolanaService {
         } else {
             Pubkey::default() // Default to native SOL
         };
+        let is_spl_mint = mint != Pubkey::default();
 
         // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
         let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
@@ -269,6 +295,29 @@ impl SolanaService {
         // Priority fee (micro-lamports per CU) from config
         let priority_micro_lamports: u64 = self.config.priority_micro_lamports;
 
+        // Pre-compute SPL token accounts when using an SPL mint
+        let pool_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&pool_pda, &mint))
+        } else {
+            None
+        };
+        let treasury_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&treasury_pda, &mint))
+        } else {
+            None
+        };
+        let recipient_token_accounts_vec: Option<Vec<Pubkey>> = if is_spl_mint {
+            Some(
+                recipient_pubkeys
+                    .iter()
+                    .map(|pk| get_associated_token_address(pk, &mint))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let recipient_token_accounts_slice = recipient_token_accounts_vec.as_deref();
+
         // Check if PoW is enabled
         let tx = if let Some(ref claim_finder) = self.claim_finder {
             // PoW path: find specific claim and use PoW transaction builder
@@ -277,12 +326,6 @@ impl SolanaService {
             // Compute batch_hash from job ID to match what the miner creates
             let job_id = job.request_id.to_string();
             let batch_hash = compute_batch_hash(&job_id);
-
-            debug!(
-                "Computed batch_hash for job {}: {:x?}...",
-                job_id,
-                &batch_hash[0..8]
-            );
 
             // Find available claim
             match claim_finder.find_claim(&batch_hash).await {
@@ -304,45 +347,23 @@ impl SolanaService {
                             )
                         })?;
 
-                    // Derive token accounts if mint is not native SOL
-                    let (pool_token_account, recipient_token_account, treasury_token_account, miner_token_account) = 
-                        if mint != Pubkey::default() {
-                            // Derive token accounts for SPL tokens
-                            let pool_token_account = get_associated_token_address(
-                                &pool_pda,
-                                &mint,
-                            );
-                            let recipient_token_account = get_associated_token_address(
-                                &recipient_pubkey,
-                                &mint,
-                            );
-                            let treasury_token_account = get_associated_token_address(
-                                &treasury_pda,
-                                &mint,
-                            );
-                            let miner_token_account = get_associated_token_address(
-                                &claim.miner_authority,
-                                &mint,
-                            );
-                            
-                            (Some(pool_token_account), Some(recipient_token_account), Some(treasury_token_account), Some(miner_token_account))
-                        } else {
-                            (None, None, None, None)
-                        };
+                    let miner_token_account = if is_spl_mint {
+                        Some(get_associated_token_address(&claim.miner_authority, &mint))
+                    } else {
+                        None
+                    };
 
-                    // Build PoW-enabled transaction
                     transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
                         public_104,
-                        recipient_addr_32,
-                        recipient_amount,
+                        &planner_outputs,
                         batch_hash,
                         self.program_id,
                         pool_pda,
                         roots_ring_pda,
                         nullifier_shard_pda,
                         treasury_pda,
-                        recipient_pubkey,
+                        &recipient_pubkeys,
                         scramble_registry_program_id,
                         claim.claim_pda,
                         claim.miner_pda,
@@ -351,17 +372,14 @@ impl SolanaService {
                         fee_payer_pubkey,
                         recent_blockhash,
                         priority_micro_lamports,
-                        Some(mint),
+                        if is_spl_mint { Some(mint) } else { None },
                         pool_token_account,
-                        recipient_token_account,
+                        recipient_token_accounts_slice,
                         treasury_token_account,
                         miner_token_account,
                     )?
                 }
                 Ok(None) => {
-                    // PoW mode is enabled but no claims are available yet
-                    // Return a retryable error so the worker will requeue the job
-                    // and try again when miners have produced claims
                     warn!(
                         "No PoW claims available for job {}. Will retry until miners provide claims.",
                         job.request_id
@@ -380,48 +398,26 @@ impl SolanaService {
                 }
             }
         } else {
-            // Legacy path (no PoW)
-            debug!("PoW disabled: using legacy transaction builder");
-
-                // Derive token accounts if mint is not native SOL
-                let (pool_token_account, recipient_token_account) = 
-                    if mint != Pubkey::default() {
-                        // Derive token accounts for SPL tokens
-                        let pool_token_account = get_associated_token_address(
-                            &pool_pda,
-                            &mint,
-                        );
-                        let recipient_token_account = get_associated_token_address(
-                            &recipient_pubkey,
-                            &mint,
-                        );
-                        
-                        (Some(pool_token_account), Some(recipient_token_account))
-                    } else {
-                        (None, None)
-                    };
-
             transaction_builder::build_withdraw_transaction(
                 proof_bytes.clone(),
                 public_104,
-                recipient_addr_32,
-                recipient_amount,
+                &planner_outputs,
                 self.program_id,
                 pool_pda,
                 roots_ring_pda,
                 nullifier_shard_pda,
                 treasury_pda,
-                recipient_pubkey,
+                &recipient_pubkeys,
                 fee_payer_pubkey,
                 recent_blockhash,
                 priority_micro_lamports,
-                Some(mint),
+                if is_spl_mint { Some(mint) } else { None },
                 pool_token_account,
-                recipient_token_account,
+                recipient_token_accounts_slice,
+                treasury_token_account,
             )?
         };
 
-        debug!("Built withdraw transaction for job: {}", job.request_id);
         Ok(tx)
     }
 
@@ -559,11 +555,6 @@ impl SolanaService {
                 while retries < max_retries {
                     match jito.send(vtx.clone()) {
                         Ok(signature) => {
-                            debug!(
-                                "Jito bundle submitted: {} (attempt {})",
-                                signature,
-                                retries + 1
-                            );
                             return Ok(signature);
                         }
                         Err(e) => {
@@ -657,7 +648,6 @@ mod tests {
             commitment: "confirmed".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
             withdraw_authority: None,
-            withdraw_keypair_path: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
             max_retries: 3,
