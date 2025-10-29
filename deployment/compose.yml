@@ -9,11 +9,11 @@ services:
       - "5434:5432"
     volumes:
       - cloak_postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - cloak-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cloak"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -52,6 +52,27 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # Nginx Reverse Proxy
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: cloak-nginx
+    ports:
+      - "80:80"
+    networks:
+      - cloak-network
+    depends_on:
+      - indexer
+      - relay
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
 volumes:
   cloak_postgres_data:
