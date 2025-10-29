@@ -3,12 +3,42 @@ name: Build, Push and Deploy
 on:
   push:
     branches:
-      - feat/pow-scrambler-gate
       - master
+      - feat/pow-scrambler-gate
   workflow_dispatch:
 
 jobs:
-  build-push-deploy:
+  build-indexer-relay:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [indexer, relay]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/cloak:${{ matrix.service }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  build-nginx:
     runs-on: ubuntu-latest
     
     steps:
@@ -24,39 +54,22 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build and push indexer
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/indexer/Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/cloak:indexer
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-
-      - name: Build and push relay
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/relay/Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/cloak:relay
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-
       - name: Build and push nginx
         uses: docker/build-push-action@v5
         with:
           context: deployment/nginx
-          file: Dockerfile
+          file: deployment/nginx/Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/cloak:nginx
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
+  deploy:
+    needs: [build-indexer-relay, build-nginx]
+    runs-on: ubuntu-latest
+    
+    steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -64,7 +77,11 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /opt/cloak/deployment || cd ~/cloak/deployment
-            docker compose -f compose.yml down indexer relay nginx
-            docker compose -f compose.yml pull indexer relay nginx
-            docker compose -f compose.yml up -d indexer relay nginx
+            cd ~/cloak || exit 1
+            sudo systemctl stop nginx 2>/dev/null || true
+            docker compose -f deployment/compose.yml down indexer relay nginx || true
+            docker compose -f deployment/compose.yml pull indexer relay nginx
+            docker compose -f deployment/compose.yml up -d indexer relay nginx
+            echo "✅ Checking container status..."
+            sleep 5
+            docker compose -f deployment/compose.yml ps

@@ -74,12 +74,34 @@ pub async fn handle_withdraw(
     };
 
     // Parse public inputs
-    let root_hash = hex::decode(&payload.public_inputs.root)
+    // Strip "0x" prefix if present
+    let root_str = payload.public_inputs.root.strip_prefix("0x").unwrap_or(&payload.public_inputs.root);
+    let nf_str = payload.public_inputs.nf.strip_prefix("0x").unwrap_or(&payload.public_inputs.nf);
+    let outputs_hash_str = payload.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&payload.public_inputs.outputs_hash);
+    
+    let root_hash = hex::decode(root_str)
         .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
-    let nullifier = hex::decode(&payload.public_inputs.nf)
+    let nullifier = hex::decode(nf_str)
         .map_err(|e| Error::ValidationError(format!("Invalid nullifier hex: {}", e)))?;
-    let outputs_hash = hex::decode(&payload.public_inputs.outputs_hash)
+    let outputs_hash = hex::decode(outputs_hash_str)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
+    
+    // Validate lengths
+    if root_hash.len() != 32 {
+        return Err(Error::ValidationError(
+            format!("Root must be 32 bytes, got {}", root_hash.len())
+        ));
+    }
+    if nullifier.len() != 32 {
+        return Err(Error::ValidationError(
+            format!("Nullifier must be 32 bytes, got {}", nullifier.len())
+        ));
+    }
+    if outputs_hash.len() != 32 {
+        return Err(Error::ValidationError(
+            format!("Outputs hash must be 32 bytes, got {}", outputs_hash.len())
+        ));
+    }
 
     // Note: We no longer check for nullifier double-spend at queueing time.
     // The on-chain program will enforce uniqueness when the transaction executes.
@@ -208,33 +230,37 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
         )));
     }
 
-    // Validate hex strings
-    if request.public_inputs.root.len() != 64 {
+    // Validate hex strings (strip 0x prefix if present for validation)
+    let root_str = request.public_inputs.root.strip_prefix("0x").unwrap_or(&request.public_inputs.root);
+    let nf_str = request.public_inputs.nf.strip_prefix("0x").unwrap_or(&request.public_inputs.nf);
+    let outputs_hash_str = request.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&request.public_inputs.outputs_hash);
+    
+    if root_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Root must be 64 hex characters".to_string(),
+            "Root must be 64 hex characters (or 66 with 0x prefix)".to_string(),
         ));
     }
 
-    if request.public_inputs.nf.len() != 64 {
+    if nf_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Nullifier must be 64 hex characters".to_string(),
+            "Nullifier must be 64 hex characters (or 66 with 0x prefix)".to_string(),
         ));
     }
 
-    if request.public_inputs.outputs_hash.len() != 64 {
+    if outputs_hash_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Outputs hash must be 64 hex characters".to_string(),
+            "Outputs hash must be 64 hex characters (or 66 with 0x prefix)".to_string(),
         ));
     }
 
     // Validate hex format
-    hex::decode(&request.public_inputs.root)
+    hex::decode(root_str)
         .map_err(|_| Error::ValidationError("Root must be valid hex".to_string()))?;
 
-    hex::decode(&request.public_inputs.nf)
+    hex::decode(nf_str)
         .map_err(|_| Error::ValidationError("Nullifier must be valid hex".to_string()))?;
 
-    hex::decode(&request.public_inputs.outputs_hash)
+    hex::decode(outputs_hash_str)
         .map_err(|_| Error::ValidationError("Outputs hash must be valid hex".to_string()))?;
 
     // Validate proof bytes are valid base64

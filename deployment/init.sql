@@ -1,240 +1,246 @@
-#!/bin/bash
-set -e
 
-# Database initialization script for Docker
-# Creates the single shared database for indexer and relay services
-# with the complete schema
-#
-# This file is automatically executed by the postgres container
-# when the container starts for the first time
+-- Database initialization script for Docker
+-- Creates the single shared database for indexer and relay services
+-- with the complete schema
+--
+-- This file is automatically executed by the postgres container
+-- when the container starts for the first time
 
-# Create the unified database (if it doesn't exist)
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-    DO \$\$
-    BEGIN
-        IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'cloak') THEN
-            CREATE DATABASE cloak;
-        END IF;
-    END \$\$;
+-- =========================
+-- Create unified database (if not exists; will be skipped if already exists)
+-- (Docker's POSTGRES_DB default usually pre-creates this, but included for clarity.)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'cloak') THEN
+        CREATE DATABASE cloak;
+    END IF;
+END $$;
 
-    -- Set timezone to UTC
-    ALTER DATABASE cloak SET timezone TO 'UTC';
-EOSQL
+-- Set timezone to UTC for cloak
+ALTER DATABASE cloak SET timezone TO 'UTC';
 
-# Connect to the cloak database and create all schema
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "cloak" <<-EOSQL
-    -- Create extension for UUID support
-    CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+-- Connect to the cloak database before running the remainder of this script.
+-- If using Docker entrypoint, put the rest of this script in a file in /docker-entrypoint-initdb.d/
+-- and point POSTGRES_DB=cloak. If sourcing in another context, connect as:
+--   psql -U $POSTGRES_USER -d cloak -f init.sql
 
-    -- Create job_status enum type (for relay service)
-    DO \$\$ BEGIN
-        CREATE TYPE public.job_status AS ENUM (
-            'queued',
-            'processing',
-            'completed',
-            'failed',
-            'cancelled'
-        );
-    EXCEPTION
-        WHEN duplicate_object THEN null;
-    END \$\$;
+-- =========================
+-- Everything below here assumes we are connected to the 'cloak' database
+-- =========================
 
-    -- Create function to update updated_at timestamp
-    CREATE OR REPLACE FUNCTION public.update_updated_at_column() RETURNS trigger
-        LANGUAGE plpgsql
-        AS \$\$
-    BEGIN
-        NEW.updated_at = NOW();
-        RETURN NEW;
-    END;
-    \$\$;
+-- Create extension for UUID support
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
-    -- ========================================
-    -- TABLES FOR INDEXER SERVICE
-    -- ========================================
-
-    -- Merkle tree nodes storage
-    CREATE SEQUENCE IF NOT EXISTS public.merkle_tree_nodes_id_seq
-        START WITH 1
-        INCREMENT BY 1
-        NO MINVALUE
-        NO MAXVALUE
-        CACHE 1;
-
-    CREATE TABLE IF NOT EXISTS public.merkle_tree_nodes (
-        id bigint NOT NULL DEFAULT nextval('public.merkle_tree_nodes_id_seq'::regclass),
-        level integer NOT NULL,
-        index_at_level bigint NOT NULL,
-        value character(64) NOT NULL,
-        created_at timestamp with time zone DEFAULT now(),
-        updated_at timestamp with time zone DEFAULT now(),
-        PRIMARY KEY (id),
-        UNIQUE (level, index_at_level)
+-- Create job_status enum type (for relay service)
+DO $$
+BEGIN
+    CREATE TYPE public.job_status AS ENUM (
+        'queued',
+        'processing',
+        'completed',
+        'failed',
+        'cancelled'
     );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
-    CREATE INDEX IF NOT EXISTS idx_merkle_tree_level_index ON public.merkle_tree_nodes USING btree (level, index_at_level);
-    CREATE INDEX IF NOT EXISTS idx_merkle_tree_level ON public.merkle_tree_nodes USING btree (level);
+-- Create function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION public.update_updated_at_column() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
 
-    -- Notes table
-    CREATE SEQUENCE IF NOT EXISTS public.notes_id_seq
-        START WITH 1
-        INCREMENT BY 1
-        NO MINVALUE
-        NO MAXVALUE
-        CACHE 1;
+-- ========================================
+-- TABLES FOR INDEXER SERVICE
+-- ========================================
 
-    CREATE TABLE IF NOT EXISTS public.notes (
-        id bigint NOT NULL DEFAULT nextval('public.notes_id_seq'::regclass),
-        leaf_commit character(64) NOT NULL,
-        encrypted_output text NOT NULL,
-        leaf_index bigint NOT NULL,
-        tx_signature character varying(88) NOT NULL,
-        slot bigint NOT NULL,
-        block_time timestamp with time zone,
-        created_at timestamp with time zone DEFAULT now(),
-        PRIMARY KEY (id),
-        UNIQUE (leaf_commit),
-        UNIQUE (leaf_index),
-        UNIQUE (tx_signature)
-    );
+-- Merkle tree nodes storage
+CREATE SEQUENCE IF NOT EXISTS public.merkle_tree_nodes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
-    CREATE INDEX IF NOT EXISTS idx_notes_leaf_index ON public.notes USING btree (leaf_index);
-    CREATE INDEX IF NOT EXISTS idx_notes_tx_signature ON public.notes USING btree (tx_signature);
-    CREATE INDEX IF NOT EXISTS idx_notes_slot ON public.notes USING btree (slot);
-    CREATE INDEX IF NOT EXISTS idx_notes_created_at ON public.notes USING btree (created_at);
+CREATE TABLE IF NOT EXISTS public.merkle_tree_nodes (
+    id bigint NOT NULL DEFAULT nextval('public.merkle_tree_nodes_id_seq'::regclass),
+    level integer NOT NULL,
+    index_at_level bigint NOT NULL,
+    value character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (id),
+    UNIQUE (level, index_at_level)
+);
 
-    -- Metadata table
-    CREATE TABLE IF NOT EXISTS public.indexer_metadata (
-        key character varying(64) NOT NULL,
-        value text NOT NULL,
-        updated_at timestamp with time zone DEFAULT now(),
-        PRIMARY KEY (key)
-    );
+CREATE INDEX IF NOT EXISTS idx_merkle_tree_level_index ON public.merkle_tree_nodes USING btree (level, index_at_level);
+CREATE INDEX IF NOT EXISTS idx_merkle_tree_level ON public.merkle_tree_nodes USING btree (level);
 
-    -- Initialize metadata (only if not exists)
-    INSERT INTO public.indexer_metadata (key, value)
-    VALUES
-        ('next_leaf_index', '0'),
-        ('tree_height', '32'),
-        ('last_processed_slot', '0'),
-        ('last_processed_signature', ''),
-        ('schema_version', '1')
-    ON CONFLICT (key) DO NOTHING;
+-- Notes table
+CREATE SEQUENCE IF NOT EXISTS public.notes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
-    -- Artifacts table
-    CREATE TABLE IF NOT EXISTS public.artifacts (
-        id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
-        artifact_type character varying(32) NOT NULL,
-        version character varying(32) NOT NULL,
-        file_path text NOT NULL,
-        sha256_hash character(64) NOT NULL,
-        file_size bigint NOT NULL,
-        sp1_version character varying(32),
-        created_at timestamp with time zone DEFAULT now(),
-        PRIMARY KEY (id),
-        UNIQUE (artifact_type, version)
-    );
+CREATE TABLE IF NOT EXISTS public.notes (
+    id bigint NOT NULL DEFAULT nextval('public.notes_id_seq'::regclass),
+    leaf_commit character(64) NOT NULL,
+    encrypted_output text NOT NULL,
+    leaf_index bigint NOT NULL,
+    tx_signature character varying(88) NOT NULL,
+    slot bigint NOT NULL,
+    block_time timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (id),
+    UNIQUE (leaf_commit),
+    UNIQUE (leaf_index),
+    UNIQUE (tx_signature)
+);
 
-    CREATE INDEX IF NOT EXISTS idx_artifacts_type_version ON public.artifacts USING btree (artifact_type, version);
-    CREATE INDEX IF NOT EXISTS idx_artifacts_sp1_version ON public.artifacts USING btree (sp1_version);
+CREATE INDEX IF NOT EXISTS idx_notes_leaf_index ON public.notes USING btree (leaf_index);
+CREATE INDEX IF NOT EXISTS idx_notes_tx_signature ON public.notes USING btree (tx_signature);
+CREATE INDEX IF NOT EXISTS idx_notes_slot ON public.notes USING btree (slot);
+CREATE INDEX IF NOT EXISTS idx_notes_created_at ON public.notes USING btree (created_at);
 
-    -- Event processing log table
-    CREATE SEQUENCE IF NOT EXISTS public.event_processing_log_id_seq
-        START WITH 1
-        INCREMENT BY 1
-        NO MINVALUE
-        NO MAXVALUE
-        CACHE 1;
+-- Metadata table
+CREATE TABLE IF NOT EXISTS public.indexer_metadata (
+    key character varying(64) NOT NULL,
+    value text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (key)
+);
 
-    CREATE TABLE IF NOT EXISTS public.event_processing_log (
-        id bigint NOT NULL DEFAULT nextval('public.event_processing_log_id_seq'::regclass),
-        tx_signature character varying(88) NOT NULL,
-        slot bigint NOT NULL,
-        event_type character varying(32) NOT NULL,
-        processed_at timestamp with time zone DEFAULT now(),
-        processing_status character varying(16) DEFAULT 'success'::character varying,
-        error_message text,
-        PRIMARY KEY (id),
-        UNIQUE (tx_signature, event_type)
-    );
+-- Initialize metadata (only if not exists)
+INSERT INTO public.indexer_metadata (key, value)
+VALUES
+    ('next_leaf_index', '0'),
+    ('tree_height', '32'),
+    ('last_processed_slot', '0'),
+    ('last_processed_signature', ''),
+    ('schema_version', '1')
+ON CONFLICT (key) DO NOTHING;
 
-    CREATE INDEX IF NOT EXISTS idx_event_log_slot ON public.event_processing_log USING btree (slot);
-    CREATE INDEX IF NOT EXISTS idx_event_log_status ON public.event_processing_log USING btree (processing_status);
-    CREATE INDEX IF NOT EXISTS idx_event_log_processed_at ON public.event_processing_log USING btree (processed_at);
+-- Artifacts table
+CREATE TABLE IF NOT EXISTS public.artifacts (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    artifact_type character varying(32) NOT NULL,
+    version character varying(32) NOT NULL,
+    file_path text NOT NULL,
+    sha256_hash character(64) NOT NULL,
+    file_size bigint NOT NULL,
+    sp1_version character varying(32),
+    created_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (id),
+    UNIQUE (artifact_type, version)
+);
 
-    -- Schema migrations table
-    CREATE TABLE IF NOT EXISTS public.schema_migrations (
-        id character varying(255) NOT NULL,
-        name character varying(255) NOT NULL,
-        applied_at timestamp with time zone DEFAULT now(),
-        PRIMARY KEY (id)
-    );
+CREATE INDEX IF NOT EXISTS idx_artifacts_type_version ON public.artifacts USING btree (artifact_type, version);
+CREATE INDEX IF NOT EXISTS idx_artifacts_sp1_version ON public.artifacts USING btree (sp1_version);
 
-    -- Mark existing migrations as applied (since init.sql creates the schema)
-    INSERT INTO public.schema_migrations (id, name)
-    VALUES
-        ('001_initial_schema', 'Initial schema for Cloak Indexer')
-    ON CONFLICT (id) DO NOTHING;
+-- Event processing log table
+CREATE SEQUENCE IF NOT EXISTS public.event_processing_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
-    -- ========================================
-    -- TABLES FOR RELAY SERVICE
-    -- ========================================
+CREATE TABLE IF NOT EXISTS public.event_processing_log (
+    id bigint NOT NULL DEFAULT nextval('public.event_processing_log_id_seq'::regclass),
+    tx_signature character varying(88) NOT NULL,
+    slot bigint NOT NULL,
+    event_type character varying(32) NOT NULL,
+    processed_at timestamp with time zone DEFAULT now(),
+    processing_status character varying(16) DEFAULT 'success'::character varying,
+    error_message text,
+    PRIMARY KEY (id),
+    UNIQUE (tx_signature, event_type)
+);
 
-    -- Jobs table for withdraw requests
-    CREATE TABLE IF NOT EXISTS public.jobs (
-        id uuid DEFAULT gen_random_uuid() NOT NULL,
-        request_id uuid NOT NULL,
-        status public.job_status DEFAULT 'queued'::public.job_status NOT NULL,
-        proof_bytes bytea NOT NULL,
-        public_inputs bytea NOT NULL,
-        outputs_json jsonb NOT NULL,
-        fee_bps smallint NOT NULL,
-        root_hash bytea NOT NULL,
-        nullifier bytea NOT NULL,
-        amount bigint NOT NULL,
-        outputs_hash bytea NOT NULL,
-        tx_id text,
-        solana_signature text,
-        error_message text,
-        retry_count integer DEFAULT 0 NOT NULL,
-        max_retries integer DEFAULT 3 NOT NULL,
-        created_at timestamp with time zone DEFAULT now() NOT NULL,
-        updated_at timestamp with time zone DEFAULT now() NOT NULL,
-        started_at timestamp with time zone,
-        completed_at timestamp with time zone,
-        PRIMARY KEY (id),
-        UNIQUE (request_id)
-    );
+CREATE INDEX IF NOT EXISTS idx_event_log_slot ON public.event_processing_log USING btree (slot);
+CREATE INDEX IF NOT EXISTS idx_event_log_status ON public.event_processing_log USING btree (processing_status);
+CREATE INDEX IF NOT EXISTS idx_event_log_processed_at ON public.event_processing_log USING btree (processed_at);
 
-    CREATE INDEX IF NOT EXISTS idx_jobs_status ON public.jobs USING btree (status);
-    CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON public.jobs USING btree (created_at);
-    CREATE INDEX IF NOT EXISTS idx_jobs_request_id ON public.jobs USING btree (request_id);
+-- Schema migrations table
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
+    id character varying(255) NOT NULL,
+    name character varying(255) NOT NULL,
+    applied_at timestamp with time zone DEFAULT now(),
+    PRIMARY KEY (id)
+);
 
-    -- Nullifiers table for double-spend prevention
-    CREATE TABLE IF NOT EXISTS public.nullifiers (
-        nullifier bytea NOT NULL,
-        job_id uuid NOT NULL,
-        block_height bigint,
-        tx_signature text,
-        created_at timestamp with time zone DEFAULT now() NOT NULL,
-        PRIMARY KEY (nullifier),
-        FOREIGN KEY (job_id) REFERENCES public.jobs(id)
-    );
+-- Mark existing migrations as applied (since init.sql creates the schema)
+INSERT INTO public.schema_migrations (id, name)
+VALUES
+    ('001_initial_schema', 'Initial schema for Cloak Indexer')
+ON CONFLICT (id) DO NOTHING;
 
-    CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON public.nullifiers USING btree (created_at);
+-- ========================================
+-- TABLES FOR RELAY SERVICE
+-- ========================================
 
-    -- ========================================
-    -- TRIGGERS
-    -- ========================================
+-- Jobs table for withdraw requests
+CREATE TABLE IF NOT EXISTS public.jobs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    request_id uuid NOT NULL,
+    status public.job_status DEFAULT 'queued'::public.job_status NOT NULL,
+    proof_bytes bytea NOT NULL,
+    public_inputs bytea NOT NULL,
+    outputs_json jsonb NOT NULL,
+    fee_bps smallint NOT NULL,
+    root_hash bytea NOT NULL,
+    nullifier bytea NOT NULL,
+    amount bigint NOT NULL,
+    outputs_hash bytea NOT NULL,
+    tx_id text,
+    solana_signature text,
+    error_message text,
+    retry_count integer DEFAULT 0 NOT NULL,
+    max_retries integer DEFAULT 3 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    PRIMARY KEY (id),
+    UNIQUE (request_id)
+);
 
-    -- Create triggers for updating updated_at columns
-    DROP TRIGGER IF EXISTS update_merkle_tree_nodes_updated_at ON public.merkle_tree_nodes;
-    CREATE TRIGGER update_merkle_tree_nodes_updated_at
-        BEFORE UPDATE ON public.merkle_tree_nodes
-        FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON public.jobs USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON public.jobs USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_request_id ON public.jobs USING btree (request_id);
 
-    DROP TRIGGER IF EXISTS update_indexer_metadata_updated_at ON public.indexer_metadata;
-    CREATE TRIGGER update_indexer_metadata_updated_at
-        BEFORE UPDATE ON public.indexer_metadata
-        FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-EOSQL
+-- Nullifiers table for double-spend prevention
+CREATE TABLE IF NOT EXISTS public.nullifiers (
+    nullifier bytea NOT NULL,
+    job_id uuid NOT NULL,
+    block_height bigint,
+    tx_signature text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (nullifier),
+    FOREIGN KEY (job_id) REFERENCES public.jobs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON public.nullifiers USING btree (created_at);
+
+-- ========================================
+-- TRIGGERS
+-- ========================================
+
+-- Create triggers for updating updated_at columns
+DROP TRIGGER IF EXISTS update_merkle_tree_nodes_updated_at ON public.merkle_tree_nodes;
+CREATE TRIGGER update_merkle_tree_nodes_updated_at
+    BEFORE UPDATE ON public.merkle_tree_nodes
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_indexer_metadata_updated_at ON public.indexer_metadata;
+CREATE TRIGGER update_indexer_metadata_updated_at
+    BEFORE UPDATE ON public.indexer_metadata
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
