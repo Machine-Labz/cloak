@@ -55,9 +55,7 @@ services:
 
   # Nginx Reverse Proxy
   nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
+    image: marcelofeitoza/cloak:nginx
     container_name: cloak-nginx
     ports:
       - "80:80"
