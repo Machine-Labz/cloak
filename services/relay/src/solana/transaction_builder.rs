@@ -9,9 +9,30 @@ use solana_sdk::{
 };
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
+use spl_token;
 
 use crate::error::Error;
 use crate::planner::Output;
+
+// Manual implementation of associated token account derivation
+// This avoids dependency conflicts with spl-associated-token-account
+fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
+    // Associated Token Account Program ID
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+    // Token Program ID
+    const TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    // Find the associated token account address
+    let (ata, _) = Pubkey::find_program_address(
+        &[wallet.as_ref(), TOKEN_PROGRAM_ID.as_ref(), mint.as_ref()],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+
+    ata
+}
 
 const PUBLIC_INPUTS_LEN: usize = 104;
 const DUPLICATE_NULLIFIER_LEN: usize = 32;
@@ -33,7 +54,9 @@ pub fn build_withdraw_ix_body(
 
     let num_outputs = outputs.len();
     if num_outputs == 0 || num_outputs > 10 {
-        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+        return Err(Error::ValidationError(
+            "Number of outputs must be between 1 and 10".into(),
+        ));
     }
 
     let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -71,7 +94,9 @@ pub fn build_withdraw_ix_body_with_pow(
 
     let num_outputs = outputs.len();
     if num_outputs == 0 || num_outputs > 10 {
-        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+        return Err(Error::ValidationError(
+            "Number of outputs must be between 1 and 10".into(),
+        ));
     }
 
     let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -97,7 +122,26 @@ pub fn build_withdraw_ix_body_with_pow(
     Ok(data)
 }
 
-/// Build an Instruction for shield-pool::Withdraw with discriminant = 2 (legacy, no PoW)
+/// Build an Instruction for shield-pool::Withdraw with discriminant = 2
+///
+/// Accounts layout for native SOL:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+///
+/// Accounts layout for SPL tokens:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. recipient (writable)
+/// 5. system_program (readonly)
+/// 6. token_program (readonly)
+/// 7. pool_token_account (writable)
+/// 8. recipient_token_account (writable)
 pub fn build_withdraw_instruction(
     program_id: Pubkey,
     body: &[u8],
@@ -106,24 +150,43 @@ pub fn build_withdraw_instruction(
     roots_ring_pda: Pubkey,
     nullifier_shard_pda: Pubkey,
     recipients: &[Pubkey], // 1-N recipient accounts
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_accounts: Option<&[Pubkey]>,
+    treasury_token_account: Option<Pubkey>,
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + body.len());
     data.push(2u8); // ShieldPoolInstruction::Withdraw
     data.extend_from_slice(body);
 
     let mut accounts = Vec::with_capacity(5 + recipients.len());
-    accounts.push(AccountMeta::new(pool_pda, false));                      // pool (writable)
-    accounts.push(AccountMeta::new(treasury, false));                      // treasury (writable)
-    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false));       // roots ring (readonly)
-    accounts.push(AccountMeta::new(nullifier_shard_pda, false));           // nullifier shard (writable)
-    
+    accounts.push(AccountMeta::new(pool_pda, false)); // pool (writable)
+    accounts.push(AccountMeta::new(treasury, false)); // treasury (writable)
+    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false)); // roots ring (readonly)
+    accounts.push(AccountMeta::new(nullifier_shard_pda, false)); // nullifier shard (writable)
+
     // Add all recipient accounts
     for recipient in recipients {
         accounts.push(AccountMeta::new(*recipient, false));
     }
-    
+
     // Add system program at the end
     accounts.push(AccountMeta::new_readonly(system_program::id(), false));
+
+    // Add SPL token accounts if mint is provided
+    if let (Some(_mint), Some(pool_token), Some(recipient_tokens), Some(treasury_token)) = (
+        mint,
+        pool_token_account,
+        recipient_token_accounts,
+        treasury_token_account,
+    ) {
+        accounts.push(AccountMeta::new_readonly(spl_token::id(), false)); // token_program (readonly)
+        accounts.push(AccountMeta::new(pool_token, false)); // pool_token_account (writable)
+        for token_account in recipient_tokens {
+            accounts.push(AccountMeta::new(*token_account, false)); // recipient_token_account (writable)
+        }
+        accounts.push(AccountMeta::new(treasury_token, false)); // treasury_token_account (writable)
+    }
 
     Instruction {
         program_id,
@@ -134,20 +197,20 @@ pub fn build_withdraw_instruction(
 
 /// Build an Instruction for shield-pool::Withdraw with PoW accounts (discriminant = 2)
 ///
-/// Accounts layout:
-/// 0. pool_pda (writable)
-/// 1. treasury (writable)
-/// 2. roots_ring_pda (readonly)
-/// 3. nullifier_shard_pda (writable)
 /// 4..4+N. recipients (writable) - 1 to 10 recipient accounts
 /// 4+N. system_program (readonly)
-/// 4+N+1. scramble_registry_program (readonly) - NEW
-/// 4+N+2. claim_pda (writable) - NEW
-/// 4+N+3. miner_pda (writable) - NEW
-/// 4+N+4. registry_pda (writable) - NEW
-/// 4+N+5. clock_sysvar (readonly) - NEW
-/// 4+N+6. miner_authority (writable) - NEW (receives fee share)
-/// 4+N+7. shield_pool_program (readonly) - NEW (for CPI signer)
+/// 4+N+1. scramble_registry_program (readonly)
+/// 4+N+2. claim_pda (writable)
+/// 4+N+3. miner_pda (writable)
+/// 4+N+4. registry_pda (writable)
+/// 4+N+5. clock_sysvar (readonly)
+/// 4+N+6. miner_authority (writable)
+/// 4+N+7. shield_pool_program (readonly)
+/// 4+N+8. token_program (readonly) [present when mint provided]
+/// 4+N+9. pool_token_account (writable)
+/// 4+N+10..4+N+9+M. recipient_token_accounts (writable, one per recipient)
+/// next. treasury_token_account (writable)
+/// final (optional). miner_token_account (writable, when PoW + SPL)
 pub fn build_withdraw_instruction_with_pow(
     program_id: Pubkey,
     body: &[u8],
@@ -161,6 +224,11 @@ pub fn build_withdraw_instruction_with_pow(
     miner_pda: Pubkey,
     registry_pda: Pubkey,
     miner_authority: Pubkey,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_accounts: Option<&[Pubkey]>,
+    treasury_token_account: Option<Pubkey>,
+    miner_token_account: Option<Pubkey>,
 ) -> Instruction {
     use solana_sdk::sysvar;
 
@@ -190,6 +258,29 @@ pub fn build_withdraw_instruction_with_pow(
     accounts.push(AccountMeta::new(miner_authority, false)); // Receives scrambler fee share
     accounts.push(AccountMeta::new_readonly(program_id, false)); // Shield-pool program ID (for CPI signer)
 
+    // Add SPL token accounts if mint is provided
+    if let (
+        Some(_mint),
+        Some(pool_token),
+        Some(recipient_tokens),
+        Some(treasury_token),
+        Some(miner_token),
+    ) = (
+        mint,
+        pool_token_account,
+        recipient_token_accounts,
+        treasury_token_account,
+        miner_token_account,
+    ) {
+        accounts.push(AccountMeta::new_readonly(spl_token::id(), false)); // token_program (readonly)
+        accounts.push(AccountMeta::new(pool_token, false)); // pool_token_account (writable)
+        for token_account in recipient_tokens {
+            accounts.push(AccountMeta::new(*token_account, false)); // recipient_token_account (writable)
+        }
+        accounts.push(AccountMeta::new(treasury_token, false)); // treasury_token_account (writable)
+        accounts.push(AccountMeta::new(miner_token, false)); // miner_token_account (writable)
+    }
+
     Instruction {
         program_id,
         accounts,
@@ -198,12 +289,25 @@ pub fn build_withdraw_instruction_with_pow(
 }
 
 /// Derive Shield Pool PDAs according to the on-chain program seeds.
-pub(crate) fn derive_shield_pool_pdas(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
-    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
-    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
+/// Now includes mint for multi-token support.
+pub(crate) fn derive_shield_pool_pdas(
+    program_id: &Pubkey,
+    mint: &Pubkey,
+) -> (Pubkey, Pubkey, Pubkey, Pubkey) {
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], program_id);
+    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury", mint.as_ref()], program_id);
+    let (roots_ring_pda, _) =
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], program_id);
+    let (nullifier_shard_pda, _) =
+        Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], program_id);
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+}
+
+/// Derive commitments PDA for a specific mint.
+pub(crate) fn derive_commitments_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
+    let (commitments_pda, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], program_id);
+    commitments_pda
 }
 
 /// Derive Scramble Registry PDAs according to the on-chain program seeds.
@@ -225,8 +329,7 @@ pub fn derive_scramble_registry_pdas(
     slot: u64,
 ) -> (Pubkey, Pubkey, Pubkey) {
     // Registry PDA: ["registry"]
-    let (registry_pda, _) =
-        Pubkey::find_program_address(&[b"registry"], registry_program_id);
+    let (registry_pda, _) = Pubkey::find_program_address(&[b"registry"], registry_program_id);
 
     // Miner PDA: ["miner", authority]
     let (miner_pda, _) =
@@ -260,12 +363,12 @@ pub fn build_withdraw_transaction(
     fee_payer: Pubkey,
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_accounts: Option<&[Pubkey]>,
+    treasury_token_account: Option<Pubkey>,
 ) -> Result<Transaction, Error> {
-    let body = build_withdraw_ix_body(
-        proof_bytes.as_slice(),
-        &public_104,
-        outputs,
-    )?;
+    let body = build_withdraw_ix_body(proof_bytes.as_slice(), &public_104, outputs)?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
         &body,
@@ -274,6 +377,10 @@ pub fn build_withdraw_transaction(
         roots_ring_pda,
         nullifier_shard_pda,
         recipients,
+        mint,
+        pool_token_account,
+        recipient_token_accounts,
+        treasury_token_account,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -308,13 +415,14 @@ pub fn build_withdraw_transaction_with_pow(
     fee_payer: Pubkey,
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
+    mint: Option<Pubkey>,
+    pool_token_account: Option<Pubkey>,
+    recipient_token_accounts: Option<&[Pubkey]>,
+    treasury_token_account: Option<Pubkey>,
+    miner_token_account: Option<Pubkey>,
 ) -> Result<Transaction, Error> {
-    let body = build_withdraw_ix_body_with_pow(
-        proof_bytes.as_slice(),
-        &public_104,
-        outputs,
-        &batch_hash,
-    )?;
+    let body =
+        build_withdraw_ix_body_with_pow(proof_bytes.as_slice(), &public_104, outputs, &batch_hash)?;
     let withdraw_ix = build_withdraw_instruction_with_pow(
         program_id,
         &body,
@@ -328,6 +436,11 @@ pub fn build_withdraw_transaction_with_pow(
         miner_pda,
         registry_pda,
         miner_authority,
+        mint,
+        pool_token_account,
+        recipient_token_accounts,
+        treasury_token_account,
+        miner_token_account,
     );
 
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_000_000);
@@ -522,6 +635,7 @@ pub async fn simulate(
 // Back-compat wrapper used by SolanaService; extracts fragments and builds a basic transaction.
 pub fn build_withdraw_instruction_legacy(
     program_id: &Pubkey,
+    mint: &Pubkey,
     proof_bytes: &[u8],
     public_inputs_104: &[u8],
     outputs: &[Output],
@@ -544,9 +658,9 @@ pub fn build_withdraw_instruction_legacy(
         ));
     }
 
-    // Derive PDAs using canonical seeds
+    // Derive PDAs using canonical seeds with mint
     let (pool_pda, treasury, roots_ring_pda, nullifier_shard_pda) =
-        derive_shield_pool_pdas(program_id);
+        derive_shield_pool_pdas(program_id, mint);
 
     // Convert outputs to recipient pubkeys
     let recipients: Vec<Pubkey> = outputs
@@ -559,6 +673,25 @@ pub fn build_withdraw_instruction_legacy(
 
     let mut public_104_arr = [0u8; PUBLIC_INPUTS_LEN];
     public_104_arr.copy_from_slice(public_inputs_104);
+
+    // Collect SPL token accounts when mint is provided
+    let mut recipient_token_accounts_vec = Vec::new();
+    let mut pool_token_account = None;
+    let mut treasury_token_account = None;
+
+    if *mint != Pubkey::default() {
+        pool_token_account = Some(get_associated_token_address(&pool_pda, mint));
+        treasury_token_account = Some(get_associated_token_address(&treasury, mint));
+        for recipient in &recipients {
+            recipient_token_accounts_vec.push(get_associated_token_address(recipient, mint));
+        }
+    }
+
+    let recipient_token_accounts_slice = if recipient_token_accounts_vec.is_empty() {
+        None
+    } else {
+        Some(recipient_token_accounts_vec.as_slice())
+    };
 
     build_withdraw_transaction(
         proof_bytes.to_vec(),
@@ -573,6 +706,10 @@ pub fn build_withdraw_instruction_legacy(
         fee_payer,
         recent_blockhash,
         1_000, // default priority fee (micro-lamports per CU)
+        Some(*mint),
+        pool_token_account,
+        recipient_token_accounts_slice,
+        treasury_token_account,
     )
 }
 
@@ -599,8 +736,7 @@ mod tests {
             address: recip,
             amount: out_amt,
         }];
-        let body =
-            build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
+        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
         let expected_len = PROOF_LEN
             + PUBLIC_INPUTS_LEN
             + DUPLICATE_NULLIFIER_LEN
@@ -634,6 +770,7 @@ mod tests {
     fn test_legacy_builder_derives_pdas_and_accounts_order() {
         // Program id and PDAs
         let program_id = Pubkey::new_unique();
+        let mint = Pubkey::default(); // Native SOL for test
 
         // Minimal fake SP1 proof bundle
         let bundle = vec![0xABu8; 1506];
@@ -651,6 +788,7 @@ mod tests {
         let blockhash = solana_sdk::hash::Hash::new_unique();
         let tx = build_withdraw_instruction_legacy(
             &program_id,
+            &mint,
             &bundle,
             &public_inputs,
             &outputs,
@@ -671,7 +809,7 @@ mod tests {
 
         // Resolve accounts by index and verify order
         let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
-            derive_shield_pool_pdas(&program_id);
+            derive_shield_pool_pdas(&program_id, &mint);
         let resolve = |ix: u8| msg.account_keys[ix as usize];
         assert_eq!(resolve(ci.accounts[0]), exp_pool);
         assert_eq!(resolve(ci.accounts[1]), exp_treasury);

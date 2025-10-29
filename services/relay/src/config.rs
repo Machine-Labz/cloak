@@ -35,6 +35,9 @@ pub struct SolanaConfig {
     // Relay queries on-chain for available claims from independent miners
     pub scramble_registry_program_id: Option<String>,
 
+    // Token mint address (empty = native SOL)
+    pub mint_address: Option<String>,
+
     // Shield Pool Account Addresses (optional - if not set, will calculate PDAs)
     pub pool_address: Option<String>,
     pub treasury_address: Option<String>,
@@ -90,6 +93,10 @@ impl Config {
                 retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000).unwrap_or(2000),
                 scramble_registry_program_id: {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
+                    if val.is_empty() { None } else { Some(val) }
+                },
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
                     if val.is_empty() { None } else { Some(val) }
                 },
                 pool_address: {
@@ -233,6 +240,10 @@ impl Config {
                 ws_url: get_env_var("SOLANA_WS_URL", "ws://localhost:8900").to_string(),
                 commitment: get_env_var("SOLANA_COMMITMENT", "confirmed").to_string(),
                 program_id: get_env_var("CLOAK_PROGRAM_ID", "").to_string(),
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
+                    if val.is_empty() { None } else { Some(val) }
+                },
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
                     if val.is_empty() { None } else { Some(val) }

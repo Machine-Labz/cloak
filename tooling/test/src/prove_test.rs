@@ -9,7 +9,13 @@ use serde_json;
 use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::system_instruction;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
+use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+    signature::Keypair,
+    signer::Signer,
+    transaction::Transaction,
+};
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -56,7 +62,7 @@ async fn main() -> Result<()> {
     println!("🔐 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW WITH /PROVE ENDPOINT TEST");
     println!("====================================================================\n");
 
-    let config = TestConfig::testnet();
+    let config = TestConfig::localnet();
     print_config(&config);
 
     // Check cluster health
@@ -106,45 +112,58 @@ async fn main() -> Result<()> {
     // Ensure user has sufficient SOL
     ensure_user_funding(&config.rpc_url, &user_keypair, &admin_keypair)?;
 
+    // Ensure miner has sufficient SOL
+    ensure_user_funding(&config.rpc_url, &miner_keypair, &admin_keypair)?;
+
     // Verify miner is running and has claims available
     println!("\n⛏️  Verifying Miner Status...");
     verify_miner_status(&client, &miner_keypair).await?;
 
-    // Deploy program only on localnet; on testnet, use existing deployed program
-    let program_id = if config.is_testnet() {
+    // Use existing deployed program (already deployed to localnet)
+    let program_id = {
         println!(
-            "\n✅ Using existing program on testnet: {}",
+            "\n✅ Using existing deployed program: {}",
             config.program_id
         );
         Pubkey::from_str(&config.program_id)?
-    } else {
-        println!("\n🚀 Step 0: Deploying Program...");
-        deploy_program(&client)?
     };
 
-    // Create program accounts only on localnet; on testnet, they should already exist
-    let accounts = if config.is_testnet() {
-        println!("\n✅ Using existing program accounts on testnet...");
+    // Create program accounts (check if they exist first, create if needed)
+    let accounts = {
         use test_complete_flow_rust::shared::get_pda_addresses;
+        let mint = solana_sdk::pubkey::Pubkey::default(); // Native SOL
         let (pool, commitments, roots_ring, nullifier_shard, treasury) =
-            get_pda_addresses(&program_id);
+            get_pda_addresses(&program_id, &mint);
 
+        println!("\n📋 Step 1: Checking/Creating Program Accounts...");
         println!("   - Pool (derived PDA): {}", pool);
         println!("   - Commitments log (derived PDA): {}", commitments);
         println!("   - Roots ring (derived PDA): {}", roots_ring);
         println!("   - Nullifier shard (derived PDA): {}", nullifier_shard);
         println!("   - Treasury (derived PDA): {}", treasury);
 
-        ProgramAccounts {
-            pool,
-            commitments,
-            roots_ring,
-            nullifier_shard,
-            treasury,
+        // Check if pool account exists
+        match client.get_account(&pool) {
+            Ok(account) => {
+                println!("   ✅ Pool account exists and is owned by: {}", account.owner);
+                if account.owner != program_id {
+                    println!("   ⚠️  Pool account is not owned by program! Creating new one...");
+                    create_program_accounts(&client, &program_id, &admin_keypair)?
+                } else {
+                    ProgramAccounts {
+                        pool,
+                        commitments,
+                        roots_ring,
+                        nullifier_shard,
+                        treasury,
+                    }
+                }
+            }
+            Err(_) => {
+                println!("   📝 Pool account doesn't exist, creating all accounts...");
+                create_program_accounts(&client, &program_id, &admin_keypair)?
+            }
         }
-    } else {
-        println!("\n📋 Step 1: Creating Program Accounts...");
-        create_program_accounts(&client, &program_id, &admin_keypair)?
     };
 
     // Reset indexer and relay databases
@@ -1193,8 +1212,11 @@ fn create_program_accounts(
     use test_complete_flow_rust::shared::get_pda_addresses;
 
     println!("   Deriving PDA addresses...");
+    let mint = solana_sdk::pubkey::Pubkey::default(); // Native SOL
+    // Use the exact same program ID as the program expects
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
-        get_pda_addresses(program_id);
+        get_pda_addresses(&program_id_bytes, &mint);
 
     println!("   - Pool PDA: {}", pool_pda);
     println!("   - Commitments PDA: {}", commitments_pda);
@@ -1206,17 +1228,25 @@ fn create_program_accounts(
     // We'll use a base key + seed approach to create accounts at deterministic addresses
 
     println!("   Creating accounts at PDA addresses...");
+    
+    // Debug: Print expected PDA addresses
+    println!("   Debug - Expected PDAs:");
+    println!("     Pool: {}", pool_pda);
+    println!("     Commitments: {}", commitments_pda);
+    println!("     Roots Ring: {}", roots_ring_pda);
+    println!("     Nullifier Shard: {}", nullifier_shard_pda);
+    println!("     Treasury: {}", treasury_pda);
 
     const ROOTS_RING_SIZE: usize = 2056;
     const COMMITMENTS_SIZE: usize = CommitmentQueue::SIZE;
     const NULLIFIER_SHARD_SIZE: usize = 4;
 
-    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(0)?;
+    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(32)?; // Pool now stores mint (32 bytes)
     let create_pool_ix = system_instruction::create_account(
         &admin_keypair.pubkey(),
         &pool_pda,
         pool_rent_exempt,
-        0,
+        32, // Pool now stores mint
         &program_id,
     );
 
@@ -1252,14 +1282,38 @@ fn create_program_accounts(
         &solana_sdk::system_program::id(),
     );
 
-    let mut create_accounts_tx = Transaction::new_with_payer(
-        &[
-            create_pool_ix,
-            create_commitments_ix,
-            create_roots_ring_ix,
-            create_nullifier_shard_ix,
-            create_treasury_ix,
+    // Initialize pool with mint data
+    // Ensure we use the exact same program ID as the program expects
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
+    let initialize_pool_ix = Instruction {
+        program_id: program_id_bytes,
+        accounts: vec![
+            AccountMeta::new(admin_keypair.pubkey(), true),
+            AccountMeta::new(pool_pda, false),
+            AccountMeta::new(commitments_pda, false),
+            AccountMeta::new(roots_ring_pda, false),
+            AccountMeta::new(nullifier_shard_pda, false),
+            AccountMeta::new(treasury_pda, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
         ],
+        data: {
+            let mut data = vec![3u8]; // Initialize discriminator (ShieldPoolInstruction::Initialize = 3)
+            data.extend_from_slice(&mint.to_bytes()); // Mint pubkey (32 bytes)
+            data
+        },
+    };
+    
+    // Debug: Print instruction details
+    println!("   Debug - Instruction details:");
+    println!("     Program ID: {}", program_id);
+    println!("     Admin: {}", admin_keypair.pubkey());
+    println!("     Pool: {}", pool_pda);
+    println!("     Mint: {}", mint);
+    println!("     Data length: {}", initialize_pool_ix.data.len());
+
+    // Use only the initialize instruction - the program will create the accounts
+    let mut create_accounts_tx = Transaction::new_with_payer(
+        &[initialize_pool_ix],
         Some(&admin_keypair.pubkey()),
     );
 

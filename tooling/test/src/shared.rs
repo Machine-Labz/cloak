@@ -5,7 +5,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    signature::{read_keypair_file, Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };
@@ -67,20 +67,23 @@ pub struct MerkleProof {
     pub path_elements: Vec<String>,
     #[serde(rename = "pathIndices")]
     pub path_indices: Vec<u8>,
+    pub root: String,
 }
 
-/// Get PDA addresses for Shield Pool program
+/// Get PDA addresses for Shield Pool program with mint support
 pub fn get_pda_addresses(
     program_id: &Pubkey,
+    mint: &Pubkey,
 ) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
-    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
+    let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], program_id);
     let (commitments_pda, _) =
-        Pubkey::find_program_address(&[b"commitments"], program_id);
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], program_id);
     let (roots_ring_pda, _) =
-        Pubkey::find_program_address(&[b"roots_ring"], program_id);
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], program_id);
     let (nullifier_shard_pda, _) =
-        Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
+        Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], program_id);
+    let (treasury_pda, _) =
+        Pubkey::find_program_address(&[b"treasury", mint.as_ref()], program_id);
     (
         pool_pda,
         commitments_pda,
@@ -88,6 +91,11 @@ pub fn get_pda_addresses(
         nullifier_shard_pda,
         treasury_pda,
     )
+}
+
+/// Get PDA addresses for native SOL (backward compatibility)
+pub fn get_pda_addresses_sol(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
+    get_pda_addresses(program_id, &Pubkey::default())
 }
 
 /// Create deposit instruction
@@ -187,7 +195,6 @@ pub fn create_withdraw_instruction(
     }
 }
 
-/// Load keypair from file
 pub fn load_keypair(path: &str) -> Result<Keypair> {
     let keypair_data = std::fs::read(path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair file '{}': {}", path, e))?;

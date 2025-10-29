@@ -7,7 +7,7 @@ use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signature, Signer},
+    signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
 #[cfg(feature = "jito")]
@@ -22,6 +22,28 @@ use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
 use serde_json;
+
+// Manual implementation of associated token account derivation
+// This avoids dependency conflicts with spl-associated-token-account
+fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
+    // Associated Token Account Program ID
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+    // Token Program ID
+    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    );
+
+    // Find the associated token account address
+    let (ata, _) = Pubkey::find_program_address(
+        &[wallet.as_ref(), TOKEN_PROGRAM_ID.as_ref(), mint.as_ref()],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+
+    ata
+}
+
 // Removed external TransactionResult dependency; we return Signature to callers.
 
 // Helper function to parse keypair from environment variable
@@ -159,7 +181,7 @@ impl SolanaService {
         let recent_blockhash = self.client.get_latest_blockhash().await?;
 
         // Validate outputs (1-10 allowed)
-        if outputs.len() == 0 || outputs.len() > 10 {
+        if outputs.is_empty() || outputs.len() > 10 {
             return Err(Error::ValidationError(
                 "Number of outputs must be between 1 and 10".into(),
             ));
@@ -167,7 +189,7 @@ impl SolanaService {
 
         // Convert API Output to planner Output
         use crate::planner::Output as PlannerOutput;
-        let planner_outputs: Result<Vec<PlannerOutput>, Error> = outputs
+        let planner_outputs: Vec<PlannerOutput> = outputs
             .iter()
             .map(|o| {
                 let pubkey = o.to_pubkey()?;
@@ -176,8 +198,13 @@ impl SolanaService {
                     amount: o.amount,
                 })
             })
+            .collect::<Result<_, Error>>()?;
+
+        // Collect recipient pubkeys (1..N)
+        let recipient_pubkeys: Vec<Pubkey> = planner_outputs
+            .iter()
+            .map(|o| Pubkey::new_from_array(o.address))
             .collect();
-        let planner_outputs = planner_outputs?;
 
         // Get first recipient for fee payer fallback
         let recipient_pubkey = outputs[0].to_pubkey()?;
@@ -203,6 +230,19 @@ impl SolanaService {
         }
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
+
+        // Parse mint address (empty = native SOL)
+        let mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default() // Native SOL
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default() // Default to native SOL
+        };
+        let is_spl_mint = mint != Pubkey::default();
 
         // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
         let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
@@ -236,9 +276,9 @@ impl SolanaService {
 
             (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
         } else {
-            // Fallback to PDA derivation
-            warn!("Account addresses not configured, deriving PDAs (this may cause errors if accounts don't exist)");
-            transaction_builder::derive_shield_pool_pdas(&self.program_id)
+            // Fallback to PDA derivation with mint
+            warn!("Account addresses not configured, deriving PDAs with mint (this may cause errors if accounts don't exist)");
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
         };
 
         // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
@@ -254,6 +294,29 @@ impl SolanaService {
 
         // Priority fee (micro-lamports per CU) from config
         let priority_micro_lamports: u64 = self.config.priority_micro_lamports;
+
+        // Pre-compute SPL token accounts when using an SPL mint
+        let pool_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&pool_pda, &mint))
+        } else {
+            None
+        };
+        let treasury_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&treasury_pda, &mint))
+        } else {
+            None
+        };
+        let recipient_token_accounts_vec: Option<Vec<Pubkey>> = if is_spl_mint {
+            Some(
+                recipient_pubkeys
+                    .iter()
+                    .map(|pk| get_associated_token_address(pk, &mint))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let recipient_token_accounts_slice = recipient_token_accounts_vec.as_deref();
 
         // Check if PoW is enabled
         let tx = if let Some(ref claim_finder) = self.claim_finder {
@@ -284,15 +347,12 @@ impl SolanaService {
                             )
                         })?;
 
-                    // Extract recipient pubkeys for accounts
-                    let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
-                        .iter()
-                        .map(|o| Pubkey::new_from_array(o.address))
-                        .map(Ok)
-                        .collect();
-                    let recipient_pubkeys = recipient_pubkeys?;
+                    let miner_token_account = if is_spl_mint {
+                        Some(get_associated_token_address(&claim.miner_authority, &mint))
+                    } else {
+                        None
+                    };
 
-                    // Build PoW-enabled transaction
                     transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
                         public_104,
@@ -312,12 +372,14 @@ impl SolanaService {
                         fee_payer_pubkey,
                         recent_blockhash,
                         priority_micro_lamports,
+                        if is_spl_mint { Some(mint) } else { None },
+                        pool_token_account,
+                        recipient_token_accounts_slice,
+                        treasury_token_account,
+                        miner_token_account,
                     )?
                 }
                 Ok(None) => {
-                    // PoW mode is enabled but no claims are available yet
-                    // Return a retryable error so the worker will requeue the job
-                    // and try again when miners have produced claims
                     warn!(
                         "No PoW claims available for job {}. Will retry until miners provide claims.",
                         job.request_id
@@ -336,15 +398,6 @@ impl SolanaService {
                 }
             }
         } else {
-            // Legacy path (no PoW)
-            // Extract recipient pubkeys for accounts
-            let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
-                .iter()
-                .map(|o| Pubkey::new_from_array(o.address))
-                .map(Ok)
-                .collect();
-            let recipient_pubkeys = recipient_pubkeys?;
-
             transaction_builder::build_withdraw_transaction(
                 proof_bytes.clone(),
                 public_104,
@@ -358,6 +411,10 @@ impl SolanaService {
                 fee_payer_pubkey,
                 recent_blockhash,
                 priority_micro_lamports,
+                if is_spl_mint { Some(mint) } else { None },
+                pool_token_account,
+                recipient_token_accounts_slice,
+                treasury_token_account,
             )?
         };
 
@@ -414,6 +471,18 @@ impl SolanaService {
                 let mut public_104 = [0u8; 104];
                 public_104.copy_from_slice(&job.public_inputs);
 
+                // Parse mint address (empty = native SOL)
+                let mint = if let Some(mint_str) = &self.config.mint_address {
+                    if mint_str.is_empty() {
+                        Pubkey::default() // Native SOL
+                    } else {
+                        Pubkey::from_str(mint_str)
+                            .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+                    }
+                } else {
+                    Pubkey::default() // Default to native SOL
+                };
+
                 let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
                     Some(pool_addr),
                     Some(treasury_addr),
@@ -445,8 +514,8 @@ impl SolanaService {
 
                     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
                 } else {
-                    // Fallback to PDA derivation
-                    transaction_builder::derive_shield_pool_pdas(&self.program_id)
+                    // Fallback to PDA derivation with mint
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
                 };
 
                 let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
@@ -586,6 +655,7 @@ mod tests {
             scramble_registry_program_id: Some(
                 "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
             ),
+            mint_address: None, // Default to native SOL
             pool_address: Some("11111111111111111111111111111111".to_string()),
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),

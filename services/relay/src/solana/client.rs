@@ -133,6 +133,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -150,6 +151,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -177,6 +179,7 @@ mod tests {
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),
             nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
+            mint_address: None, // add spl address we wanat to 
         };
 
         // Test commitment parsing
