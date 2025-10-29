@@ -38,8 +38,6 @@ impl ValidationService {
 
     /// Comprehensive validation of a withdraw job
     pub async fn validate_withdraw_proof(&self, job: &Job) -> Result<(), Error> {
-        debug!("Validating withdraw proof for job: {}", job.request_id);
-
         // 1. Parse public inputs
         let public_inputs = parse_public_inputs(&job.public_inputs)?;
 
@@ -55,7 +53,6 @@ impl ValidationService {
         // 5. Cryptographic validation
         self.validate_cryptographic_constraints(&public_inputs, &outputs, &job.proof_bytes)?;
 
-        debug!("Withdraw proof validation passed for job: {}", job.request_id);
         Ok(())
     }
 
@@ -195,26 +192,6 @@ impl ValidationService {
             warn!("Root hash is zero - this might be a test transaction");
         }
 
-        // TODO: Add actual SP1 proof verification
-        if self.config.enable_proof_verification {
-            self.verify_sp1_proof(proof_bytes, public_inputs)?;
-        }
-
-        Ok(())
-    }
-
-    /// Verify SP1 proof (placeholder implementation)
-    fn verify_sp1_proof(&self, _proof_bytes: &[u8], _public_inputs: &PublicInputs) -> Result<(), Error> {
-        // This would integrate with SP1 verifier
-        // For now, we'll just check basic format constraints
-        
-        // In a real implementation, this would:
-        // 1. Load the verification key
-        // 2. Deserialize the proof
-        // 3. Call SP1 verifier with proof + public inputs
-        // 4. Return verification result
-
-        debug!("SP1 proof verification (placeholder) - assuming valid");
         Ok(())
     }
 

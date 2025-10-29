@@ -60,7 +60,8 @@ ENV CARGO_TARGET_DIR=/tmp/target
 # Clean any stale build artifacts that might cause "File exists" errors
 RUN rm -rf /tmp/target/release/build/sp1-* || true
 # Build with a single job to avoid parallel build race conditions in SP1
-RUN cargo build --release -p indexer -j 4
+
+RUN cargo build --release -p indexer -j 32
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime

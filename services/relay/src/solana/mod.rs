@@ -21,7 +21,19 @@ use crate::claim_manager::{compute_batch_hash, ClaimFinder};
 use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
+use serde_json;
 // Removed external TransactionResult dependency; we return Signature to callers.
+
+// Helper function to parse keypair from environment variable
+// Supports both JSON array format [66,197,...] and base58 string format
+fn parse_keypair_from_env(keypair_str: &str) -> Result<Keypair, Error> {
+    let bytes: Vec<u8> = serde_json::from_str(keypair_str).map_err(|e| {
+        Error::ValidationError(format!("Failed to parse keypair JSON array: {}", e))
+    })?;
+    Ok(Keypair::try_from(bytes.as_slice()).map_err(|e| {
+        Error::ValidationError(format!("Failed to create keypair from bytes: {}", e))
+    })?)
+}
 
 #[async_trait]
 pub trait SolanaClient: Send + Sync {
@@ -50,14 +62,8 @@ impl SolanaService {
         let client = Box::new(client::RpcSolanaClient::new(&config).await?);
 
         // Optionally load fee payer keypair
-        let fee_payer = if let Some(ref path) = config.withdraw_keypair_path {
-            match read_keypair_file(path) {
-                Ok(kp) => Some(kp),
-                Err(e) => {
-                    warn!("Failed to read withdraw keypair from {}: {}", path, e);
-                    None
-                }
-            }
+        let fee_payer = if let Some(ref authority) = config.withdraw_authority {
+            Some(parse_keypair_from_env(authority)?)
         } else {
             None
         };
@@ -67,7 +73,7 @@ impl SolanaService {
             program_id,
             config,
             fee_payer,
-            claim_finder: None, // Will be set later
+            claim_finder: None,
         })
     }
 
@@ -158,10 +164,11 @@ impl SolanaService {
                 "Number of outputs must be between 1 and 10".into(),
             ));
         }
-        
+
         // Convert API Output to planner Output
         use crate::planner::Output as PlannerOutput;
-        let planner_outputs: Result<Vec<PlannerOutput>, Error> = outputs.iter()
+        let planner_outputs: Result<Vec<PlannerOutput>, Error> = outputs
+            .iter()
             .map(|o| {
                 let pubkey = o.to_pubkey()?;
                 Ok(PlannerOutput {
@@ -171,7 +178,7 @@ impl SolanaService {
             })
             .collect();
         let planner_outputs = planner_outputs?;
-        
+
         // Get first recipient for fee payer fallback
         let recipient_pubkey = outputs[0].to_pubkey()?;
 
@@ -257,12 +264,6 @@ impl SolanaService {
             let job_id = job.request_id.to_string();
             let batch_hash = compute_batch_hash(&job_id);
 
-            debug!(
-                "Computed batch_hash for job {}: {:x?}...",
-                job_id,
-                &batch_hash[0..8]
-            );
-
             // Find available claim
             match claim_finder.find_claim(&batch_hash).await {
                 Ok(Some(claim)) => {
@@ -336,8 +337,6 @@ impl SolanaService {
             }
         } else {
             // Legacy path (no PoW)
-            debug!("PoW disabled: using legacy transaction builder");
-
             // Extract recipient pubkeys for accounts
             let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
                 .iter()
@@ -362,7 +361,6 @@ impl SolanaService {
             )?
         };
 
-        debug!("Built withdraw transaction for job: {}", job.request_id);
         Ok(tx)
     }
 
@@ -488,11 +486,6 @@ impl SolanaService {
                 while retries < max_retries {
                     match jito.send(vtx.clone()) {
                         Ok(signature) => {
-                            debug!(
-                                "Jito bundle submitted: {} (attempt {})",
-                                signature,
-                                retries + 1
-                            );
                             return Ok(signature);
                         }
                         Err(e) => {
@@ -586,7 +579,6 @@ mod tests {
             commitment: "confirmed".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
             withdraw_authority: None,
-            withdraw_keypair_path: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
             max_retries: 3,

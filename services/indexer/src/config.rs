@@ -14,11 +14,6 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
-    pub host: String,
-    pub port: u16,
-    pub name: String,
-    pub user: String,
-    pub password: String,
     pub url: Option<String>,
     pub max_connections: u32,
     pub min_connections: u32,
@@ -76,12 +71,7 @@ impl Config {
 
         let config = Config {
             database: DatabaseConfig {
-                host: get_env_var("DB_HOST", "localhost"),
-                port: get_env_var_as_number("DB_PORT", 5434)?, // Changed from 5432 to 5434 (Docker default)
-                name: get_env_var("DB_NAME", "cloak"),
-                user: get_env_var("DB_USER", "cloak"), // Changed from postgres to cloak (Docker default)
-                password: get_env_var("DB_PASSWORD", "development_password_change_in_production"), // Added default password
-                url: std::env::var("INDEXER_DATABASE_URL")
+                url: std::env::var("DATABASE_URL")
                     .or_else(|_| std::env::var("DATABASE_URL"))
                     .ok(),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20)?,
@@ -89,7 +79,7 @@ impl Config {
             },
             solana: SolanaConfig {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://127.0.0.1:8899"),
-                shield_pool_program_id: get_env_var("SHIELD_POOL_PROGRAM_ID", ""),
+                shield_pool_program_id: get_env_var("CLOAK_PROGRAM_ID", ""),
                 admin_keypair: get_admin_keypair_from_env(),
                 roots_ring_address: get_env_var("ROOTS_RING_ADDRESS", "GNVDHdhhr9qgqtispqVXU2CWFAXkp9Wo7cE7adYTdcs5"),
             },
@@ -122,32 +112,12 @@ impl Config {
             },
         };
 
-        // Validate configuration
-        config.validate()?;
-
         Ok(config)
     }
 
     /// Validate configuration and print helpful error messages
-    pub fn validate(&self) -> Result<()> {
-        // Check database password
-        if self.database.password.is_empty() {
-            eprintln!("⚠️  WARNING: Database password is empty!");
-            eprintln!("   Set DB_PASSWORD environment variable or use default: development_password_change_in_production");
-        }
-
-        Ok(())
-    }
-
     pub fn log_summary(&self) {
         tracing::info!("Configuration loaded:");
-        tracing::info!(
-            "  Database: {}@{}:{}/{}",
-            self.database.user,
-            self.database.host,
-            self.database.port,
-            self.database.name
-        );
         tracing::info!(
             "  Server: port {}, env: {}",
             self.server.port,
@@ -163,18 +133,7 @@ impl Config {
     }
 
     pub fn database_url(&self) -> String {
-        if let Some(ref url) = self.database.url {
-            url.clone()
-        } else {
-            format!(
-                "postgres://{}:{}@{}:{}/{}",
-                self.database.user,
-                self.database.password,
-                self.database.host,
-                self.database.port,
-                self.database.name
-            )
-        }
+        self.database.url.clone().unwrap_or_default()
     }
 
     pub fn is_production(&self) -> bool {
@@ -193,18 +152,13 @@ impl Config {
 fn ensure_required_env_vars() -> Result<()> {
     let mut missing: Vec<String> = Vec::new();
 
-    if !has_non_empty_env(["INDEXER_DATABASE_URL", "DATABASE_URL"]) {
-        for key in ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"] {
-            if !has_non_empty_env([key]) {
-                missing.push(key.to_string());
-            }
-        }
+    if !has_non_empty_env(["DATABASE_URL", "DATABASE_URL"]) {
+        missing.push("DATABASE_URL".to_string());
     }
 
-    for key in ["SOLANA_RPC_URL", "SHIELD_POOL_PROGRAM_ID"] {
-        if !has_non_empty_env([key]) {
-            missing.push(key.to_string());
-        }
+    if !has_non_empty_env(["SOLANA_RPC_URL", "CLOAK_PROGRAM_ID"]) {
+        missing.push("SOLANA_RPC_URL".to_string());
+        missing.push("CLOAK_PROGRAM_ID".to_string());
     }
 
     let tee_enabled = std::env::var("SP1_TEE_ENABLED")

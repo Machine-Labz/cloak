@@ -4,12 +4,12 @@ pub mod repository;
 use crate::error::Error;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use tracing::info;
+use tracing::{debug, info};
 
 pub type DatabasePool = PgPool;
 
 /// Connect to PostgreSQL database
-pub async fn connect(database_url: &str) -> Result<DatabasePool, Error> {
+pub async fn connect(database_url: &str, max_connections: u32) -> Result<DatabasePool, Error> {
     info!("Connecting to database");
 
     // Create database if it doesn't exist
@@ -25,7 +25,7 @@ pub async fn connect(database_url: &str) -> Result<DatabasePool, Error> {
 
     // Create connection pool
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(max_connections)
         .connect(database_url)
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to connect to database: {}", e)))?;

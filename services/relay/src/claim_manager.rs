@@ -11,7 +11,7 @@
 
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{account::Account, pubkey::Pubkey};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
 use crate::error::Error;
 
@@ -115,7 +115,6 @@ impl ClaimFinder {
 
         // Verify registry account ONCE (same for all claims)
         if let Err(e) = self.verify_registry_account(&registry_pda).await {
-            warn!("Registry account verification failed: {}", e);
             return Ok(None);
         }
 
@@ -133,12 +132,6 @@ impl ClaimFinder {
         let mut account_verification_failed = 0;
 
         for (pubkey, account) in &accounts {
-            debug!(
-                "🔍 [DEBUG] Found account: {} (size: {} bytes)",
-                pubkey,
-                account.data.len()
-            );
-
             // Skip if too small to be a claim
             if account.data.len() < 256 {
                 size_filtered += 1;
@@ -155,18 +148,10 @@ impl ClaimFinder {
             // Parse claim account
             match parse_claim_account(&account) {
                 Ok(claim) => {
-                    debug!("🔍 [DEBUG] Successfully parsed claim {}: status={}, batch_hash={:x?}, consumed={}/{}", 
-                           pubkey, claim.status, &claim.batch_hash[0..8], claim.consumed_count, claim.max_consumes);
-
                     // Check if batch_hash matches (or if claim is wildcard)
                     let is_wildcard = claim.batch_hash == [0u8; 32];
 
                     if !is_wildcard && claim.batch_hash != *batch_hash {
-                        debug!(
-                            "Claim {} batch_hash mismatch (not wildcard): {:x?}",
-                            pubkey,
-                            &claim.batch_hash[0..8]
-                        );
                         batch_mismatch += 1;
                         continue;
                     }
@@ -182,30 +167,18 @@ impl ClaimFinder {
                     // Check if revealed
                     if claim.status != 1 {
                         // 1 = Revealed
-                        debug!(
-                            "⏭️  Claim {} not revealed (status: {})",
-                            pubkey, claim.status
-                        );
                         not_revealed += 1;
                         continue;
                     }
 
                     // Check if expired
                     if current_slot > claim.expires_at_slot {
-                        debug!(
-                            "⏰ Claim {} expired (expires: {}, current: {})",
-                            pubkey, claim.expires_at_slot, current_slot
-                        );
                         expired += 1;
                         continue;
                     }
 
                     // Check if fully consumed
                     if claim.consumed_count >= claim.max_consumes {
-                        debug!(
-                            "💯 Claim {} fully consumed ({}/{})",
-                            pubkey, claim.consumed_count, claim.max_consumes
-                        );
                         fully_consumed += 1;
                         continue;
                     }
@@ -222,10 +195,6 @@ impl ClaimFinder {
                     // Verify that the miner and registry accounts exist and have correct data size
                     // This prevents "invalid account data for instruction" errors
                     if let Err(e) = self.verify_accounts_exist(&miner_pda, &registry_pda).await {
-                        debug!(
-                            "⚠️  Claim {} has invalid miner/registry accounts: {}",
-                            pubkey, e
-                        );
                         account_verification_failed += 1;
                         continue;
                     }
@@ -245,29 +214,11 @@ impl ClaimFinder {
                     }));
                 }
                 Err(e) => {
-                    debug!("❌ [DEBUG] Failed to parse claim account {}: {}", pubkey, e);
                     parse_failed += 1;
                 }
             }
         }
 
-        let total_duration = start_time.elapsed();
-        warn!(
-            "❌ [METRICS] No available claims found for batch_hash: {:?} (searched {} accounts in {:?})\n   \
-             Filter breakdown: size_filtered={}, parse_failed={}, batch_mismatch={}, wildcard_found={} 🌟, \
-             not_revealed={}, expired={}, fully_consumed={}, account_verification_failed={}",
-            hex::encode(&batch_hash[0..8]),
-            accounts.len(),
-            total_duration,
-            size_filtered,
-            parse_failed,
-            batch_mismatch,
-            wildcard_found,
-            not_revealed,
-            expired,
-            fully_consumed,
-            account_verification_failed
-        );
         Ok(None)
     }
 

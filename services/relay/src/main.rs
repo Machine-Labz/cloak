@@ -44,7 +44,7 @@ impl AppState {
         // Database connection
         let database_url = relay_config.database.url.clone();
 
-        let db_pool = db::connect(&database_url).await?;
+        let db_pool = db::connect(&database_url, relay_config.database.max_connections).await?;
         db::run_migrations(&db_pool).await?;
 
         // Create repositories

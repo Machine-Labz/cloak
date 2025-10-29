@@ -3,10 +3,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: cloak-postgres
-    environment:
-      POSTGRES_USER: cloak
-      POSTGRES_PASSWORD: development_password_change_in_production
-      PGDATA: /var/lib/postgresql/data/pgdata
+    env_file:
+      - .env.docker
     ports:
       - "5434:5432"
     volumes:
@@ -23,12 +21,10 @@ services:
 
   # Indexer Service
   indexer:
-    build:
-      context: .
-      dockerfile: ./services/indexer/Dockerfile
+    image: marcelofeitoza/cloak:indexer
     container_name: cloak-indexer
     env_file:
-      - .env
+      - .env.docker
     ports:
       - "3001:3001"
     volumes:
@@ -36,21 +32,16 @@ services:
       - indexer_artifacts:/app/artifacts
     networks:
       - cloak-network
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   # Relay Service
   relay:
-    build:
-      context: .
-      dockerfile: ./services/relay/Dockerfile
+    image: marcelofeitoza/cloak:relay
     container_name: cloak-relay
     env_file:
-      - .env
+      - .env.docker
     ports:
       - "3002:3002"
       - "9090:9090"
@@ -58,9 +49,6 @@ services:
       - relay_logs:/app/logs
     networks:
       - cloak-network
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"

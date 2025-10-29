@@ -52,7 +52,8 @@ RUN rm -rf /tmp/target/release/build/sp1-* || true
 # Build with a single job to avoid parallel build race conditions in SP1
 ENV SQLX_OFFLINE=true
 ENV DATABASE_URL=postgresql://cloak:password@postgres:5432/cloak
-RUN cargo build --release -p relay -j 4
+
+RUN cargo build --release -p relay -j 32
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime
@@ -77,9 +78,6 @@ WORKDIR /app
 
 # Copy the built binary from builder stage
 COPY --from=builder --chown=relay:relay /tmp/target/release/relay /app/relay
-
-# Copy migrations
-COPY --chown=relay:relay services/relay/migrations /app/migrations
 
 # Switch to non-root user
 USER relay

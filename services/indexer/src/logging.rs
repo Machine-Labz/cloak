@@ -212,9 +212,6 @@ pub fn log_startup_info(config: &Config) {
         port = config.server.port,
         environment = config.server.node_env,
         tree_height = config.merkle.tree_height,
-        database_host = config.database.host,
-        database_port = config.database.port,
-        database_name = config.database.name,
         solana_rpc = config.solana.rpc_url,
         "Cloak Indexer starting up"
     );
