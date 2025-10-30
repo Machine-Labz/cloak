@@ -1,0 +1,62 @@
+{
+  "name": "@cloak/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Cloak Protocol - Private transactions on Solana",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "tsc --noEmit",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
+  },
+  "keywords": [
+    "solana",
+    "cloak",
+    "privacy",
+    "zero-knowledge",
+    "zkp",
+    "private-transactions"
+  ],
+  "author": "Cloak Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cloak-protocol/sdk.git"
+  },
+  "homepage": "https://cloaklabz.xyz",
+  "bugs": {
+    "url": "https://github.com/cloak-protocol/sdk/issues"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.0.1",
+    "@solana/web3.js": "^1.98.4",
+    "bs58": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^22.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@solana/web3.js": "^1.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
