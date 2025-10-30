@@ -335,7 +335,17 @@ pub async fn get_merkle_proof(
 
     // Generate the merkle proof using the actual merkle tree
     tracing::info!("🌳 Generating proof from Merkle tree");
-    let tree = state.merkle_tree.lock().await;
+    let mut tree = state.merkle_tree.lock().await;
+
+    // Sync in-memory next_index with storage to avoid stale state across requests/processes
+    match state.storage.get_max_leaf_index().await {
+        Ok(latest_next_index) => {
+            tree.set_next_index(latest_next_index);
+        }
+        Err(e) => {
+            tracing::warn!("⚠️ Failed to refresh next_index from storage: {}", e);
+        }
+    }
     match tree.generate_proof(index, &state.storage).await {
         Ok(proof) => {
             tracing::info!("✅ Merkle proof generated successfully");
