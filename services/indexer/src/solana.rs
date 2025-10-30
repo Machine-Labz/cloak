@@ -52,15 +52,26 @@ pub async fn push_root_to_chain(
     // Create instruction data: [discriminator: 1 byte][root: 32 bytes]
     let mut instruction_data = vec![1u8]; // AdminPushRoot discriminator
     instruction_data.extend_from_slice(&root_bytes);
-    
+
+    // Derive roots_ring PDA from program ID
+    let program_id = Pubkey::from_str(&config.shield_pool_program_id)
+        .context("Invalid shield pool program ID")?;
+    let (roots_ring_pda, _bump) = Pubkey::find_program_address(
+        &[b"roots_ring"],
+        &program_id,
+    );
+
+    tracing::info!(
+        roots_ring_pda = %roots_ring_pda,
+        "Derived roots_ring PDA from program ID"
+    );
+
     // Create instruction
     let instruction = Instruction {
-        program_id: Pubkey::from_str(&config.shield_pool_program_id)
-            .context("Invalid shield pool program ID")?,
+        program_id,
         accounts: vec![
             AccountMeta::new(admin_keypair.pubkey(), true),
-            AccountMeta::new(Pubkey::from_str(&config.roots_ring_address)
-                .context("Invalid roots ring address")?, false),
+            AccountMeta::new(roots_ring_pda, false),
         ],
         data: instruction_data,
     };
