@@ -1,5 +1,6 @@
 import {
   Connection,
+  Keypair,
   PublicKey,
   Transaction,
 } from "@solana/web3.js";
@@ -15,6 +16,7 @@ import {
   WithdrawOptions,
   MerkleProof,
   SP1ProofInputs,
+  Network,
 } from "./types";
 import { generateNote, updateNoteWithDeposit, isWithdrawable } from "./note";
 import {
@@ -26,12 +28,19 @@ import {
   computeOutputsHash,
   hexToBytes,
   bytesToHex,
+  isValidHex,
 } from "../utils/crypto";
 import { getDistributableAmount } from "../utils/fees";
 import { IndexerService } from "../services/IndexerService";
 import { ProverService } from "../services/ProverService";
 import { RelayService } from "../services/RelayService";
 import { createDepositInstruction } from "../solana/instructions";
+import { getShieldPoolPDAs } from "../utils/pda";
+
+export const CLOAK_PROGRAM_ID = new PublicKey("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
+const CLOAK_API_URL = 
+  // "http://localhost:8000"; 
+  "https://api.cloaklabz.xyz";
 
 /**
  * Main Cloak SDK
@@ -43,27 +52,21 @@ import { createDepositInstruction } from "../solana/instructions";
  * ```typescript
  * const client = new CloakSDK({
  *   network: "devnet",
- *   programId: new PublicKey("..."),
- *   poolAddress: new PublicKey("..."),
- *   commitmentsAddress: new PublicKey("..."),
- *   apiUrl: "https://api.example.com", // optional - will be used for both indexer and relay if present
- *   indexerUrl: "https://indexer.example.com", // optional - will be desconsidered if apiUrl is present
- *   relayUrl: "https://relay.example.com", // optional - will be desconsidered if apiUrl is present
+ *   keypairBytes: [...],
  * });
  *
  * // Option 1: Deposit only (save note for later)
- * const depositResult = await client.deposit(connection, wallet, 1_000_000_000);
+ * const depositResult = await client.deposit(connection, 1_000_000_000);
  * console.log("Note saved:", depositResult.note);
  * 
  * // Then withdraw using the saved note
- * const withdrawResult = await client.withdraw(connection, wallet, depositResult.note, recipientAddress);
+ * const withdrawResult = await client.withdraw(connection, depositResult.note, recipientAddress);
  * console.log("Withdrawal complete:", withdrawResult.signature);
  *
  * // Option 2: Private transfer (complete flow: deposit + withdraw)
  * const note = client.generateNote(1_000_000_000);
  * const txResult = await client.privateTransfer(
  *   connection,
- *   wallet,
  *   note,
  *   [
  *     { recipient: addr1, amount: 500_000_000 },
@@ -75,6 +78,7 @@ import { createDepositInstruction } from "../solana/instructions";
  */
 export class CloakSDK {
   private config: CloakConfig;
+  private keypair: Keypair;
   private indexer: IndexerService;
   private prover: ProverService;
   private relay: RelayService;
@@ -84,27 +88,27 @@ export class CloakSDK {
    *
    * @param config - Client configuration
    */
-  constructor(config: CloakConfig) {
-    // Resolve service URLs based on apiUrl or explicit URLs
-    const base = config.apiUrl?.replace(/\/$/, "");
-    const indexerUrl = base || config.indexerUrl;
-    const relayUrl = base || config.relayUrl;
+  constructor({keypairBytes, network = "devnet"}: {keypairBytes: Uint8Array, network?: Network}) {
+    this.keypair = Keypair.fromSecretKey(keypairBytes);
 
-    if (!indexerUrl || !relayUrl) {
-      throw new Error(
-        "CloakSDK configuration error: Provide either 'apiUrl' or both 'indexerUrl' and 'relayUrl'"
-      );
-    }
-
-    // Store resolved config while preserving original fields
-    this.config = { ...config, indexerUrl, relayUrl } as CloakConfig;
-
-    this.indexer = new IndexerService(indexerUrl);
+    this.indexer = new IndexerService(CLOAK_API_URL);
     this.prover = new ProverService(
-      indexerUrl,
-      config.proofTimeout || 5 * 60 * 1000
+      CLOAK_API_URL,
+      5 * 60 * 1000
     );
-    this.relay = new RelayService(relayUrl);
+    this.relay = new RelayService(CLOAK_API_URL);
+
+    const { pool, commitments, rootsRing, nullifierShard, treasury } = getShieldPoolPDAs();
+
+    this.config = {
+      network: network,
+      keypairBytes: keypairBytes,
+      poolAddress: pool,
+      commitmentsAddress: commitments,
+      rootsRingAddress: rootsRing,
+      nullifierShardAddress: nullifierShard,
+      treasuryAddress: treasury,
+    };
   }
 
   /**
@@ -138,7 +142,6 @@ export class CloakSDK {
    */
   async deposit(
     connection: Connection,
-    payer: { publicKey: PublicKey; sendTransaction: Function },
     amountOrNote: number | CloakNote,
     options?: DepositOptions
   ): Promise<DepositResult> {
@@ -161,8 +164,8 @@ export class CloakSDK {
     // Create deposit instruction
     const commitmentBytes = hexToBytes(note.commitment);
     const depositIx = createDepositInstruction({
-      programId: this.config.programId,
-      payer: payer.publicKey,
+      programId: CLOAK_PROGRAM_ID,
+      payer: this.keypair.publicKey,
       pool: this.config.poolAddress,
       commitments: this.config.commitmentsAddress,
       amount: note.amount,
@@ -174,7 +177,7 @@ export class CloakSDK {
       await connection.getLatestBlockhash();
 
     const transaction = new Transaction({
-      feePayer: payer.publicKey,
+      feePayer: this.keypair.publicKey,
       blockhash,
       lastValidBlockHeight,
     }).add(depositIx);
@@ -195,7 +198,7 @@ export class CloakSDK {
     options?.onProgress?.("Sending transaction...");
 
     // Send transaction
-    const signature = await payer.sendTransaction(transaction, connection, {
+    const signature = await connection.sendTransaction(transaction, [this.keypair],  {
       skipPreflight: options?.skipPreflight || false,
       preflightCommitment: "confirmed",
       maxRetries: 3,
@@ -226,17 +229,45 @@ export class CloakSDK {
 
     options?.onProgress?.("Registering with indexer...");
 
-    // Submit to indexer
+    // Submit to indexer with retry logic for transient backend errors
     const encryptedOutput = this.encodeNote(note);
-    const depositResponse = await this.indexer.submitDeposit({
-      leafCommit: note.commitment,
-      encryptedOutput,
-      txSignature: signature,
-      slot: depositSlot,
-    });
+    let depositResponse: { success: boolean; leafIndex?: number; root?: string } | null = null;
+    let retries = 0;
+    const maxRetries = 3;
+    const baseDelayMs = 1000;
+    
+    while (retries <= maxRetries) {
+      try {
+        depositResponse = await this.indexer.submitDeposit({
+          leafCommit: note.commitment,
+          encryptedOutput,
+          txSignature: signature,
+          slot: depositSlot,
+        });
+        break; // Success, exit retry loop
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Retry on Merkle tree inconsistency errors (backend state issues)
+        if (errorMessage.includes("Merkle tree") && errorMessage.includes("inconsistent") && retries < maxRetries) {
+          retries++;
+          const delayMs = baseDelayMs * Math.pow(2, retries - 1); // Exponential backoff
+          options?.onProgress?.(`Merkle tree inconsistency detected, retrying in ${delayMs}ms... (attempt ${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+        
+        // For other errors or max retries reached, throw the error
+        throw error;
+      }
+    }
 
-    const leafIndex = depositResponse.leafIndex!;
-    const root = depositResponse.root!;
+    if (!depositResponse || !depositResponse.leafIndex || !depositResponse.root) {
+      throw new Error("Failed to submit deposit: Indexer did not return leaf index and root");
+    }
+
+    const leafIndex = depositResponse.leafIndex;
+    const root = depositResponse.root;
 
     options?.onProgress?.("Fetching Merkle proof...");
 
@@ -307,7 +338,6 @@ export class CloakSDK {
    */
   async privateTransfer(
     connection: Connection,
-    payer: { publicKey: PublicKey; sendTransaction: Function },
     note: CloakNote,
     recipients: MaxLengthArray<Transfer, 5>,
     options?: TransferOptions
@@ -317,7 +347,7 @@ export class CloakSDK {
       options?.onProgress?.("Note not deposited yet - depositing first...");
 
       // Deposit the note (pass the existing note to preserve its commitment)
-      const depositResult = await this.deposit(connection, payer, note, {
+      const depositResult = await this.deposit(connection, note, {
         onProgress: options?.onProgress,
         skipPreflight: false,
       });
@@ -361,6 +391,44 @@ export class CloakSDK {
 
     options?.onProgress?.("Generating zero-knowledge proof...");
 
+    // Validate required fields
+    if (!note.leafIndex && note.leafIndex !== 0) {
+      throw new Error("Note must have a leaf index (note must be deposited)");
+    }
+    if (!merkleProof.pathElements || merkleProof.pathElements.length === 0) {
+      throw new Error("Merkle proof is invalid: missing path elements");
+    }
+    if (merkleProof.pathElements.length !== merkleProof.pathIndices.length) {
+      throw new Error("Merkle proof is invalid: path elements and indices length mismatch");
+    }
+    
+    // Validate Merkle path indices are binary (0 or 1 only)
+    for (let i = 0; i < merkleProof.pathIndices.length; i++) {
+      const idx = merkleProof.pathIndices[i];
+      if (idx !== 0 && idx !== 1) {
+        throw new Error(`Merkle proof path index at position ${i} must be 0 or 1, got ${idx}`);
+      }
+    }
+    
+    // Validate hex strings format
+    if (!isValidHex(note.r, 32)) {
+      throw new Error("Note r must be 64 hex characters (32 bytes)");
+    }
+    if (!isValidHex(note.sk_spend, 32)) {
+      throw new Error("Note sk_spend must be 64 hex characters (32 bytes)");
+    }
+    if (!isValidHex(merkleRoot, 32)) {
+      throw new Error("Merkle root must be 64 hex characters (32 bytes)");
+    }
+    
+    // Validate Merkle path elements are hex strings
+    for (let i = 0; i < merkleProof.pathElements.length; i++) {
+      const element = merkleProof.pathElements[i];
+      if (typeof element !== "string" || !isValidHex(element, 32)) {
+        throw new Error(`Merkle proof path element at position ${i} must be 64 hex characters (32 bytes)`);
+      }
+    }
+
     // Prepare proof inputs
     const proofInputs: SP1ProofInputs = {
       privateInputs: {
@@ -386,13 +454,18 @@ export class CloakSDK {
     };
 
     // Generate proof
-    const proofResult = await this.prover.generateProof(
-      proofInputs,
-      options?.onProofProgress
-    );
+    const proofResult = await this.prover.generateProof(proofInputs);
 
     if (!proofResult.success || !proofResult.proof || !proofResult.publicInputs) {
-      throw new Error(proofResult.error || "Proof generation failed");
+      // The ProverService already extracts and formats the error message
+      let errorMessage = proofResult.error || "Proof generation failed";
+      
+      // Remove redundant "Proof generation failed:" prefix if present
+      if (errorMessage.startsWith("Proof generation failed: ")) {
+        errorMessage = errorMessage.substring("Proof generation failed: ".length);
+      }
+      
+      throw new Error(errorMessage);
     }
 
     options?.onProgress?.("Submitting to relay service...");
@@ -456,7 +529,6 @@ export class CloakSDK {
    */
   async withdraw(
     connection: Connection,
-    payer: { publicKey: PublicKey; sendTransaction: Function },
     note: CloakNote,
     recipient: PublicKey,
     options?: WithdrawOptions
@@ -472,7 +544,6 @@ export class CloakSDK {
 
     return this.privateTransfer(
       connection,
-      payer,
       note,
       [{ recipient, amount }],
       options

@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 /**
  * Supported Solana networks
  */
-export type Network = "localnet" | "devnet" | "mainnet";
+export type Network = "localnet" | "devnet" | "mainnet" | "testnet";
 
 /**
  * Cloak Note - Represents a private transaction commitment
@@ -103,30 +103,28 @@ export interface DepositResult {
 export interface CloakConfig {
   /** Solana network */
   network: Network;
-  /** Cloak program ID */
-  programId: PublicKey;
-  /** Pool account address (PDA) */
-  poolAddress: PublicKey;
-  /** Commitments account address (PDA) */
-  commitmentsAddress: PublicKey;
+  /** Keypair bytes */
+  keypairBytes: Uint8Array;
+
   /**
    * Single API base URL for both Indexer and Relay services.
    * If provided, it will be used for both services and overrides
    * any `indexerUrl` or `relayUrl` values.
    */
   apiUrl?: string;
-  /** Indexer service URL (required if `apiUrl` is not provided) */
-  indexerUrl?: string;
-  /** Relay service URL (required if `apiUrl` is not provided) */
-  relayUrl?: string;
-  /** Optional: Roots ring account address (for root verification) */
-  rootsRingAddress?: PublicKey;
-  /** Optional: Treasury address (for fee collection) */
-  treasuryAddress?: PublicKey;
-  /** Optional: Nullifier shard address (for double-spend prevention) */
-  nullifierShardAddress?: PublicKey;
   /** Optional: Proof generation timeout in milliseconds (default: 5 minutes) */
   proofTimeout?: number;
+
+  /** Pool account address (PDA) */
+  poolAddress: PublicKey;
+  /** Commitments account address (PDA) */
+  commitmentsAddress: PublicKey;
+  /** Roots ring account address (PDA) */
+  rootsRingAddress: PublicKey;
+  /** Nullifier shard account address (PDA) */
+  nullifierShardAddress: PublicKey;
+  /** Treasury account address (PDA) */
+  treasuryAddress: PublicKey;
 }
 
 /**
@@ -147,8 +145,6 @@ export interface TransferOptions {
   relayFeeBps?: number;
   /** Optional callback for progress updates */
   onProgress?: (status: string) => void;
-  /** Optional callback for proof generation progress (0-100) */
-  onProofProgress?: (progress: number) => void;
 }
 
 /**

@@ -29,38 +29,20 @@ export class ProverService {
    * This process typically takes 30-180 seconds depending on the backend.
    *
    * @param inputs - Circuit inputs (private + public + outputs)
-   * @param onProgress - Optional progress callback (0-100)
    * @returns Proof result with hex-encoded proof and public inputs
    *
    * @example
    * ```typescript
-   * const result = await prover.generateProof(inputs, (progress) => {
-   *   console.log(`Generating proof: ${progress}%`);
-   * });
+   * const result = await prover.generateProof(inputs);
    * if (result.success) {
    *   console.log(`Proof: ${result.proof}`);
    * }
    * ```
    */
   async generateProof(
-    inputs: SP1ProofInputs,
-    onProgress?: (progress: number) => void
+    inputs: SP1ProofInputs
   ): Promise<SP1ProofResult> {
     const startTime = Date.now();
-
-    // Start progress tracking if callback provided
-    let progressInterval: NodeJS.Timeout | number | undefined;
-    if (onProgress) {
-      progressInterval = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        // Estimate progress based on elapsed time (reaches ~99% at timeout)
-        const estimatedProgress = Math.min(
-          99,
-          Math.floor((elapsed / this.timeout) * 100)
-        );
-        onProgress(estimatedProgress);
-      }, 100) as any;
-    }
 
     try {
       // Prepare request body with snake_case field names for backend
@@ -90,11 +72,22 @@ export class ProverService {
         let errorMessage = `${response.status} ${response.statusText}`;
         try {
           const errorText = await response.text();
-          errorMessage = errorText || errorMessage;
+          // Try to parse as JSON to extract error message
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || errorJson.message || errorText;
+          } catch {
+            errorMessage = errorText || errorMessage;
+          }
         } catch {
           // Ignore parse errors
         }
-        throw new Error(`Proof generation failed: ${errorMessage}`);
+        // Return error result instead of throwing
+        return {
+          success: false,
+          generationTimeMs: Date.now() - startTime,
+          error: errorMessage,
+        };
       }
 
       const rawData = (await response.json()) as any;
@@ -107,10 +100,36 @@ export class ProverService {
         generationTimeMs: rawData.generation_time_ms || (Date.now() - startTime),
         error: rawData.error,
       };
-
-      // Update progress to 100% if successful
-      if (onProgress && result.success) {
-        onProgress(100);
+      
+      // Store additional debug info in the error if available
+      if (!result.success && rawData.execution_report) {
+        // execution_report will be included when parsing the error below
+      }
+      
+      // If the response indicates failure, try to extract better error message
+      if (!result.success && result.error) {
+        try {
+          // If error is a JSON string, parse it
+          const errorObj = typeof result.error === "string" ? JSON.parse(result.error) : result.error;
+          if (errorObj?.error && typeof errorObj.error === "string") {
+            result.error = errorObj.error;
+          } else if (typeof errorObj === "string") {
+            result.error = errorObj;
+          }
+          // Include execution_report if available for debugging
+          if (errorObj?.execution_report && typeof errorObj.execution_report === "string") {
+            result.error += `\nExecution report: ${errorObj.execution_report}`;
+          }
+          // Include total_cycles and total_syscalls if available
+          if (errorObj?.total_cycles !== undefined) {
+            result.error += `\nTotal cycles: ${errorObj.total_cycles}`;
+          }
+          if (errorObj?.total_syscalls !== undefined) {
+            result.error += `\nTotal syscalls: ${errorObj.total_syscalls}`;
+          }
+        } catch {
+          // If not JSON, keep the error as-is
+        }
       }
 
       return result;
@@ -130,11 +149,6 @@ export class ProverService {
         generationTimeMs: totalTime,
         error: error instanceof Error ? error.message : "Unknown error occurred",
       };
-    } finally {
-      // Clear progress interval
-      if (progressInterval !== undefined) {
-        clearInterval(progressInterval as any);
-      }
     }
   }
 

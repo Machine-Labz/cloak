@@ -196,18 +196,38 @@ export class IndexerService {
       }),
     });
 
+    // Read response body once
+    let responseData: any;
+    try {
+      responseData = await response.json();
+    } catch {
+      // If JSON parse fails, try text
+      try {
+        const text = await response.text();
+        responseData = text ? { error: text } : null;
+      } catch {
+        responseData = null;
+      }
+    }
+
     if (!response.ok) {
       let errorMessage = `${response.status} ${response.statusText}`;
-      try {
-        const errorData = (await response.json()) as any;
-        errorMessage = errorData?.error || errorMessage;
-      } catch {
-        // Ignore JSON parse errors
+      if (responseData) {
+        if (typeof responseData === 'string') {
+          errorMessage = responseData;
+        } else {
+          errorMessage = responseData?.error || responseData?.message || errorMessage;
+          // Include additional context if available
+          if (responseData?.details) {
+            errorMessage += ` (${JSON.stringify(responseData.details)})`;
+          }
+        }
       }
       throw new Error(`Failed to submit deposit: ${errorMessage}`);
     }
 
-    const data = (await response.json()) as any;
+    // Response was successful
+    const data = responseData;
 
     // Normalize field names
     return {

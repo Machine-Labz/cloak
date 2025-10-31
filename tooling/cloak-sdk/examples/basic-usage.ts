@@ -9,56 +9,41 @@
  */
 
 import { CloakSDK, formatAmount, calculateFee } from "@cloak/sdk";
-import { Connection, PublicKey, Keypair } from "@solana/web3.js";
+import { Connection, Keypair } from "@solana/web3.js";
+import { readFileSync } from "fs";
+import * as path from "path";
 
 async function main() {
   // ============================================================================
   // STEP 1: Initialize Cloak Client
   // ============================================================================
 
+  // Generate a keypair for the SDK to use
+  // In a real app, you'd load this from your wallet or secure storage
+
+  // Safely get the user's home directory
+  const homeDir = process.env.HOME || process.env.USERPROFILE;
+  if (!homeDir) throw new Error("Could not determine the user's home directory for keypair loading.");
+
+  const systemKeypairPath = path.join(homeDir, ".config", "solana", "id.json");
+  const secretKeyString = readFileSync(systemKeypairPath, "utf8");
+  const secretKey = Uint8Array.from(JSON.parse(secretKeyString));
+  const keypair = Keypair.fromSecretKey(secretKey);
+  const connection = new Connection("https://api.testnet.solana.com", "confirmed");
+
   const client = new CloakSDK({
-    network: "devnet",
-    programId: new PublicKey("YOUR_PROGRAM_ID"),
-    poolAddress: new PublicKey("YOUR_POOL_ADDRESS"),
-    commitmentsAddress: new PublicKey("YOUR_COMMITMENTS_ADDRESS"),
-    // Option A: Single API URL proxying indexer+relay
-    apiUrl: "https://api.your-cloak.example.com",
-    // Option B: Separate services
-    // indexerUrl: "https://your-indexer-url.com",
-    // relayUrl: "https://your-relay-url.com",
-    // Optional: custom proof timeout
-    proofTimeout: 5 * 60 * 1000, // 5 minutes
+    network: "testnet",
+    keypairBytes: keypair.secretKey,
   });
 
   console.log("✅ Cloak client initialized");
+  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
 
   // ============================================================================
-  // STEP 2: Connect to Solana
+  // STEP 2: Deposit SOL
   // ============================================================================
 
-  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
-
-  // In a real app, you'd use a wallet adapter
-  // For this example, we'll use a keypair
-  const payer = Keypair.generate(); // Replace with your wallet
-
-  // Mock wallet object with sendTransaction method
-  const wallet = {
-    publicKey: payer.publicKey,
-    sendTransaction: async (tx: any, connection: Connection) => {
-      // Sign and send
-      tx.partialSign(payer);
-      return await connection.sendRawTransaction(tx.serialize());
-    },
-  };
-
-  console.log(`✅ Connected to Solana (${payer.publicKey.toBase58()})`);
-
-  // ============================================================================
-  // STEP 3: Deposit SOL
-  // ============================================================================
-
-  const depositAmount = 1_000_000_000; // 1 SOL in lamports
+  const depositAmount = 100_000_000; // 0.1 SOL in lamports
   const fee = calculateFee(depositAmount);
 
   console.log(`\n📥 Depositing ${formatAmount(depositAmount)} SOL...`);
@@ -66,10 +51,9 @@ async function main() {
 
   const depositResult = await client.deposit(
     connection,
-    wallet,
     depositAmount,
     {
-      onProgress: (status) => {
+      onProgress: (status: string) => {
         console.log(`   ${status}`);
       },
     }
@@ -86,7 +70,7 @@ async function main() {
   console.log(client.exportNote(note, true));
 
   // ============================================================================
-  // STEP 4: Private Transfer (Complete Flow: Deposit + Withdraw)
+  // STEP 3: Private Transfer (Complete Flow: Deposit + Withdraw)
   // ============================================================================
 
   // This demonstrates the main use case: privately send funds to recipients
@@ -98,9 +82,11 @@ async function main() {
   const newNote = client.generateNote(depositAmount);
 
   // Define recipients (up to 5)
-  const recipient1 = new PublicKey("RECIPIENT_ADDRESS_1");
-  const recipient2 = new PublicKey("RECIPIENT_ADDRESS_2");
-  const recipient3 = new PublicKey("RECIPIENT_ADDRESS_3");
+  // In a real app, these would be actual recipient addresses
+  // For this example, we'll generate some demo addresses
+  const recipient1 = Keypair.generate().publicKey;
+  const recipient2 = Keypair.generate().publicKey;
+  const recipient3 = Keypair.generate().publicKey;
 
   // Calculate distributable amount (after protocol fees)
   const distributable = depositAmount - fee;
@@ -110,9 +96,9 @@ async function main() {
   const amount2 = Math.floor(distributable * 0.3); // 30%
   const amount3 = distributable - amount1 - amount2; // Remaining 20%
 
-  console.log(`   Recipient 1: ${formatAmount(amount1)} SOL`);
-  console.log(`   Recipient 2: ${formatAmount(amount2)} SOL`);
-  console.log(`   Recipient 3: ${formatAmount(amount3)} SOL`);
+  console.log(`   Recipient 1 (${recipient1.toBase58().slice(0, 8)}...): ${formatAmount(amount1)} SOL`);
+  console.log(`   Recipient 2 (${recipient2.toBase58().slice(0, 8)}...): ${formatAmount(amount2)} SOL`);
+  console.log(`   Recipient 3 (${recipient3.toBase58().slice(0, 8)}...): ${formatAmount(amount3)} SOL`);
 
   // privateTransfer handles the complete flow:
   // 1. Deposits the note (since it's not deposited yet)
@@ -121,7 +107,6 @@ async function main() {
   // 4. Transfers to recipients
   const transferResult = await client.privateTransfer(
     connection,
-    wallet,
     newNote, // Not deposited yet - privateTransfer handles it!
     [
       { recipient: recipient1, amount: amount1 },
@@ -130,14 +115,8 @@ async function main() {
     ],
     {
       relayFeeBps: 50, // 0.5% relay fee
-      onProgress: (status) => {
+      onProgress: (status: string) => {
         console.log(`   ${status}`);
-      },
-      onProofProgress: (progress) => {
-        // Update every 10%
-        if (progress % 10 === 0) {
-          console.log(`   Proof generation: ${progress}%`);
-        }
       },
     }
   );
@@ -147,23 +126,23 @@ async function main() {
   console.log(`   Nullifier: ${transferResult.nullifier.slice(0, 16)}...`);
 
   // ============================================================================
-  // STEP 5: Using a Previously Deposited Note
+  // STEP 4: Using a Previously Deposited Note
   // ============================================================================
 
   // If you already deposited a note (like in STEP 3), you can use it directly
   console.log(`\n💸 Withdrawing previously deposited note...`);
 
-  const recipientSingle = new PublicKey("RECIPIENT_ADDRESS");
+  // In a real app, this would be an actual recipient address
+  const recipientSingle = Keypair.generate().publicKey;
 
   const withdrawResult = await client.withdraw(
     connection,
-    wallet,
     note, // This note was already deposited in STEP 3
     recipientSingle,
     {
       withdrawAll: true, // Withdraw full amount minus fees
       relayFeeBps: 50,
-      onProgress: (status) => console.log(`   ${status}`),
+      onProgress: (status: string) => console.log(`   ${status}`),
     }
   );
 
@@ -171,7 +150,7 @@ async function main() {
   console.log(`   Transaction: ${withdrawResult.signature}`);
 
   // ============================================================================
-  // STEP 6: Working with Notes
+  // STEP 5: Working with Notes
   // ============================================================================
 
   console.log(`\n📝 Note management:`);
