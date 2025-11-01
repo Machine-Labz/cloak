@@ -18,7 +18,6 @@ pub async fn get_status(
     Path(request_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, Error> {
     info!("Status endpoint called for request: {}", request_id);
-    debug!("Getting status for request: {}", request_id);
 
     // Look up job by request ID
     info!("Querying database for job with request_id: {}", request_id);
@@ -43,24 +42,5 @@ pub async fn get_status(
             warn!("Database error while looking up job {}: {}", request_id, e);
             Err(e)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::extract::Path;
-    use uuid::Uuid;
-
-    #[tokio::test]
-    async fn test_get_status() {
-        let request_id = Uuid::new_v4();
-        let state = AppState::mock(); // Would need to implement this
-
-        // This test would work once we have a proper AppState::mock() implementation
-        // For now it's commented out to avoid compilation issues
-
-        // let result = get_status(State(state), Path(request_id)).await;
-        // assert!(result.is_ok());
     }
 }

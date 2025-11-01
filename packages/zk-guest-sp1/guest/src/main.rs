@@ -72,12 +72,16 @@ pub fn main() {
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
 
-    // Commit public inputs to the proof as individual primitive values
-    // This matches the format expected by the Solana verifier
-    sp1_zkvm::io::commit(&inputs.public.root);
-    sp1_zkvm::io::commit(&inputs.public.nf);
-    sp1_zkvm::io::commit(&inputs.public.outputs_hash);
-    sp1_zkvm::io::commit(&inputs.public.amount);
+    // Commit public inputs as a single 104-byte canonical blob
+    // Format: root(32) || nf(32) || outputs_hash(32) || amount(8)
+    // This matches the format expected by the Solana verifier (sp1-solana crate)
+    let mut public_inputs_blob = [0u8; 104];
+    public_inputs_blob[0..32].copy_from_slice(&inputs.public.root);
+    public_inputs_blob[32..64].copy_from_slice(&inputs.public.nf);
+    public_inputs_blob[64..96].copy_from_slice(&inputs.public.outputs_hash);
+    public_inputs_blob[96..104].copy_from_slice(&inputs.public.amount.to_le_bytes());
+
+    sp1_zkvm::io::commit_slice(&public_inputs_blob);
 }
 
 fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
@@ -213,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_conservation_failure() {
-        let mut inputs = create_test_inputs();
+        let inputs = create_test_inputs();
         assert!(verify_circuit_constraints(&inputs).is_err());
     }
 }

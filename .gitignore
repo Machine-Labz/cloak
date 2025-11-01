@@ -22,9 +22,53 @@ test-ledger/
 *.dylib
 *.dll
 
-# Keypairs (keep examples but ignore actual keys)
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Keypairs and sensitive files
 *-keypair.json
-!*-keypair.json.example
+*.json
+!package.json
+!package-lock.json
+!yarn.lock
+!pnpm-lock.yaml
+!tsconfig.json
+!tsconfig.*.json
+!babel.config.js
+!docusaurus.config.ts
+!sidebars.ts
+!compose.yml
+!Cargo.toml
+!Cargo.lock
+!justfile
+!LICENSE
+!README.md
+!*.md
+!*.mdx
+!*.sh
+!*.sql
+!*.css
+!*.ts
+!*.tsx
+!*.js
+!*.jsx
+!*.rs
+!*.toml
+!*.yaml
+!*.yml
+!*.svg
+!*.png
+!*.jpg
+!*.jpeg
+!*.gif
+!*.ico
+!*.woff
+!*.woff2
+!*.ttf
+!*.eot
 
 # Logs
 *.log

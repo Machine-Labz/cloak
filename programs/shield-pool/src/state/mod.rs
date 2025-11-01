@@ -1,4 +1,101 @@
-use pinocchio::program_error::ProgramError;
+use crate::{error::ShieldPoolError, ID};
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError};
+
+/// CommitmentQueue: Fixed-size ring buffer storing recent deposit commitments.
+/// Layout:
+/// [total_commits: u64][reserved: u64][commitments: CAPACITY * 32 bytes]
+pub struct CommitmentQueue(*mut u8);
+
+impl CommitmentQueue {
+    pub const HEADER_SIZE: usize = 16; // 8 bytes count + 8 bytes reserved
+    pub const CAPACITY: usize = 256;
+    pub const SIZE: usize = Self::HEADER_SIZE + Self::CAPACITY * 32; // 16 + 8192 = 8208 bytes
+
+    #[inline(always)]
+    pub fn from_account_info(account_info: &AccountInfo) -> Result<Self, ProgramError> {
+        if account_info.owner() != &ID {
+            return Err(ShieldPoolError::InvalidAccountOwner.into());
+        }
+        if account_info.data_len() != Self::SIZE {
+            return Err(ShieldPoolError::InvalidAccountSize.into());
+        }
+        Ok(Self::from_account_info_unchecked(account_info))
+    }
+
+    #[inline(always)]
+    fn from_account_info_unchecked(account_info: &AccountInfo) -> Self {
+        unsafe { Self(account_info.borrow_mut_data_unchecked().as_mut_ptr()) }
+    }
+
+    #[inline(always)]
+    pub fn total_commits(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0 as *const u64)) }
+    }
+
+    #[inline(always)]
+    fn set_total_commits(&mut self, value: u64) {
+        unsafe {
+            *(self.0 as *mut u64) = value.to_le();
+        }
+    }
+
+    #[inline(always)]
+    fn slot_offset(slot: usize) -> usize {
+        Self::HEADER_SIZE + slot * 32
+    }
+
+    #[inline(always)]
+    unsafe fn write_commitment(&mut self, slot: usize, commitment: &[u8; 32]) {
+        core::ptr::copy_nonoverlapping(
+            commitment.as_ptr(),
+            self.0.add(Self::slot_offset(slot)),
+            32,
+        );
+    }
+
+    #[inline(always)]
+    unsafe fn read_commitment(&self, slot: usize, out: &mut [u8; 32]) {
+        core::ptr::copy_nonoverlapping(self.0.add(Self::slot_offset(slot)), out.as_mut_ptr(), 32);
+    }
+
+    #[inline(always)]
+    pub fn contains(&self, commitment: &[u8; 32]) -> bool {
+        let total = self.total_commits();
+        let count = core::cmp::min(total, Self::CAPACITY as u64);
+        if count == 0 {
+            return false;
+        }
+
+        let start_index = total.saturating_sub(count);
+        let mut buffer = [0u8; 32];
+        for offset in 0..count {
+            let index = start_index + offset;
+            let slot = (index % Self::CAPACITY as u64) as usize;
+            unsafe {
+                self.read_commitment(slot, &mut buffer);
+            }
+            if &buffer == commitment {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline(always)]
+    pub fn append(&mut self, commitment: &[u8; 32]) -> Result<u64, ProgramError> {
+        let total = self.total_commits();
+        if total == u64::MAX {
+            return Err(ShieldPoolError::CommitmentLogFull.into());
+        }
+
+        let slot = (total % Self::CAPACITY as u64) as usize;
+        unsafe {
+            self.write_commitment(slot, commitment);
+        }
+        self.set_total_commits(total + 1);
+        Ok(total)
+    }
+}
 
 /// RootsRing: Fixed-size ring buffer of recent Merkle roots
 /// Layout: [head: u8][pad: 7][roots: 64 * 32 bytes] => total = 8 + 2048 = 2056 bytes
@@ -79,7 +176,7 @@ pub struct NullifierShard(*mut u8);
 
 impl NullifierShard {
     pub const MIN_SIZE: usize = 4; // Just the count field
-    pub const MAX_NULLIFIERS: usize = 1000; // Reasonable limit for MVP
+    pub const MAX_NULLIFIERS: usize = 319; // Limited by 10KB CPI realloc cap
 
     #[inline(always)]
     pub fn from_account_info_unchecked(

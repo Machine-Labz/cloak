@@ -12,9 +12,6 @@ pub enum Error {
     #[error("Database error: {0}")]
     DatabaseError(String),
 
-    #[error("Redis error: {0}")]
-    RedisError(String),
-
     #[error("Validation error: {0}")]
     ValidationError(String),
 
@@ -26,9 +23,6 @@ pub enum Error {
 
     #[error("Base64 decode error: {0}")]
     Base64Error(#[from] base64::DecodeError),
-
-    #[error("Redis error: {0}")]
-    RedisClientError(#[from] redis::RedisError),
 }
 
 impl axum::response::IntoResponse for Error {
@@ -36,18 +30,23 @@ impl axum::response::IntoResponse for Error {
         use axum::http::StatusCode;
         use axum::Json;
         use serde_json::json;
+        use tracing::error;
 
-        let (status, message) = match self {
-            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+        let (status, message) = match &self {
+            Error::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Error::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             Error::ValidationError(msg) => (
                 StatusCode::BAD_REQUEST,
                 format!("Validation error: {}", msg),
             ),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
+            _ => {
+                // Log the actual error for debugging
+                error!("Internal server error: {}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Internal server error: {}", self),
+                )
+            }
         };
 
         let body = Json(json!({

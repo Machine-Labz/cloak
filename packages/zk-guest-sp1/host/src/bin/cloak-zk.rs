@@ -40,14 +40,17 @@ fn main() -> Result<()> {
             proof,
             pubout,
         } => {
-            // Setup
-            let client = ProverClient::from_env();
-            let (pk, _vk) = client.setup(ELF);
-
-            // Read input files
+            println!("📖 Reading input files...");
             let private_json = fs::read_to_string(&private)?;
             let public_json = fs::read_to_string(&public)?;
             let outputs_json = fs::read_to_string(&outputs)?;
+            println!("✅ Input files loaded");
+
+            println!("🔧 Setting up SP1 prover client...");
+            let client = ProverClient::from_env();
+            println!("🔑 Generating proving key (this may take 1-2 minutes)...");
+            let (pk, _vk) = client.setup(ELF);
+            println!("✅ Proving key generated");
 
             // Create combined input
             let combined_input = format!(
@@ -60,12 +63,22 @@ fn main() -> Result<()> {
             );
 
             // Generate proof
+            println!("📝 Preparing circuit inputs...");
             let mut stdin = SP1Stdin::new();
             stdin.write(&combined_input);
 
+            println!("🔨 Generating Groth16 proof (this may take 10-15 minutes)...");
+
+            // First, execute to get cycle count
+            let (_, report) = client.execute(ELF, &stdin).run()?;
+            let total_cycles = report.total_instruction_count();
+            println!("📊 Total cycles: {}", total_cycles);
+
             let proof_result = client.prove(&pk, &stdin).groth16().run()?;
+            println!("✅ Proof generated!");
 
             // Save proof
+            println!("💾 Saving proof to disk...");
             proof_result.save(&proof)?;
 
             // Save public inputs

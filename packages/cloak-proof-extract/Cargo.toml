@@ -1,0 +1,22 @@
+[package]
+name = "cloak-proof-extract"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Utilities to extract 260-byte Groth16 fragments from SP1 proof bundles and parse 104-byte public inputs."
+
+[features]
+default = ["std"]
+std = []
+alloc = []
+hex = ["dep:hex", "dep:serde"]
+sp1 = ["std", "dep:sp1-sdk", "dep:bincode"]
+
+[dependencies]
+hex = { version = "0.4", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+bincode = { version = "1", optional = true }
+sp1-sdk = { version = "5.2.1", optional = true }
+
+[dev-dependencies]
+ anyhow = "1"

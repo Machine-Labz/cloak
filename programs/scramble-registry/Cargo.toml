@@ -1,0 +1,27 @@
+[package]
+name = "scramble-registry"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "scramble_registry"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+pinocchio = { workspace = true }
+pinocchio-token = { workspace = true }
+pinocchio-system = { workspace = true }
+blake3 = { workspace = true }
+five8_const = { workspace = true }
+
+[dev-dependencies]
+solana-sdk = { workspace = true }
+mollusk-svm = "0.5.1"
+spl-token = "6.0.0"

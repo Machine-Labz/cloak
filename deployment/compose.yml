@@ -1,0 +1,88 @@
+services:
+  # PostgreSQL Database - Shared by indexer and relay
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloak-postgres
+    env_file:
+      - .env.docker
+    ports:
+      - "5434:5432"
+    volumes:
+      - cloak_postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - cloak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Indexer Service
+  indexer:
+    image: marcelofeitoza/cloak:indexer
+    container_name: cloak-indexer
+    env_file:
+      - .env.docker
+    ports:
+      - "3001:3001"
+    volumes:
+      - indexer_logs:/app/logs
+      - indexer_artifacts:/app/artifacts
+    networks:
+      - cloak-network
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Relay Service
+  relay:
+    image: marcelofeitoza/cloak:relay
+    container_name: cloak-relay
+    env_file:
+      - .env.docker
+    ports:
+      - "3002:3002"
+      - "9090:9090"
+    volumes:
+      - relay_logs:/app/logs
+    networks:
+      - cloak-network
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Nginx Reverse Proxy
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    networks:
+      - cloak-network
+    depends_on:
+      - indexer
+      - relay
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 60s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  cloak_postgres_data:
+    driver: local
+  indexer_logs:
+    driver: local
+  indexer_artifacts:
+    driver: local
+  relay_logs:
+    driver: local
+
+networks:
+  cloak-network:
+    driver: bridge

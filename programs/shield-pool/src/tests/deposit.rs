@@ -1,32 +1,34 @@
+use blake3::Hasher;
 use solana_sdk::{
     account::Account,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
 
-use crate::{instructions::ShieldPoolInstruction, state::RootsRing, tests::setup};
+use crate::{instructions::ShieldPoolInstruction, state::CommitmentQueue, tests::setup};
 
 #[test]
-fn deposit_test() {
-    let (program_id, _mollusk) = setup();
+fn test_deposit_instruction() {
+    let (program_id, mollusk) = setup();
 
-    let user = Pubkey::new_from_array(five8_const::decode_32_const(
-        "11111111111111111111111111111111111111111111",
-    ));
-    let signer = user;
+    let user = Pubkey::new_from_array([0x11u8; 32]);
+    let pool = Pubkey::new_from_array([0x22u8; 32]);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
 
-    // Create a simple pool account (not a PDA)
-    let pool = Pubkey::new_from_array([0x11u8; 32]);
+    let amount = 0u64;
+    let sk_spend = [0x42u8; 32];
+    let r = [0x43u8; 32];
 
-    // Create roots_ring account (PDA)
-    let (roots_ring, _) = Pubkey::find_program_address(&[b"roots_ring"], &program_id);
-
-    // Create instruction data according to our deposit instruction format
-    let amount = 1_000_000u64; // 0.001 SOL
-    let leaf_commit = [0x42u8; 32];
+    let pk_spend = blake3::hash(&sk_spend);
+    let mut hasher = Hasher::new();
+    hasher.update(&amount.to_le_bytes());
+    hasher.update(&r);
+    hasher.update(pk_spend.as_bytes());
+    let commitment = hasher.finalize();
+    let leaf_commit = commitment.as_bytes();
 
     let instruction_data = [
-        vec![ShieldPoolInstruction::Deposit as u8], // Deposit instruction discriminant
+        vec![ShieldPoolInstruction::Deposit as u8],
         amount.to_le_bytes().to_vec(),
         leaf_commit.to_vec(),
     ]
@@ -36,18 +38,18 @@ fn deposit_test() {
         program_id,
         &instruction_data,
         vec![
-            AccountMeta::new(signer, true),      // user (signer)
-            AccountMeta::new(pool, false),       // pool (writable)
-            AccountMeta::new(roots_ring, false), // roots_ring (writable)
-            AccountMeta::new_readonly(solana_sdk::system_program::id(), false), // system_program (readonly)
+            AccountMeta::new(user, true),
+            AccountMeta::new(pool, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
         ],
     );
 
     let accounts: Vec<(Pubkey, Account)> = vec![
         (
-            signer,
+            user,
             Account {
-                lamports: 1_000_000_000, // 1 SOL for user
+                lamports: 2_000_000_000,
                 data: vec![],
                 owner: solana_sdk::system_program::id(),
                 executable: false,
@@ -57,18 +59,8 @@ fn deposit_test() {
         (
             pool,
             Account {
-                lamports: 0, // Empty pool initially
-                data: vec![],
-                owner: solana_sdk::system_program::id(), // Pool should be owned by system program
-                executable: false,
-                rent_epoch: 0,
-            },
-        ),
-        (
-            roots_ring,
-            Account {
                 lamports: 0,
-                data: vec![0u8; RootsRing::SIZE], // RootsRing::SIZE
+                data: vec![],
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,
@@ -79,75 +71,248 @@ fn deposit_test() {
             Account {
                 lamports: 0,
                 data: vec![],
-                owner: solana_sdk::system_program::id(),
+                owner: solana_sdk::native_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
                 executable: false,
                 rent_epoch: 0,
             },
         ),
     ];
 
-    // Test instruction creation and account setup validation
-    // This verifies the instruction structure is correct without executing it
-
-    // Validate instruction data length
+    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
     assert!(
-        instruction_data.len() >= 40,
-        "Deposit instruction data should be at least 40 bytes, got: {}",
-        instruction_data.len()
+        !result.program_result.is_err(),
+        "Deposit instruction should succeed, got: {:?}",
+        result.program_result
     );
 
-    // Validate account count
+    println!("✅ Deposit test completed successfully");
+    println!("   - Commitment: {}", hex::encode(leaf_commit));
+
+    let commitments_account = result
+        .resulting_accounts
+        .iter()
+        .find(|(pk, _)| *pk == commitments_log)
+        .map(|(_, acc)| acc)
+        .expect("Commitments account not found after deposit");
+
+    let total_commits = u64::from_le_bytes(
+        commitments_account.data[0..8]
+            .try_into()
+            .expect("commitment log header"),
+    );
+    assert_eq!(total_commits, 1, "Commitment count should increment");
+
+    let mut stored_commitment = [0u8; 32];
+    stored_commitment.copy_from_slice(
+        &commitments_account.data[CommitmentQueue::HEADER_SIZE..CommitmentQueue::HEADER_SIZE + 32],
+    );
     assert_eq!(
-        instruction.accounts.len(),
-        4,
-        "Deposit instruction should have 4 accounts, got: {}",
-        instruction.accounts.len()
+        stored_commitment, *leaf_commit,
+        "Stored commitment mismatch"
+    );
+}
+
+#[test]
+fn test_deposit_insufficient_funds() {
+    let (program_id, mollusk) = setup();
+
+    let user = Pubkey::new_from_array([0x11u8; 32]);
+    let pool = Pubkey::new_from_array([0x22u8; 32]);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+
+    let amount = 2_000_000_000u64;
+    let leaf_commit = [0x42u8; 32];
+
+    let instruction_data = [
+        vec![ShieldPoolInstruction::Deposit as u8],
+        amount.to_le_bytes().to_vec(),
+        leaf_commit.to_vec(),
+    ]
+    .concat();
+
+    let instruction = Instruction::new_with_bytes(
+        program_id,
+        &instruction_data,
+        vec![
+            AccountMeta::new(user, true),
+            AccountMeta::new(pool, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
+        ],
     );
 
-    // Validate account setup
-    assert_eq!(
-        accounts.len(),
-        4,
-        "Deposit accounts should have 4 accounts, got: {}",
-        accounts.len()
-    );
+    let accounts: Vec<(Pubkey, Account)> = vec![
+        (
+            user,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: solana_sdk::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            pool,
+            Account {
+                lamports: 0,
+                data: vec![],
+                owner: program_id,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            solana_sdk::system_program::id(),
+            Account {
+                lamports: 0,
+                data: vec![],
+                owner: solana_sdk::native_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+    ];
 
-    // Validate user account is signer
+    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
     assert!(
-        instruction.accounts[0].is_signer,
-        "User account should be marked as signer"
+        result.program_result.is_err(),
+        "Deposit should fail due to insufficient funds",
+    );
+}
+
+#[test]
+fn test_deposit_duplicate_commitment() {
+    let (program_id, mollusk) = setup();
+
+    let user = Pubkey::new_from_array([0x91u8; 32]);
+    let pool = Pubkey::new_from_array([0x22u8; 32]);
+    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+
+    let amount = 0u64;
+    let commitment = [0xAAu8; 32];
+
+    let instruction_data = [
+        vec![ShieldPoolInstruction::Deposit as u8],
+        amount.to_le_bytes().to_vec(),
+        commitment.to_vec(),
+    ]
+    .concat();
+
+    let instruction = Instruction::new_with_bytes(
+        program_id,
+        &instruction_data,
+        vec![
+            AccountMeta::new(user, true),
+            AccountMeta::new(pool, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new(commitments_log, false),
+        ],
     );
 
-    // Validate pool account is writable
+    let accounts: Vec<(Pubkey, Account)> = vec![
+        (
+            user,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: solana_sdk::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            pool,
+            Account {
+                lamports: 0,
+                data: vec![],
+                owner: program_id,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            solana_sdk::system_program::id(),
+            Account {
+                lamports: 0,
+                data: vec![],
+                owner: solana_sdk::native_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        ),
+        (
+            commitments_log,
+            Account {
+                lamports: mollusk.sysvars.rent.minimum_balance(CommitmentQueue::SIZE),
+                data: vec![0u8; CommitmentQueue::SIZE],
+                owner: program_id,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ),
+    ];
+
+    let first = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
     assert!(
-        instruction.accounts[1].is_writable,
-        "Pool account should be writable"
+        !first.program_result.is_err(),
+        "Initial deposit should succeed",
     );
 
-    // Validate roots_ring account is writable
+    let system_program_id = solana_sdk::system_program::id();
+    let system_account_template = accounts
+        .iter()
+        .find(|(pk, _)| *pk == system_program_id)
+        .cloned()
+        .expect("System program account missing");
+    let commitments_pubkey = commitments_log;
+
+    let mut second_accounts = first.resulting_accounts.clone();
+
+    if second_accounts
+        .iter()
+        .all(|(pk, _)| *pk != system_program_id)
+    {
+        second_accounts.insert(2, system_account_template);
+    }
+
+    second_accounts.sort_by_key(|(pk, _)| {
+        if pk == &user {
+            0
+        } else if pk == &pool {
+            1
+        } else if pk == &system_program_id {
+            2
+        } else if pk == &commitments_pubkey {
+            3
+        } else {
+            4
+        }
+    });
+
+    let second = mollusk.process_and_validate_instruction(&instruction, &second_accounts, &[]);
     assert!(
-        instruction.accounts[2].is_writable,
-        "Roots ring account should be writable"
-    );
-
-    // Validate system program account is readonly
-    assert!(
-        !instruction.accounts[3].is_writable,
-        "System program account should be readonly"
-    );
-
-    // Validate amount is reasonable
-    assert!(
-        amount > 0,
-        "Deposit amount should be positive, got: {}",
-        amount
-    );
-
-    // Validate leaf commit is correct size
-    assert_eq!(
-        leaf_commit.len(),
-        32,
-        "Leaf commit should be 32 bytes, got: {}",
-        leaf_commit.len()
+        second.program_result.is_err(),
+        "Duplicate commitment should be rejected",
     );
 }

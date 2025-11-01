@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
 #[sqlx(type_name = "job_status", rename_all = "lowercase")]
 pub enum JobStatus {
     Queued,
@@ -79,7 +79,7 @@ pub struct Nullifier {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct JobSummary {
     pub request_id: Uuid,
     pub status: JobStatus,

@@ -3,10 +3,13 @@ members = [
     "packages/zk-guest-sp1",
     "packages/zk-guest-sp1/guest",
     "packages/zk-guest-sp1/host",
+    "packages/cloak-proof-extract",
+    "packages/cloak-miner",
     "programs/shield-pool",
+    "programs/scramble-registry",
     "services/indexer",
     "services/relay",
-    "test_complete_flow_rust",
+    "tooling/test",
 ]
 resolver = "2"
 
@@ -26,9 +29,9 @@ description = "Cloak - Privacy protocol for Solana"
 
 [workspace.dependencies]
 # SP1 dependencies
-sp1-sdk = "5.2.1"
+sp1-sdk = { version = "5.2.1", default-features = false, features = [] }
 sp1-zkvm = "5.2.1"
-sp1-build = "5.2.1"
+sp1-build = { version = "5.2.1", default-features = false, features = [] }
 
 # Serialization
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }

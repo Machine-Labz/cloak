@@ -20,7 +20,7 @@ name = "zk_guest_sp1_host"
 path = "src/lib.rs"
 
 [dependencies]
-sp1-sdk = { workspace = true }
+sp1-sdk = { workspace = true, default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }

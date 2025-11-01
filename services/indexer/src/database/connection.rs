@@ -2,8 +2,8 @@ use crate::config::Config;
 use crate::error::{IndexerError, Result};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::time::Duration;
-
 #[derive(Clone)]
+
 pub struct Database {
     pool: Pool<Postgres>,
 }
@@ -14,25 +14,39 @@ impl Database {
         let database_url = config.database_url();
 
         tracing::info!(
-            host = config.database.host,
-            port = config.database.port,
-            database = config.database.name,
-            max_connections = config.database.max_connections,
             "Connecting to database"
         );
 
-        let pool = PgPoolOptions::new()
-            .max_connections(config.database.max_connections)
-            .min_connections(config.database.min_connections)
-            .acquire_timeout(Duration::from_secs(30))
-            .idle_timeout(Duration::from_secs(600))
-            .max_lifetime(Duration::from_secs(1800))
-            .connect(&database_url)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to connect to database: {}", e);
-                IndexerError::Database(e)
-            })?;
+        // Add connection timeout to prevent hanging
+        let connection_timeout = Duration::from_secs(10);
+
+        let pool = tokio::time::timeout(
+            connection_timeout,
+            PgPoolOptions::new()
+                .max_connections(config.database.max_connections)
+                .min_connections(config.database.min_connections)
+                .acquire_timeout(Duration::from_secs(5))
+                .idle_timeout(Duration::from_secs(600))
+                .max_lifetime(Duration::from_secs(1800))
+                .connect(&database_url),
+        )
+        .await
+        .map_err(|_| {
+            tracing::error!("Database connection timeout after {:?}", connection_timeout);
+            tracing::error!(
+                "Make sure PostgreSQL is running",
+            );
+            IndexerError::internal("Database connection timeout")
+        })?
+        .map_err(|e| {
+            tracing::error!("Failed to connect to database: {}", e);
+            tracing::error!("Possible issues:");
+            tracing::error!("  1. PostgreSQL is not running");
+            tracing::error!("  2. Wrong host/port");
+            tracing::error!("  3. Wrong username/password");
+            tracing::error!("  4. Database does not exist");
+            IndexerError::Database(e)
+        })?;
 
         // Test the connection
         let row: (chrono::DateTime<chrono::Utc>, String) =
@@ -41,10 +55,11 @@ impl Database {
                 .await
                 .map_err(IndexerError::Database)?;
 
+        tracing::info!("Database connection established");
         tracing::info!(
             current_time = %row.0,
             postgres_version = %row.1.split(' ').take(2).collect::<Vec<&str>>().join(" "),
-            "Database connection established"
+            "Database connection verified"
         );
 
         Ok(Database { pool })

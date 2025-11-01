@@ -2,6 +2,11 @@
 name = "relay"
 version = "0.1.0"
 edition = "2021"
+default-run = "relay"
+
+[[bin]]
+name = "relay"
+path = "src/main.rs"
 
 [dependencies]
 # Web framework
@@ -18,12 +23,18 @@ base64 = "0.21"
 
 # Configuration  
 config = "0.13"
+dotenvy = "0.15"
 
 # Logging and error handling
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+aws-config = "1.1"
+aws-sdk-cloudwatchlogs = "1.13"
 thiserror = "1.0"
 anyhow = "1.0"
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
+jito-sdk-rust = { version = "0.2.0", optional = true }
 
 # Database (simplified for now)
 sqlx = { version = "0.6", features = [
@@ -32,10 +43,8 @@ sqlx = { version = "0.6", features = [
     "uuid",
     "chrono",
     "json",
+    "offline",
 ] }
-
-# Redis for job queue
-redis = { version = "0.23", features = ["tokio-comp"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -46,12 +55,30 @@ async-trait = "0.1"
 # Cryptography
 blake3 = "1.5"
 hex = "0.4"
+bs58 = "0.4"
+bincode = "1.3"
 
 # URL parsing
 url = "2.4"
 
 # Random number generation
 fastrand = "2.0"
+
+# Hostname for machine identification
+hostname = "0.3"
+
+# Solana
+solana-sdk = { workspace = true }
+solana-client = "=2.3.1"
+
+# Local crates
+cloak-miner = { path = "../../packages/cloak-miner" }
+cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
+
+[features]
+default = []
+# If enabled, also expose VersionedTransaction builders
+jito = []
 
 [dev-dependencies]
 tempfile = "3.0"

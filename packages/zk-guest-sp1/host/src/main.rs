@@ -24,19 +24,19 @@ enum Commands {
     /// Generate a ZK proof
     Prove {
         /// Path to private inputs JSON file
-        #[arg(long)]
+        #[arg(long, short = 'r')]
         private: PathBuf,
         /// Path to public inputs JSON file
-        #[arg(long)]
+        #[arg(long, short = 'u')]
         public: PathBuf,
         /// Path to outputs JSON file
-        #[arg(long)]
+        #[arg(long, short = 'o')]
         outputs: PathBuf,
         /// Path to write the proof binary
-        #[arg(long)]
+        #[arg(long, short = 'f')]
         proof: PathBuf,
         /// Path to write the public inputs JSON
-        #[arg(long)]
+        #[arg(long, short = 't')]
         pubout: PathBuf,
     },
     /// Verify a ZK proof

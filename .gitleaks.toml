@@ -1,0 +1,28 @@
+# Gitleaks configuration for Cloak
+title = "Gitleaks config for Cloak"
+
+# Extend the default config
+[extend]
+useDefault = true
+
+# Allowlist for verification keys and other public cryptographic values
+[allowlist]
+description = "Allowlist for public cryptographic values"
+
+# Regex patterns to ignore
+regexes = [
+    # SP1 verification key hashes (public values)
+    '''vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
+    '''VKey Hash["\s:=]+0x[a-fA-F0-9]{64}''',
+    '''sp1_vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
+]
+
+# Paths to ignore
+paths = [
+    # Ignore context/reference folders
+    '''^\.context/''',
+    # Ignore example files
+    '''example.*\.json$''',
+    # Ignore documentation about keys
+    '''docs/.*VKEY.*\.md$''',
+]
