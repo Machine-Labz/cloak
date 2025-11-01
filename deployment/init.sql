@@ -229,6 +229,23 @@ CREATE TABLE IF NOT EXISTS public.nullifiers (
 
 CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON public.nullifiers USING btree (created_at);
 
+-- Beta interest registrations table (for mainnet beta waitlist)
+CREATE TABLE IF NOT EXISTS public.beta_interest (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    wallet_address character varying(44) NOT NULL,
+    email character varying(255) NOT NULL,
+    signature text NOT NULL,
+    ip_address inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (wallet_address),
+    UNIQUE (email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_beta_interest_created_at ON public.beta_interest USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_beta_interest_wallet ON public.beta_interest USING btree (wallet_address);
+
 -- ========================================
 -- TRIGGERS
 -- ========================================
