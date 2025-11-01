@@ -39,7 +39,7 @@ Returns service metadata and available endpoints.
     "notes_range": "/api/v1/notes/range",
     "artifacts": "/api/v1/artifacts/withdraw/:version"
   },
-  "documentation": "https://docs.cloak.network/indexer",
+  "documentation": "https://docs.cloaklabz.xyz/offchain/indexer",
   "timestamp": "2024-01-01T12:00:00.000Z"
 }
 ```
@@ -321,7 +321,7 @@ GET /api/v1/artifacts/files/v1/vkey.bin
   "success": false,
   "error": "The /api/v1/prove endpoint has been deprecated.",
   "deprecation_notice": "Generate SP1 proofs in the client or wallet. Upload the SP1Stdin to the TEE proving service and submit the resulting proof to the relay.",
-  "documentation": "https://docs.cloak.network/architecture/proving"
+  "documentation": "https://docs.cloaklabz.xyz/zk"
 }
 ```
 

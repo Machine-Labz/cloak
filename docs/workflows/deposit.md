@@ -225,7 +225,7 @@ async function submitDeposit(
   encryptedOutput: Uint8Array,
   amount: number
 ) {
-  const POOL_PDA = derivePoolPda(SHIELD_POOL_PROGRAM_ID);
+  const POOL_PDA = derivePoolPda(CLOAK_PROGRAM_ID);
 
   // 1. Transfer SOL to pool (covers amount + fee)
   const transferIx = SystemProgram.transfer({
@@ -236,7 +236,7 @@ async function submitDeposit(
 
   // 2. Deposit instruction
   const depositIx = new TransactionInstruction({
-    programId: SHIELD_POOL_PROGRAM_ID,
+    programId: CLOAK_PROGRAM_ID,
     keys: [
       { pubkey: userKeypair.publicKey, isSigner: true, isWritable: true },
       { pubkey: POOL_PDA, isSigner: false, isWritable: true },

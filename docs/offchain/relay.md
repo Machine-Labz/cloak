@@ -698,7 +698,7 @@ enabled = true
 ```bash
 DATABASE_URL=postgres://cloak:password@localhost:5434/cloak
 SOLANA_RPC_URL=http://127.0.0.1:8899
-SHIELD_POOL_PROGRAM_ID=c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp
+CLOAK_PROGRAM_ID=c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp
 SCRAMBLE_REGISTRY_PROGRAM_ID=EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6
 ```
 
