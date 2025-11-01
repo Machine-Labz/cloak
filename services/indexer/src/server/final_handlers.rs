@@ -74,16 +74,28 @@ pub async fn api_info() -> impl IntoResponse {
     }))
 }
 
-pub async fn health_check(State(_state): State<AppState>) -> impl IntoResponse {
+pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    let db_details = match state.storage.health_check().await {
+        Ok(details) => details,
+        Err(e) => serde_json::json!({
+            "healthy": false,
+            "error": e.to_string()
+        }),
+    };
+
+    // Get Merkle status without DB ops
+    let height = {
+        let tree = state.merkle_tree.lock().await;
+        tree.height()
+    };
+
     Json(serde_json::json!({
-        "status": "healthy",
+        "status": "ok",
         "timestamp": chrono::Utc::now(),
-        "database": {
-            "healthy": true
-        },
+        "database": db_details,
         "merkle_tree": {
             "initialized": true,
-            "height": 32
+            "height": height
         },
         "version": env!("CARGO_PKG_VERSION")
     }))

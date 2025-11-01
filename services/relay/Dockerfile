@@ -53,7 +53,7 @@ RUN rm -rf /tmp/target/release/build/sp1-* || true
 ENV SQLX_OFFLINE=true
 ENV DATABASE_URL=postgresql://cloak:password@postgres:5432/cloak
 
-RUN cargo build --release -p relay -j 4
+RUN cargo build --release -p relay -j 8
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime

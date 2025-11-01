@@ -29,6 +29,24 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     // Run migrations
     database.migrate().await?;
 
+    // Perform initial database health check and log pool stats
+    match database.health_check().await {
+        Ok(health) => {
+            tracing::info!(
+                current_time = %health.current_time,
+                pool_size = health.pool_stats.size,
+                pool_idle = health.pool_stats.idle,
+                response_time_ms = health.response_time_ms,
+                tables = ?health.tables_found,
+                stats = ?health.stats,
+                "Database health check passed at startup"
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Database health check failed at startup: {}", e);
+        }
+    }
+
     // Initialize storage
     tracing::info!("Initializing Merkle tree storage");
     let storage = PostgresTreeStorage::new(database.pool().clone());
