@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for Cloak Relay Service
-# Using Debian for better compatibility
+# Optimized build without SP1 toolchain installation (uses pre-built ELF)
 
 # Builder stage
 FROM rust:1.90-bookworm AS builder
@@ -13,47 +13,32 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install SP1
-ENV SP1_DIR=/root/.sp1
-ENV PATH="/root/.sp1/bin:${PATH}"
-ENV SP1_VERSION=v5.2.2
-
-RUN mkdir -p ${SP1_DIR}/bin
-
-# Download and install cargo-prove
-RUN ARCHITECTURE="$(uname -m)" && \
-    if [ "${ARCHITECTURE}" = "x86_64" ]; then ARCHITECTURE="amd64"; fi && \
-    if [ "${ARCHITECTURE}" = "aarch64" ]; then ARCHITECTURE="arm64"; fi && \
-    echo "Downloading cargo-prove ${SP1_VERSION} for linux ${ARCHITECTURE}" && \
-    curl -L "https://github.com/succinctlabs/sp1/releases/download/${SP1_VERSION}/cargo_prove_${SP1_VERSION}_linux_${ARCHITECTURE}.tar.gz" | \
-    tar -xzC ${SP1_DIR}/bin
-
-# Install the succinct toolchain
-RUN cargo-prove prove install-toolchain
-
-# Verify toolchains
-RUN rustup toolchain list
-
 # Set up the working directory
 WORKDIR /app
 
-# Copy workspace files
+# Copy workspace configuration
 COPY Cargo.toml Cargo.lock ./
+
+# Copy all source code (we'll use Cargo's incremental compilation for caching)
 COPY packages ./packages/
 COPY programs ./programs/
 COPY services ./services/
 COPY tooling ./tooling/
 
-# Build the relay with SQLX offline mode
-# Use a unique target dir to avoid SP1 build script race conditions
+# Build with BuildKit cache mounts for maximum performance
+# Cargo's incremental compilation will cache unchanged dependencies
 ENV CARGO_TARGET_DIR=/tmp/target
-# Clean any stale build artifacts that might cause "File exists" errors
-RUN rm -rf /tmp/target/release/build/sp1-* || true
-# Build with a single job to avoid parallel build race conditions in SP1
 ENV SQLX_OFFLINE=true
 ENV DATABASE_URL=postgresql://cloak:password@postgres:5432/cloak
-
-RUN cargo build --release -p relay -j 8
+# Clean any stale build artifacts first
+RUN rm -rf /tmp/target/release/build/sp1-* || true
+# Build the workspace dependencies first, using pre-built ELF (no SP1 toolchain needed)
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/tmp/target \
+    cargo build --release --workspace --exclude relay -j 16 && \
+    cargo build --release --bin relay -p relay -j 16 && \
+    cp /tmp/target/release/relay /app/relay
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime
@@ -77,7 +62,7 @@ RUN mkdir -p /app/logs && \
 WORKDIR /app
 
 # Copy the built binary from builder stage
-COPY --from=builder --chown=relay:relay /tmp/target/release/relay /app/relay
+COPY --from=builder --chown=relay:relay /app/relay /app/relay
 
 # Switch to non-root user
 USER relay
