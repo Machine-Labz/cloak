@@ -17,6 +17,9 @@ import {
   MerkleProof,
   SP1ProofInputs,
   Network,
+  CloakError,
+  ScanNotesOptions,
+  ScannedNote,
 } from "./types";
 import { generateNote, updateNoteWithDeposit, isWithdrawable } from "./note";
 import {
@@ -36,11 +39,13 @@ import { ProverService } from "../services/ProverService";
 import { RelayService } from "../services/RelayService";
 import { createDepositInstruction } from "../solana/instructions";
 import { getShieldPoolPDAs } from "../utils/pda";
+import { type CloakKeyPair, scanNotesForWallet } from "./keys";
+import { prepareEncryptedOutput, prepareEncryptedOutputForRecipient, encodeNoteSimple } from "../helpers/encrypted-output";
 
 export const CLOAK_PROGRAM_ID = new PublicKey("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 const CLOAK_API_URL = 
-  // "http://localhost:8000"; 
-  "https://api.cloaklabz.xyz";
+  "http://localhost:80"; 
+  // "https://api.cloaklabz.xyz";
 
 /**
  * Main Cloak SDK
@@ -79,6 +84,7 @@ const CLOAK_API_URL =
 export class CloakSDK {
   private config: CloakConfig;
   private keypair: Keypair;
+  private cloakKeys?: CloakKeyPair;
   private indexer: IndexerService;
   private prover: ProverService;
   private relay: RelayService;
@@ -87,22 +93,45 @@ export class CloakSDK {
   * Create a new Cloak SDK client
    *
    * @param config - Client configuration
+   * 
+   * @example
+   * ```typescript
+   * // Enhanced mode with v2.0 features (recommended)
+   * const keys = generateCloakKeys();
+   * const sdk = new CloakSDK({
+   *   keypairBytes: keypair.secretKey,
+   *   cloakKeys: keys,
+   *   network: "devnet"
+   * });
+   * 
+   * // Legacy mode (v1.0)
+   * const sdk = new CloakSDK({
+   *   keypairBytes: keypair.secretKey,
+   *   network: "devnet"
+   * });
+   * ```
    */
-  constructor({keypairBytes, network = "devnet"}: {keypairBytes: Uint8Array, network?: Network}) {
-    this.keypair = Keypair.fromSecretKey(keypairBytes);
+  constructor(config: {
+    keypairBytes: Uint8Array;
+    network?: Network;
+    cloakKeys?: CloakKeyPair;
+    apiUrl?: string;
+  }) {
+    this.keypair = Keypair.fromSecretKey(config.keypairBytes);
+    this.cloakKeys = config.cloakKeys;
 
-    this.indexer = new IndexerService(CLOAK_API_URL);
-    this.prover = new ProverService(
-      CLOAK_API_URL,
-      5 * 60 * 1000
-    );
-    this.relay = new RelayService(CLOAK_API_URL);
+    const apiUrl = config.apiUrl || CLOAK_API_URL;
+    this.indexer = new IndexerService(apiUrl);
+    this.prover = new ProverService(apiUrl, 5 * 60 * 1000);
+    this.relay = new RelayService(apiUrl);
 
     const { pool, commitments, rootsRing, nullifierShard, treasury } = getShieldPoolPDAs();
 
     this.config = {
-      network: network,
-      keypairBytes: keypairBytes,
+      network: config.network || "devnet",
+      keypairBytes: config.keypairBytes,
+      cloakKeys: config.cloakKeys,
+      apiUrl,
       poolAddress: pool,
       commitmentsAddress: commitments,
       rootsRingAddress: rootsRing,
@@ -145,19 +174,40 @@ export class CloakSDK {
     amountOrNote: number | CloakNote,
     options?: DepositOptions
   ): Promise<DepositResult> {
-    // Determine if we're using a provided note or generating a new one
-    let note: CloakNote;
-
-    if (typeof amountOrNote === "number") {
-      options?.onProgress?.("Generating note...");
-      note = generateNote(amountOrNote, this.config.network);
-    } else {
-      note = amountOrNote;
-      // Validate the note hasn't been deposited already
-      if (note.depositSignature) {
-        throw new Error("Note has already been deposited");
+    try {
+      // Privacy warning for testnet
+      if (this.config.network !== "mainnet" && !options?.skipPrivacyWarning) {
+        console.warn(`
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  PRIVACY WARNING - TESTNET ONLY                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Current privacy level: WEAK (Experimental)                 │
+│  Anonymity set: ~10-50 deposits                             │
+│  Privacy strength: ~3-6 bits of entropy                     │
+│                                                             │
+│  DO NOT use for production privacy needs.                   │
+│                                                             │
+│  Learn more:                                                │
+│  https://github.com/cloak-labz/cloak/blob/main/PRIVACY_STATUS.md
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+        `);
       }
-    }
+
+      // Determine if we're using a provided note or generating a new one
+      let note: CloakNote;
+
+      if (typeof amountOrNote === "number") {
+        options?.onProgress?.("Generating note...");
+        note = generateNote(amountOrNote, this.config.network);
+      } else {
+        note = amountOrNote;
+        // Validate the note hasn't been deposited already
+        if (note.depositSignature) {
+          throw new Error("Note has already been deposited");
+        }
+      }
 
     options?.onProgress?.("Creating deposit transaction...");
 
@@ -166,8 +216,8 @@ export class CloakSDK {
     const depositIx = createDepositInstruction({
       programId: CLOAK_PROGRAM_ID,
       payer: this.keypair.publicKey,
-      pool: this.config.poolAddress,
-      commitments: this.config.commitmentsAddress,
+      pool: this.config.poolAddress!,
+      commitments: this.config.commitmentsAddress!,
       amount: note.amount,
       commitment: commitmentBytes,
     });
@@ -230,7 +280,7 @@ export class CloakSDK {
     options?.onProgress?.("Registering with indexer...");
 
     // Submit to indexer with retry logic for transient backend errors
-    const encryptedOutput = this.encodeNote(note);
+    const encryptedOutput = this.encodeNote(note, options?.recipientViewKey);
     let depositResponse: { success: boolean; leafIndex?: number; root?: string } | null = null;
     let retries = 0;
     const maxRetries = 3;
@@ -286,14 +336,17 @@ export class CloakSDK {
       },
     });
 
-    options?.onProgress?.("Deposit complete!");
+      options?.onProgress?.("Deposit complete!");
 
-    return {
-      note: updatedNote,
-      signature,
-      leafIndex,
-      root,
-    };
+      return {
+        note: updatedNote,
+        signature,
+        leafIndex,
+        root,
+      };
+    } catch (error) {
+      throw this.wrapError(error, "Deposit failed");
+    }
   }
 
   /**
@@ -358,11 +411,10 @@ export class CloakSDK {
       options?.onProgress?.("Deposit complete - proceeding with private transfer...");
     }
 
-    const relayFeeBps = options?.relayFeeBps || 0;
-
-    if (relayFeeBps < 0 || relayFeeBps > 1000) {
-      throw new Error("Relay fee must be between 0 and 1000 bps (0-10%)");
-    }
+    // Calculate the actual protocol fee and convert to basis points
+    // The relay validates that fee_bps matches the actual fee charged
+    const protocolFee = note.amount - getDistributableAmount(note.amount);
+    const feeBps = Math.ceil((protocolFee * 10_000) / note.amount);
 
     // Calculate distributable amount (after protocol fees)
     const distributableAmount = getDistributableAmount(note.amount);
@@ -484,7 +536,7 @@ export class CloakSDK {
           recipient: r.recipient.toBase58(),
           amount: r.amount,
         })),
-        feeBps: relayFeeBps,
+        feeBps: feeBps,  // Use calculated protocol fee BPS
       },
       options?.onProgress
     );
@@ -630,23 +682,188 @@ export class CloakSDK {
 
   /**
    * Encode note data for indexer storage
+   * 
+   * Enhanced version that supports encrypted outputs for v2.0 scanning
    */
-  private encodeNote(note: CloakNote): string {
-    const data = {
-      amount: note.amount,
-      r: note.r,
-      sk_spend: note.sk_spend,
-    };
-
-    // Base64 encode
-    const json = JSON.stringify(data);
-
-    if (typeof Buffer !== "undefined") {
-      return Buffer.from(json).toString("base64");
-    } else if (typeof btoa !== "undefined") {
-      return btoa(json);
-    } else {
-      throw new Error("No base64 encoding method available");
+  private encodeNote(note: CloakNote, recipientViewKey?: string): string {
+    // Use encrypted output if Cloak keys are available
+    if (recipientViewKey) {
+      return prepareEncryptedOutputForRecipient(note, recipientViewKey);
     }
+    
+    if (this.cloakKeys) {
+      return prepareEncryptedOutput(note, this.cloakKeys);
+    }
+    
+    // Fallback to simple encoding
+    return encodeNoteSimple(note);
+  }
+  
+  /**
+   * Scan blockchain for notes belonging to this wallet (v2.0 feature)
+   * 
+   * Requires Cloak keys to be configured in the SDK.
+   * Fetches encrypted outputs from the indexer and decrypts notes
+   * that belong to this wallet.
+   * 
+   * @param options - Scanning options
+   * @returns Array of discovered notes with metadata
+   * 
+   * @example
+   * ```typescript
+   * const notes = await sdk.scanNotes({
+   *   onProgress: (current, total) => {
+   *     console.log(`Scanning: ${current}/${total}`);
+   *   }
+   * });
+   * 
+   * console.log(`Found ${notes.length} notes!`);
+   * const totalBalance = notes.reduce((sum, n) => sum + n.amount, 0);
+   * ```
+   */
+  async scanNotes(options?: ScanNotesOptions): Promise<ScannedNote[]> {
+    if (!this.cloakKeys) {
+      throw new CloakError(
+        "Note scanning requires Cloak keys. Initialize SDK with: cloakKeys: generateCloakKeys()",
+        "validation",
+        false
+      );
+    }
+    
+    const startIndex = options?.startIndex ?? 0;
+    const batchSize = options?.batchSize ?? 100;
+    
+    // Get total notes from indexer
+    const { next_index: totalNotes } = await this.indexer.getMerkleRoot();
+    const endIndex = options?.endIndex ?? (totalNotes > 0 ? totalNotes - 1 : 0);
+    
+    if (totalNotes === 0 || endIndex < startIndex) {
+      return [];
+    }
+    
+    const allEncryptedOutputs: string[] = [];
+    
+    // Fetch encrypted outputs in batches
+    for (let start = startIndex; start <= endIndex; start += batchSize) {
+      const end = Math.min(start + batchSize - 1, endIndex);
+      
+      options?.onProgress?.(start, totalNotes);
+      
+      const { notes } = await this.indexer.getNotesRange(start, end, batchSize);
+      allEncryptedOutputs.push(...notes);
+    }
+    
+    options?.onProgress?.(totalNotes, totalNotes);
+    
+    // Decrypt notes belonging to this wallet
+    const foundNoteData = scanNotesForWallet(
+      allEncryptedOutputs,
+      this.cloakKeys.view
+    );
+    
+    // Convert to CloakNote objects with metadata
+    const scannedNotes: ScannedNote[] = foundNoteData.map((noteData) => ({
+      version: "2.0",
+      amount: noteData.amount,
+      commitment: noteData.commitment,
+      sk_spend: noteData.sk_spend,
+      r: noteData.r,
+      timestamp: Date.now(),
+      network: this.config.network || "devnet",
+      scannedAt: Date.now(),
+    }));
+    
+    return scannedNotes;
+  }
+  
+  /**
+   * Wrap errors with better categorization and user-friendly messages
+   * 
+   * @private
+   */
+  private wrapError(error: unknown, context: string): CloakError {
+    if (error instanceof CloakError) {
+      return error;
+    }
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Duplicate deposit
+    if (errorMessage.includes("duplicate key") || errorMessage.includes("already deposited")) {
+      return new CloakError(
+        "This note was already deposited. The transaction succeeded but the indexer has it recorded. Generate a new note or scan for existing notes.",
+        "indexer",
+        false,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Insufficient funds
+    if (errorMessage.includes("insufficient funds") || errorMessage.includes("insufficient lamports")) {
+      return new CloakError(
+        "Insufficient funds for this transaction. Please check your wallet balance.",
+        "wallet",
+        false,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Merkle tree inconsistency (retryable)
+    if (errorMessage.includes("Merkle tree") && errorMessage.includes("inconsistent")) {
+      return new CloakError(
+        "Indexer is temporarily unavailable. Please try again in a moment.",
+        "indexer",
+        true,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Network timeout (retryable)
+    if (errorMessage.includes("timeout") || errorMessage.includes("timed out")) {
+      return new CloakError(
+        "Network timeout. Please check your connection and try again.",
+        "network",
+        true,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Wallet not connected
+    if (errorMessage.includes("not connected") || errorMessage.includes("wallet")) {
+      return new CloakError(
+        "Wallet not connected. Please connect your wallet first.",
+        "wallet",
+        false,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Proof generation failed
+    if (errorMessage.includes("proof") && (errorMessage.includes("failed") || errorMessage.includes("error"))) {
+      return new CloakError(
+        "Zero-knowledge proof generation failed. This is usually temporary - please try again.",
+        "prover",
+        true,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Relay service error
+    if (errorMessage.includes("relay") || errorMessage.includes("withdraw")) {
+      return new CloakError(
+        "Relay service error. Please try again later.",
+        "relay",
+        true,
+        error instanceof Error ? error : undefined
+      );
+    }
+    
+    // Generic error
+    return new CloakError(
+      `${context}: ${errorMessage}`,
+      "network",
+      false,
+      error instanceof Error ? error : undefined
+    );
   }
 }

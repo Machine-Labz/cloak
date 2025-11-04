@@ -1,9 +1,39 @@
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
 
 /**
  * Supported Solana networks
  */
 export type Network = "localnet" | "devnet" | "mainnet" | "testnet";
+
+/**
+ * Minimal wallet adapter interface
+ * Compatible with @solana/wallet-adapter-base
+ */
+export interface WalletAdapter {
+  publicKey: PublicKey | null;
+  signTransaction?<T extends Transaction>(transaction: T): Promise<T>;
+  signAllTransactions?<T extends Transaction>(transactions: T[]): Promise<T[]>;
+  sendTransaction?(
+    transaction: Transaction,
+    connection: any,
+    options?: any
+  ): Promise<string>;
+}
+
+/**
+ * Cloak-specific error with categorization
+ */
+export class CloakError extends Error {
+  constructor(
+    message: string,
+    public category: "network" | "indexer" | "prover" | "relay" | "validation" | "wallet",
+    public retryable: boolean = false,
+    public originalError?: Error
+  ) {
+    super(message);
+    this.name = "CloakError";
+  }
+}
 
 /**
  * Cloak Note - Represents a private transaction commitment
@@ -102,9 +132,25 @@ export interface DepositResult {
  */
 export interface CloakConfig {
   /** Solana network */
-  network: Network;
-  /** Keypair bytes */
-  keypairBytes: Uint8Array;
+  network?: Network;
+  
+  /**
+   * Keypair bytes for signing (deprecated - use wallet instead)
+   * @deprecated Use wallet parameter for better integration
+   */
+  keypairBytes?: Uint8Array;
+  
+  /**
+   * Wallet adapter for signing transactions
+   * Required unless using keypairBytes
+   */
+  wallet?: WalletAdapter;
+  
+  /**
+   * Cloak key pair for v2.0 features (note scanning, encryption)
+   * Optional but recommended for full functionality
+   */
+  cloakKeys?: any; // Will be CloakKeyPair from keys module
 
   /**
    * Single API base URL for both Indexer and Relay services.
@@ -112,39 +158,94 @@ export interface CloakConfig {
    * any `indexerUrl` or `relayUrl` values.
    */
   apiUrl?: string;
+  
   /** Optional: Proof generation timeout in milliseconds (default: 5 minutes) */
   proofTimeout?: number;
 
-  /** Pool account address (PDA) */
-  poolAddress: PublicKey;
-  /** Commitments account address (PDA) */
-  commitmentsAddress: PublicKey;
-  /** Roots ring account address (PDA) */
-  rootsRingAddress: PublicKey;
-  /** Nullifier shard account address (PDA) */
-  nullifierShardAddress: PublicKey;
-  /** Treasury account address (PDA) */
-  treasuryAddress: PublicKey;
+  /** Optional: Program ID (defaults to Cloak mainnet program) */
+  programId?: PublicKey;
+  
+  /** Optional: Pool account address (auto-derived from program ID if not provided) */
+  poolAddress?: PublicKey;
+  
+  /** Optional: Commitments account address (auto-derived if not provided) */
+  commitmentsAddress?: PublicKey;
+  
+  /** Optional: Roots ring account address (auto-derived if not provided) */
+  rootsRingAddress?: PublicKey;
+  
+  /** Optional: Nullifier shard account address (auto-derived if not provided) */
+  nullifierShardAddress?: PublicKey;
+  
+  /** Optional: Treasury account address (auto-derived if not provided) */
+  treasuryAddress?: PublicKey;
 }
+
+/**
+ * Deposit progress status
+ */
+export type DepositStatus =
+  | "generating_note"
+  | "creating_transaction"
+  | "simulating"
+  | "sending"
+  | "confirming"
+  | "submitting_to_indexer"
+  | "fetching_proof"
+  | "complete";
 
 /**
  * Options for deposit operation
  */
 export interface DepositOptions {
-  /** Optional callback for progress updates */
-  onProgress?: (status: string) => void;
+  /** Optional callback for progress updates with detailed status */
+  onProgress?: (status: DepositStatus | string, details?: {
+    message?: string;
+    step?: number;
+    totalSteps?: number;
+    retryAttempt?: number;
+  }) => void;
+  
+  /** Callback when transaction is sent (before confirmation) */
+  onTransactionSent?: (signature: string) => void;
+  
+  /** Callback when transaction is confirmed */
+  onConfirmed?: (signature: string, slot: number) => void;
+  
   /** Skip simulation (default: false) */
   skipPreflight?: boolean;
+  
+  /** Compute units to request (default: auto) */
+  computeUnits?: number;
+  
+  /** Priority fee in micro-lamports (default: 0) */
+  priorityFee?: number;
+  
+  /**
+   * Optional: Encrypt output for specific recipient's view key
+   * If not provided, encrypts for the wallet's own view key (for self-scanning)
+   */
+  recipientViewKey?: string;
+  
+  /**
+   * Skip privacy warning on testnet (default: false)
+   * Warning: Only skip if you understand the privacy limitations
+   */
+  skipPrivacyWarning?: boolean;
 }
 
 /**
  * Options for private transfer/withdraw operation
  */
 export interface TransferOptions {
-  /** Relay fee in basis points (default: 0, max: 1000 = 10%) */
-  relayFeeBps?: number;
-  /** Optional callback for progress updates */
+  /**
+   * Optional callback for progress updates
+   * Note: relayFeeBps is automatically calculated from protocol fees
+   */
   onProgress?: (status: string) => void;
+  
+  /** Optional callback for proof generation progress (0-100) */
+  onProofProgress?: (percent: number) => void;
 }
 
 /**
@@ -209,4 +310,32 @@ export interface TxStatus {
   status: "pending" | "processing" | "completed" | "failed";
   txId?: string;
   error?: string;
+}
+
+/**
+ * Note scanning options
+ */
+export interface ScanNotesOptions {
+  /** Start index for scanning (default: 0) */
+  startIndex?: number;
+  
+  /** End index for scanning (default: latest) */
+  endIndex?: number;
+  
+  /** Batch size for fetching notes (default: 100) */
+  batchSize?: number;
+  
+  /** Progress callback */
+  onProgress?: (current: number, total: number) => void;
+}
+
+/**
+ * Scanned note result with metadata
+ */
+export interface ScannedNote extends CloakNote {
+  /** When this note was discovered */
+  scannedAt: number;
+  
+  /** Whether this note has been spent (nullifier check) */
+  isSpent?: boolean;
 }

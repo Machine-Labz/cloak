@@ -2,22 +2,24 @@
   "name": "@cloak/sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for Cloak Protocol - Private transactions on Solana",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "lint": "tsc --noEmit",
-    "test": "jest --coverage",
-    "test:watch": "jest --watch"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "test:quick": "NODE_OPTIONS=--experimental-vm-modules jest --no-coverage"
   },
   "keywords": [
     "solana",
@@ -40,7 +42,9 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@solana/web3.js": "^1.98.4",
-    "bs58": "^5.0.0"
+    "bs58": "^5.0.0",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

@@ -50,12 +50,13 @@ export function computeNullifier(
   skSpend: Uint8Array,
   leafIndex: number
 ): Uint8Array {
-  // Encode leaf index as little-endian u64
-  const leafIndexBytes = new Uint8Array(8);
-  new DataView(leafIndexBytes.buffer).setBigUint64(0, BigInt(leafIndex), true);
+  // Encode leaf index as little-endian u32 (4 bytes) to match circuit
+  // Circuit uses: serialize_u32_le(leaf_index)
+  const leafIndexBytes = new Uint8Array(4);
+  new DataView(leafIndexBytes.buffer).setUint32(0, leafIndex, true);
 
-  // Concatenate: sk_spend (32) + leaf_index (8) = 40 bytes
-  const nullifierInput = new Uint8Array(40);
+  // Concatenate: sk_spend (32) + leaf_index (4) = 36 bytes
+  const nullifierInput = new Uint8Array(36);
   nullifierInput.set(skSpend, 0);
   nullifierInput.set(leafIndexBytes, 32);
 

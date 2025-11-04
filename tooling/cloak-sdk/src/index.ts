@@ -24,11 +24,19 @@ export type {
   SP1ProofResult,
   MerkleRootResponse,
   TxStatus,
+  WalletAdapter,
+  DepositStatus,
+  ScanNotesOptions,
+  ScannedNote,
 } from "./core/types";
+
+// Export CloakError
+export { CloakError } from "./core/types";
 
 // Note management
 export {
   generateNote,
+  generateNoteFromWallet,
   parseNote,
   serializeNote,
   isWithdrawable,
@@ -36,6 +44,27 @@ export {
   downloadNote,
   copyNoteToClipboard,
 } from "./core/note";
+
+// Key management (v2.0 - view/spend keys)
+export type {
+  MasterKey,
+  SpendKey,
+  ViewKey,
+  CloakKeyPair,
+  EncryptedNote,
+  NoteData,
+} from "./core/keys";
+export {
+  generateMasterSeed,
+  deriveSpendKey,
+  deriveViewKey,
+  generateCloakKeys,
+  encryptNoteForRecipient,
+  tryDecryptNote,
+  scanNotesForWallet,
+  exportKeys,
+  importKeys,
+} from "./core/keys";
 
 // Crypto utilities
 export {
@@ -73,6 +102,20 @@ export {
 export { IndexerService } from "./services/IndexerService";
 export { ProverService } from "./services/ProverService";
 export { RelayService } from "./services/RelayService";
+
+// Helpers
+export {
+  prepareEncryptedOutput,
+  prepareEncryptedOutputForRecipient,
+  encodeNoteSimple,
+} from "./helpers/encrypted-output";
+export {
+  validateWalletConnected,
+  getPublicKey,
+  sendTransaction,
+  signTransaction,
+  keypairToAdapter,
+} from "./helpers/wallet-integration";
 
 // Solana instructions
 export {

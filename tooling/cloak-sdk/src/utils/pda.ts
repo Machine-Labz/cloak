@@ -25,31 +25,35 @@ export interface ShieldPoolPDAs {
  * - roots_ring: b"roots_ring"
  * - nullifier_shard: b"nullifier_shard"
  * - treasury: b"treasury"
+ * 
+ * @param programId - Optional program ID (defaults to CLOAK_PROGRAM_ID)
  */
-export function getShieldPoolPDAs(): ShieldPoolPDAs {
+export function getShieldPoolPDAs(programId?: PublicKey): ShieldPoolPDAs {
+  const pid = programId || CLOAK_PROGRAM_ID;
+  
   const [pool] = PublicKey.findProgramAddressSync(
     [Buffer.from("pool")],
-    CLOAK_PROGRAM_ID
+    pid
   );
 
   const [commitments] = PublicKey.findProgramAddressSync(
     [Buffer.from("commitments")],
-    CLOAK_PROGRAM_ID
+    pid
   );
 
   const [rootsRing] = PublicKey.findProgramAddressSync(
     [Buffer.from("roots_ring")],
-    CLOAK_PROGRAM_ID
+    pid
   );
 
   const [nullifierShard] = PublicKey.findProgramAddressSync(
     [Buffer.from("nullifier_shard")],
-    CLOAK_PROGRAM_ID
+    pid
   );
 
   const [treasury] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury")],
-    CLOAK_PROGRAM_ID
+    pid
   );
 
   return {

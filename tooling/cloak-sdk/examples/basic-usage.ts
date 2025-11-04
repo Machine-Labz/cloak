@@ -43,7 +43,7 @@ async function main() {
   // STEP 2: Deposit SOL
   // ============================================================================
 
-  const depositAmount = 100_000_000; // 0.1 SOL in lamports
+  const depositAmount = 10_000_000; // 0.01 SOL in lamports
   const fee = calculateFee(depositAmount);
 
   console.log(`\n📥 Depositing ${formatAmount(depositAmount)} SOL...`);
@@ -86,19 +86,16 @@ async function main() {
   // For this example, we'll generate some demo addresses
   const recipient1 = Keypair.generate().publicKey;
   const recipient2 = Keypair.generate().publicKey;
-  const recipient3 = Keypair.generate().publicKey;
 
   // Calculate distributable amount (after protocol fees)
   const distributable = depositAmount - fee;
 
   // Split between recipients
-  const amount1 = Math.floor(distributable * 0.5); // 50%
-  const amount2 = Math.floor(distributable * 0.3); // 30%
-  const amount3 = distributable - amount1 - amount2; // Remaining 20%
+  const amount1 = Math.floor(distributable * 0.8); // 80%
+  const amount2 = distributable - amount1;
 
   console.log(`   Recipient 1 (${recipient1.toBase58().slice(0, 8)}...): ${formatAmount(amount1)} SOL`);
   console.log(`   Recipient 2 (${recipient2.toBase58().slice(0, 8)}...): ${formatAmount(amount2)} SOL`);
-  console.log(`   Recipient 3 (${recipient3.toBase58().slice(0, 8)}...): ${formatAmount(amount3)} SOL`);
 
   // privateTransfer handles the complete flow:
   // 1. Deposits the note (since it's not deposited yet)
@@ -111,10 +108,8 @@ async function main() {
     [
       { recipient: recipient1, amount: amount1 },
       { recipient: recipient2, amount: amount2 },
-      { recipient: recipient3, amount: amount3 },
     ],
     {
-      relayFeeBps: 50, // 0.5% relay fee
       onProgress: (status: string) => {
         console.log(`   ${status}`);
       },
@@ -141,7 +136,6 @@ async function main() {
     recipientSingle,
     {
       withdrawAll: true, // Withdraw full amount minus fees
-      relayFeeBps: 50,
       onProgress: (status: string) => console.log(`   ${status}`),
     }
   );

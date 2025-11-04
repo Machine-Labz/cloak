@@ -1,16 +1,19 @@
 import { CloakNote, Network } from "./types";
-import { generateCommitment, randomBytes, bytesToHex } from "../utils/crypto";
+import { generateCommitment, randomBytes, bytesToHex, hexToBytes } from "../utils/crypto";
 import { validateNote, parseNote as parseNoteUtil } from "../utils/validation";
+import type { CloakKeyPair } from "./keys";
 
 /**
- * Generate a new Cloak note
+ * Generate a new Cloak note (v1.0 - legacy)
  *
  * Creates a cryptographic commitment and generates the secret values needed
  * for future withdrawal. Keep this note safe and secret!
  *
+ * @deprecated Use generateNoteFromWallet() for v2.0 notes with view/spend key support
+ *
  * @param amountLamports - Amount to deposit in lamports
  * @param network - Solana network (default: "localnet")
- * @returns New Cloak note
+ * @returns New Cloak note (v1.0)
  *
  * @example
  * ```typescript
@@ -45,6 +48,55 @@ export function generateNote(
     commitment: commitmentHex,
     sk_spend: skSpendHex,
     r: rHex,
+    timestamp: Date.now(),
+    network,
+  };
+}
+
+/**
+ * Generate a note using wallet's spend key (v2.0 with scanning support)
+ *
+ * This version uses deterministic key derivation enabling note scanning.
+ * Notes can be discovered by scanning the blockchain with the view key.
+ *
+ * @param keys - Cloak key pair (master seed, spend key, view key)
+ * @param amountLamports - Amount to deposit in lamports
+ * @param network - Solana network (default: "localnet")
+ * @returns New Cloak note (v2.0)
+ *
+ * @example
+ * ```typescript
+ * import { generateCloakKeys, generateNoteFromWallet } from "@cloak/sdk";
+ *
+ * const keys = generateCloakKeys();
+ * const note = generateNoteFromWallet(keys, 1_000_000_000);
+ * // This note can be discovered via scanning!
+ * ```
+ */
+export function generateNoteFromWallet(
+  keys: CloakKeyPair,
+  amountLamports: number,
+  network: Network = "localnet"
+): CloakNote {
+  if (amountLamports <= 0) {
+    throw new Error("Amount must be positive");
+  }
+
+  // Generate randomness
+  const r = randomBytes(32);
+
+  // Use spend key from wallet
+  const sk_spend = hexToBytes(keys.spend.sk_spend_hex);
+
+  // Compute commitment
+  const commitmentBytes = generateCommitment(amountLamports, r, sk_spend);
+
+  return {
+    version: "2.0",
+    amount: amountLamports,
+    commitment: bytesToHex(commitmentBytes),
+    sk_spend: keys.spend.sk_spend_hex,
+    r: bytesToHex(r),
     timestamp: Date.now(),
     network,
   };
