@@ -44,6 +44,7 @@ pub trait SolanaClient: Send + Sync {
     ) -> Result<Signature, Error>;
     async fn get_block_height(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
+    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
 }
 
 pub struct SolanaService {
@@ -83,6 +84,19 @@ impl SolanaService {
             info!("SolanaService: PoW ClaimFinder configured");
         }
         self.claim_finder = claim_finder;
+    }
+
+    /// Check if a nullifier already exists on-chain
+    pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
+        // Get nullifier shard address from config
+        let nullifier_shard = if let Some(ref addr) = self.config.nullifier_shard_address {
+            Pubkey::from_str(addr)
+                .map_err(|e| Error::ValidationError(format!("Invalid nullifier shard address: {}", e)))?
+        } else {
+            return Err(Error::ValidationError("Nullifier shard address not configured".to_string()));
+        };
+
+        self.client.check_nullifier_exists(&nullifier_shard, nullifier).await
     }
 
     /// Submit a withdraw transaction to Solana

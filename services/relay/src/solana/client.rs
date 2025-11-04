@@ -18,7 +18,7 @@ pub struct RpcSolanaClient {
 
 impl RpcSolanaClient {
     pub async fn new(config: &SolanaConfig) -> Result<Self, Error> {
-        info!("Connecting to Solana RPC: {}", config.rpc_url);
+        info!("Connecting to Solana RPC");
 
         let commitment = match config.commitment.as_str() {
             "processed" => CommitmentConfig::processed(),
@@ -119,6 +119,38 @@ impl SolanaClient for RpcSolanaClient {
             .get_balance(pubkey)
             .await
             .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
+    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error> {
+        // Fetch the nullifier shard account data
+        match self.client.get_account_data(nullifier_shard).await {
+            Ok(data) => {
+                // The nullifier shard stores nullifiers as a set of 32-byte hashes
+                // Check if our nullifier exists in the account data
+                if nullifier.len() != 32 {
+                    return Err(Error::ValidationError("Nullifier must be 32 bytes".to_string()));
+                }
+
+                // Search for the nullifier in the account data
+                // Account data structure depends on the on-chain program implementation
+                // For now, we'll do a simple search through 32-byte chunks
+                for chunk in data.chunks_exact(32) {
+                    if chunk == nullifier {
+                        return Ok(true);
+                    }
+                }
+
+                Ok(false)
+            }
+            Err(e) => {
+                // If account doesn't exist, nullifier doesn't exist either
+                if e.to_string().contains("AccountNotFound") {
+                    Ok(false)
+                } else {
+                    Err(Error::InternalServerError(format!("Failed to check nullifier: {}", e)))
+                }
+            }
+        }
     }
 }
 

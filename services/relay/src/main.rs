@@ -162,11 +162,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/orchestrate/withdraw",
             post(orchestrator::orchestrate_withdraw),
         )
-        // Local proving endpoint (temporary until full worker proving pipeline)
-        .route(
-            "/jobs/:job_id/prove-local",
-            post(api::prove_local::prove_local),
-        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(app_state.clone());
