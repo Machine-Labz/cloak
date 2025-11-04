@@ -58,6 +58,7 @@ services:
     build:
       context: ./nginx
       dockerfile: Dockerfile
+    container_name: cloak-nginx
     ports:
       - "80:80"
     networks:

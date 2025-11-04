@@ -2,8 +2,14 @@
 
 # Build artifacts that don't need to be in Docker context
 # (We build inside Docker, so we don't need these)
+target/
+**/target/
 .anchor/
 test-ledger/
+
+# Node modules (huge!)
+node_modules/
+**/node_modules/
 
 # Environment files (use env_file in docker-compose instead)
 .env*
@@ -29,10 +35,14 @@ Thumbs.db
 # Logs (will be created inside container)
 *.log
 logs/
+relay.log
+claude.log
+test_output.log
 
 # Documentation (not needed in container)
 *.md
 !README.md
+!**/README.md
 docs/
 
 # CI/CD
@@ -43,3 +53,24 @@ docs/
 tmp/
 temp/
 *.tmp
+
+# Test artifacts and keypairs (can be large)
+test_keypairs/
+miner_backups/
+*.json
+!Cargo.lock
+!package.json
+!package-lock.json
+!tsconfig.json
+!**/package.json
+!**/tsconfig.json
+
+# Ore submodule (not needed for indexer/relay builds)
+ore/
+ore-cli/
+
+# Build outputs
+*.wasm
+*.so
+dist/
+build/
