@@ -44,16 +44,16 @@ impl PostgresTreeStorage {
         Self { pool }
     }
 
-    /// Store a note (deposit event) with encrypted output
-    pub async fn store_note(
+    /// Atomically allocate the next leaf index and store the note
+    /// This prevents race conditions when multiple deposits arrive concurrently
+    pub async fn allocate_and_store_note(
         &self,
         leaf_commit: &str,
         encrypted_output: &str,
-        leaf_index: i64,
         tx_signature: &str,
         slot: i64,
         block_time: Option<DateTime<Utc>>,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         let clean_commit = leaf_commit
             .strip_prefix("0x")
             .unwrap_or(leaf_commit)
@@ -61,6 +61,44 @@ impl PostgresTreeStorage {
 
         let start = std::time::Instant::now();
 
+        // Start a transaction
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            tracing::error!("Failed to begin transaction: {}", e);
+            IndexerError::Database(e)
+        })?;
+
+        // Acquire advisory lock to prevent concurrent index allocation
+        // The lock is automatically released when the transaction commits/rolls back
+        sqlx::query("SELECT pg_advisory_xact_lock(123456789)")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to acquire advisory lock: {}", e);
+                IndexerError::Database(e)
+            })?;
+
+        // Get the next leaf index from merkle tree nodes
+        // This ensures no other transaction can get the same index
+        let next_index: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(index_at_level) + 1, 0)
+            FROM merkle_tree_nodes
+            WHERE level = 0
+            "#
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get next leaf index: {}", e);
+            IndexerError::Database(e)
+        })?;
+
+        tracing::info!(
+            next_index = next_index,
+            "Allocated next leaf index atomically"
+        );
+
+        // Insert the note with the allocated index
         sqlx::query(
             r#"
             INSERT INTO notes (leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time) 
@@ -69,16 +107,16 @@ impl PostgresTreeStorage {
         )
         .bind(&clean_commit)
         .bind(encrypted_output)
-        .bind(leaf_index)
+        .bind(next_index)
         .bind(tx_signature)
         .bind(slot)
         .bind(block_time.unwrap_or_else(Utc::now))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             tracing::error!(
                 leaf_commit = %clean_commit,
-                leaf_index = leaf_index,
+                leaf_index = next_index,
                 tx_signature = tx_signature,
                 slot = slot,
                 error = %e,
@@ -87,19 +125,25 @@ impl PostgresTreeStorage {
             IndexerError::Database(e)
         })?;
 
+        // Commit the transaction
+        tx.commit().await.map_err(|e| {
+            tracing::error!("Failed to commit transaction: {}", e);
+            IndexerError::Database(e)
+        })?;
+
         let duration = start.elapsed();
         crate::log_database_operation!("INSERT", "notes", duration.as_millis() as u64);
 
         tracing::info!(
             leaf_commit = %clean_commit,
-            leaf_index = leaf_index,
+            leaf_index = next_index,
             tx_signature = tx_signature,
             slot = slot,
             encrypted_output_length = encrypted_output.len(),
-            "Stored note"
+            "Stored note with atomically allocated index"
         );
 
-        Ok(())
+        Ok(next_index)
     }
 
     /// Reset the database by clearing all data

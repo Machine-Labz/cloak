@@ -7,7 +7,6 @@ use axum::{
 use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Instant};
-use zk_guest_sp1_host::generate_proof as sp1_generate_proof;
 
 /// Helper function to create deprecation headers
 fn create_deprecation_headers() -> HeaderMap {
@@ -47,11 +46,11 @@ pub struct ProveResponse {
 ///
 /// **⚠️ DEPRECATED ENDPOINT** - This endpoint is deprecated and will be removed in a future version.
 ///
-/// Generates an SP1 ZK proof for withdraw transaction
+/// Generates an SP1 ZK proof for withdraw transaction using TEE (Trusted Execution Environment)
 ///
 /// This endpoint accepts private inputs, public inputs, and outputs,
-/// then triggers the SP1 prover to generate a proof. It will attempt to use
-/// SP1's TEE Private Proving if configured, otherwise falls back to local proving.
+/// then triggers the SP1 TEE prover to generate a proof. This endpoint requires
+/// TEE to be configured - no local fallback is available.
 ///
 /// ⚠️ PRIVACY WARNING: This endpoint receives private inputs on the backend.
 /// For production use, implementing client-side proof generation is optimal.
@@ -142,128 +141,57 @@ pub async fn generate_proof(
     }
     tracing::info!("✅ Input validation passed");
 
-    tracing::info!("🚀 Starting SP1 proof generation (this may take 30-180 seconds)...");
+    tracing::info!("🚀 Starting TEE proof generation (this may take 30-180 seconds)...");
 
-    // Try TEE first if available, then fallback to local proving
-    let _proof_result: Option<()> = if let Some(tee_client) = &state.tee_client {
-        tracing::info!("🔐 TEE client available - attempting TEE proof generation");
-        tracing::info!("   Wallet: {}", tee_client.wallet_address());
-        tracing::info!("   RPC URL: {}", state.config.sp1_tee.rpc_url);
-        tracing::info!(
-            "   Timeout: {} seconds",
-            state.config.sp1_tee.timeout_seconds
-        );
-
-        match tee_client
-            .generate_proof(
-                &request.private_inputs,
-                &request.public_inputs,
-                &request.outputs,
-            )
-            .await
-        {
-            Ok(tee_result) => {
-                tracing::info!("✅ TEE proof generation succeeded");
-                tracing::info!(
-                    proof_size_bytes = tee_result.proof_bytes.len(),
-                    public_inputs_size_bytes = tee_result.public_inputs.len(),
-                    generation_time_ms = tee_result.generation_time_ms,
-                    total_cycles = tee_result.total_cycles,
-                    total_syscalls = tee_result.total_syscalls,
-                    wallet_address = tee_client.wallet_address(),
-                    "TEE proof generation completed successfully"
-                );
-
-                let canonical_proof = match extract_groth16_260_sp1(&tee_result.proof_bytes) {
-                    Ok(proof) => proof,
-                    Err(err) => {
-                        tracing::error!(
-                            error = ?err,
-                            "Failed to extract canonical Groth16 proof from SP1 bundle"
-                        );
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ProveResponse {
-                                success: false,
-                                proof: None,
-                                public_inputs: None,
-                                generation_time_ms: tee_result.generation_time_ms,
-                                total_cycles: Some(tee_result.total_cycles),
-                                total_syscalls: Some(tee_result.total_syscalls),
-                                execution_report: Some(tee_result.execution_report),
-                                proof_method: Some("tee".to_string()),
-                                wallet_address: Some(tee_client.wallet_address().to_string()),
-                                error: Some(
-                                    "Failed to extract canonical Groth16 proof from SP1 bundle"
-                                        .to_string(),
-                                ),
-                            }),
-                        )
-                            .into_response();
-                    }
-                };
-
-                // Convert to hex for API response
-                let proof_hex = hex::encode(canonical_proof);
-                let proof_prefix = hex::encode(&canonical_proof[..4]);
-                let public_inputs_hex = hex::encode(&tee_result.public_inputs);
-
-                tracing::info!(canonical_proof_bytes = proof_hex.len() / 2, proof_prefix);
-                tracing::info!("🎉 TEE proof generation request completed successfully");
-
-                let mut response = (
-                    StatusCode::OK,
-                    Json(ProveResponse {
-                        success: true,
-                        proof: Some(proof_hex),
-                        public_inputs: Some(public_inputs_hex),
-                        generation_time_ms: tee_result.generation_time_ms,
-                        total_cycles: Some(tee_result.total_cycles),
-                        total_syscalls: Some(tee_result.total_syscalls),
-                        execution_report: Some(tee_result.execution_report),
-                        proof_method: Some("tee".to_string()),
-                        wallet_address: Some(tee_client.wallet_address().to_string()),
-                        error: None,
-                    }),
-                )
-                    .into_response();
-
-                // Add deprecation headers
-                let headers = response.headers_mut();
-                headers.extend(create_deprecation_headers());
-
-                return response;
-            }
-            Err(e) => {
-                tracing::warn!("⚠️ TEE proof generation failed: {}", e);
-                tracing::info!("🔄 Falling back to local proof generation");
-                None
-            }
-        }
-    } else {
-        tracing::info!("🏠 TEE client not available, using local proof generation");
-        None
+    // TEE-only proof generation - no fallback
+    let Some(tee_client) = &state.tee_client else {
+        tracing::error!("❌ TEE client not configured");
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ProveResponse {
+                success: false,
+                proof: None,
+                public_inputs: None,
+                generation_time_ms: start_time.elapsed().as_millis() as u64,
+                total_cycles: None,
+                total_syscalls: None,
+                execution_report: None,
+                proof_method: None,
+                wallet_address: None,
+                error: Some("TEE client not configured. Proof generation is only available via TEE.".to_string()),
+            }),
+        )
+            .into_response();
     };
 
-    // Fallback to local proof generation
-    tracing::info!("🏠 Using local SP1 proof generation");
-    match sp1_generate_proof(
-        &request.private_inputs,
-        &request.public_inputs,
-        &request.outputs,
-    ) {
-        Ok(proof_result) => {
-            tracing::info!("✅ SP1 proof generation succeeded");
+    tracing::info!("🔐 Using TEE proof generation");
+    tracing::info!("   Wallet: {}", tee_client.wallet_address());
+    tracing::info!(
+        "   Timeout: {} seconds",
+        state.config.sp1_tee.timeout_seconds
+    );
+
+    match tee_client
+        .generate_proof(
+            &request.private_inputs,
+            &request.public_inputs,
+            &request.outputs,
+        )
+        .await
+    {
+        Ok(tee_result) => {
+            tracing::info!("✅ TEE proof generation succeeded");
             tracing::info!(
-                proof_size_bytes = proof_result.proof_bytes.len(),
-                public_inputs_size_bytes = proof_result.public_inputs.len(),
-                generation_time_ms = proof_result.generation_time_ms,
-                total_cycles = proof_result.total_cycles,
-                total_syscalls = proof_result.total_syscalls,
-                "Proof generation completed successfully"
+                proof_size_bytes = tee_result.proof_bytes.len(),
+                public_inputs_size_bytes = tee_result.public_inputs.len(),
+                generation_time_ms = tee_result.generation_time_ms,
+                total_cycles = tee_result.total_cycles,
+                total_syscalls = tee_result.total_syscalls,
+                wallet_address = tee_client.wallet_address(),
+                "TEE proof generation completed successfully"
             );
 
-            let canonical_proof = match extract_groth16_260_sp1(&proof_result.proof_bytes) {
+            let canonical_proof = match extract_groth16_260_sp1(&tee_result.proof_bytes) {
                 Ok(proof) => proof,
                 Err(err) => {
                     tracing::error!(
@@ -276,12 +204,12 @@ pub async fn generate_proof(
                             success: false,
                             proof: None,
                             public_inputs: None,
-                            generation_time_ms: proof_result.generation_time_ms,
-                            total_cycles: Some(proof_result.total_cycles),
-                            total_syscalls: Some(proof_result.total_syscalls),
-                            execution_report: Some(proof_result.execution_report),
-                            proof_method: Some("local".to_string()),
-                            wallet_address: None,
+                            generation_time_ms: tee_result.generation_time_ms,
+                            total_cycles: Some(tee_result.total_cycles),
+                            total_syscalls: Some(tee_result.total_syscalls),
+                            execution_report: Some(tee_result.execution_report),
+                            proof_method: Some("tee".to_string()),
+                            wallet_address: Some(tee_client.wallet_address().to_string()),
                             error: Some(
                                 "Failed to extract canonical Groth16 proof from SP1 bundle"
                                     .to_string(),
@@ -295,10 +223,10 @@ pub async fn generate_proof(
             // Convert to hex for API response
             let proof_hex = hex::encode(canonical_proof);
             let proof_prefix = hex::encode(&canonical_proof[..4]);
-            let public_inputs_hex = hex::encode(&proof_result.public_inputs);
+            let public_inputs_hex = hex::encode(&tee_result.public_inputs);
 
             tracing::info!(canonical_proof_bytes = proof_hex.len() / 2, proof_prefix);
-            tracing::info!("🎉 Local proof generation request completed successfully");
+            tracing::info!("🎉 TEE proof generation request completed successfully");
 
             let mut response = (
                 StatusCode::OK,
@@ -306,12 +234,12 @@ pub async fn generate_proof(
                     success: true,
                     proof: Some(proof_hex),
                     public_inputs: Some(public_inputs_hex),
-                    generation_time_ms: proof_result.generation_time_ms,
-                    total_cycles: Some(proof_result.total_cycles),
-                    total_syscalls: Some(proof_result.total_syscalls),
-                    execution_report: Some(proof_result.execution_report),
-                    proof_method: Some("local".to_string()),
-                    wallet_address: None,
+                    generation_time_ms: tee_result.generation_time_ms,
+                    total_cycles: Some(tee_result.total_cycles),
+                    total_syscalls: Some(tee_result.total_syscalls),
+                    execution_report: Some(tee_result.execution_report),
+                    proof_method: Some("tee".to_string()),
+                    wallet_address: Some(tee_client.wallet_address().to_string()),
                     error: None,
                 }),
             )
@@ -324,7 +252,7 @@ pub async fn generate_proof(
             response
         }
         Err(e) => {
-            tracing::error!("❌ SP1 proof generation failed: {}", e);
+            tracing::error!("❌ TEE proof generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ProveResponse {
@@ -335,9 +263,9 @@ pub async fn generate_proof(
                     total_cycles: None,
                     total_syscalls: None,
                     execution_report: None,
-                    proof_method: Some("local".to_string()),
-                    wallet_address: None,
-                    error: Some(format!("SP1 proof generation failed: {}", e)),
+                    proof_method: Some("tee".to_string()),
+                    wallet_address: Some(tee_client.wallet_address().to_string()),
+                    error: Some(format!("TEE proof generation failed: {}", e)),
                 }),
             )
                 .into_response()
