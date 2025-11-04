@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - master
-      - feat/pow-scrambler-gate
   workflow_dispatch:
 
 jobs:
