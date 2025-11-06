@@ -45,17 +45,12 @@ jobs:
             type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/cloak:${{ matrix.service }}-cache,mode=max
             type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-          # Build arguments for optimization
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-            CARGO_INCREMENTAL=0
-            CARGO_NET_RETRY=10
 
 
   deploy:
     needs: [build-indexer-relay]
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.0
@@ -65,13 +60,25 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/cloak || exit 1
+
+            echo "📦 Pulling latest code from repository..."
+            git pull origin master || echo "⚠️  Git pull failed, continuing with existing code"
+
+            echo "🛑 Stopping services..."
             sudo systemctl stop nginx 2>/dev/null || true
             docker compose -f deployment/compose.yml down indexer relay nginx || true
-            # Pull image-based services only (indexer, relay)
+
+            echo "📥 Pulling latest Docker images..."
             docker compose -f deployment/compose.yml pull indexer relay
-            # Build nginx from local context on the server
+
+            echo "🏗️  Building nginx from local context..."
             docker compose -f deployment/compose.yml build nginx
-            docker compose -f deployment/compose.yml up -d indexer relay nginx
-            echo "✅ Checking container status..."
+
+            echo "🚀 Starting services (migrations run automatically on indexer startup)..."
+            docker compose -f deployment/compose.yml up -d --build indexer relay nginx
+
+            echo "⏳ Waiting for services to start..."
             sleep 5
+
+            echo "✅ Checking container status..."
             docker compose -f deployment/compose.yml ps

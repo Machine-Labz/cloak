@@ -67,35 +67,47 @@ impl PostgresTreeStorage {
             IndexerError::Database(e)
         })?;
 
-        // Acquire advisory lock to prevent concurrent index allocation
-        // The lock is automatically released when the transaction commits/rolls back
-        sqlx::query("SELECT pg_advisory_xact_lock(123456789)")
-            .execute(&mut *tx)
+        // Atomically allocate next index using PostgreSQL sequence
+        // This is guaranteed to be unique across all concurrent transactions
+        let next_index: i64 = sqlx::query_scalar("SELECT nextval('leaf_index_seq')")
+            .fetch_one(&mut *tx)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to acquire advisory lock: {}", e);
+                tracing::error!("Failed to allocate leaf index from sequence: {}", e);
                 IndexerError::Database(e)
             })?;
 
-        // Get the next leaf index from merkle tree nodes
-        // This ensures no other transaction can get the same index
-        let next_index: i64 = sqlx::query_scalar(
+        tracing::info!(
+            next_index = next_index,
+            "Allocated leaf index from sequence (atomic, no race conditions)"
+        );
+
+        // Reserve the index in merkle_tree_nodes to maintain consistency
+        // This prevents the merkle tree from being out of sync with allocated indices
+        // The actual leaf hash will be computed and updated by insert_leaf()
+        sqlx::query(
             r#"
-            SELECT COALESCE(MAX(index_at_level) + 1, 0)
-            FROM merkle_tree_nodes
-            WHERE level = 0
+            INSERT INTO merkle_tree_nodes (level, index_at_level, value)
+            VALUES (0, $1, '0000000000000000000000000000000000000000000000000000000000000000')
+            ON CONFLICT (level, index_at_level)
+            DO UPDATE SET value = EXCLUDED.value
             "#
         )
-        .fetch_one(&mut *tx)
+        .bind(next_index)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get next leaf index: {}", e);
+            tracing::error!(
+                index = next_index,
+                error = %e,
+                "Failed to reserve merkle tree node"
+            );
             IndexerError::Database(e)
         })?;
 
         tracing::info!(
             next_index = next_index,
-            "Allocated next leaf index atomically"
+            "Reserved merkle tree node (will be updated with actual leaf hash)"
         );
 
         // Insert the note with the allocated index

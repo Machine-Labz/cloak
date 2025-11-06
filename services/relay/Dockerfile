@@ -1,21 +1,26 @@
 # Dockerfile for Cloak Relay Service
 FROM rust:1.90-bullseye AS build
 
-# Install build dependencies
+# Install build dependencies including lld (faster linker)
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     pkg-config \
     libssl-dev \
     libclang-dev \
+    clang \
+    lld \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /src/cloak
 WORKDIR /src/cloak
 
-# Build with locked dependencies for reproducibility
+# Use lld linker for faster linking
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+
+# Build with locked dependencies (use all available CPUs)
 RUN mkdir /out && \
-    cargo build --release --bin relay --locked -j 8 && \
-    cp /src/cloak/target/release/relay /out/
+    cargo build --release -p relay --locked -j $(nproc) && \
+    cp target/release/relay /out/
 
 # Runtime stage
 FROM debian:bullseye-slim
