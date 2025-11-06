@@ -74,3 +74,7 @@ ore-cli/
 *.so
 dist/
 build/
+
+# Large artifact directories (not needed for build)
+deployment/
+scripts/

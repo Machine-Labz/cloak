@@ -116,15 +116,21 @@ impl MerkleTree {
     }
 
     /// Insert a new leaf into the tree and return the new root
+    ///
+    /// # Parameters
+    /// - `leaf_index`: The index where the leaf should be inserted (typically allocated by SEQUENCE)
+    /// - `leaf_value`: The hash value of the leaf
+    /// - `storage`: The storage backend for persisting tree nodes
     pub async fn insert_leaf(
         &mut self,
+        leaf_index: u64,
         leaf_value: &str,
         storage: &dyn TreeStorage,
     ) -> Result<(String, u64)> {
-        let leaf_index = self.next_index;
         tracing::info!(
             leaf_value = leaf_value,
             leaf_index = leaf_index,
+            current_next_index = self.next_index,
             "Inserting leaf"
         );
 
@@ -240,7 +246,9 @@ impl MerkleTree {
             current_value = parent_value;
         }
 
-        self.next_index += 1;
+        // Update next_index to ensure it's always ahead of the highest inserted leaf
+        // This handles both sequential and non-sequential insertions (e.g., from SEQUENCE)
+        self.next_index = self.next_index.max(leaf_index + 1);
         let root_value = current_value;
 
         tracing::info!(

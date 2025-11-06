@@ -185,7 +185,7 @@ pub async fn deposit(
     // Insert the leaf into the merkle tree and get the new root
     tracing::info!("🌳 Inserting leaf into Merkle tree");
     let mut tree = state.merkle_tree.lock().await;
-    match tree.insert_leaf(&request.leaf_commit, &state.storage).await {
+    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
         Ok((new_root, _)) => {
             tracing::info!(
                 leaf_index = allocated_index,

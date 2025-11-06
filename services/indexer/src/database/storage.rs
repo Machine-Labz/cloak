@@ -547,39 +547,39 @@ impl TreeStorage for PostgresTreeStorage {
     async fn get_max_leaf_index(&self) -> Result<u64> {
         let start = std::time::Instant::now();
 
-        // Get all leaf indices in order
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level",
+        // Get the current value of the SEQUENCE
+        // This is the source of truth for next index allocation
+        let sequence_value: Option<i64> = sqlx::query_scalar(
+            "SELECT last_value FROM leaf_index_seq",
         )
-        .fetch_all(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(IndexerError::Database)?;
 
-        let indices: Vec<i64> = rows.into_iter().map(|(index,)| index).collect();
-
-        let next_index = if indices.is_empty() {
-            tracing::info!("No leaves found, starting from index 0");
-            0
+        // If sequence doesn't exist yet or is at initial value, check notes table as fallback
+        let next_index = if let Some(seq_val) = sequence_value {
+            // Sequence exists, next index is current value + 1
+            // (last_value is the last allocated value, so next is +1)
+            seq_val + 1
         } else {
-            // Find the first gap or return the next consecutive index
-            let mut next_index = indices.len() as i64; // Start with the length (next available index)
-            for i in 0..indices.len() {
-                if indices[i] != i as i64 {
-                    next_index = i as i64; // Found a gap, use that index
-                    break;
-                }
-            }
-            next_index
+            // Fallback: query notes table for max leaf_index
+            let max_index: Option<i64> = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(leaf_index), -1) FROM notes",
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map_err(IndexerError::Database)?;
+
+            max_index.unwrap_or(-1) + 1
         };
 
         let duration = start.elapsed();
-        crate::log_database_operation!("SELECT", "merkle_tree_nodes", duration.as_millis() as u64);
+        crate::log_database_operation!("SELECT", "leaf_index_seq", duration.as_millis() as u64);
 
         tracing::info!(
-            total_leaves = indices.len(),
-            max_index = indices.iter().max().unwrap_or(&-1),
+            sequence_value = sequence_value,
             next_index = next_index,
-            "Retrieved max leaf index"
+            "Retrieved max leaf index from SEQUENCE"
         );
 
         Ok(next_index as u64)
