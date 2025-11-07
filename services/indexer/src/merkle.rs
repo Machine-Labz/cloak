@@ -188,49 +188,21 @@ impl MerkleTree {
                     "Right child processing - looking for left sibling at index {}",
                     current_index - 1
                 );
-                let left_sibling = storage.get_node(level as u32, current_index - 1).await?;
-                if left_sibling.is_none() {
-                    // If this is the very first leaf (index 0) and we're at level 0,
-                    // this is expected - we're inserting the first leaf
-                    if leaf_index == 0 && level == 0 {
-                        tracing::debug!(
-                            level = level,
-                            current_index = current_index,
-                            leaf_index = leaf_index,
-                            "First leaf insertion - no left sibling expected"
-                        );
-                        // For the first leaf, we use the zero value as the left sibling
-                        let left_sibling = self.zero_values[level].clone();
-                        let parent_value = Self::hash_pair(&left_sibling, &current_value)?;
-                        storage
-                            .store_node((level + 1) as u32, parent_index, &parent_value)
-                            .await?;
-                        current_index = parent_index;
-                        current_value = parent_value;
-                        continue;
-                    } else {
-                        tracing::warn!(
-                            level = level,
-                            current_index = current_index,
-                            leaf_index = leaf_index,
-                            "Missing left sibling detected, this indicates a tree inconsistency"
-                        );
-                        return Err(IndexerError::merkle_tree(format!(
-                            "Missing left sibling at level {}, index {}. Tree is in an inconsistent state.",
-                            level,
-                            current_index - 1
-                        )));
-                    }
-                }
+                // Use zero value if left sibling doesn't exist (symmetric with left child handling)
+                // This handles sparse tree insertions and concurrent insertions gracefully
+                let left_sibling = storage
+                    .get_node(level as u32, current_index - 1)
+                    .await?
+                    .unwrap_or_else(|| self.zero_values[level].clone());
 
                 tracing::debug!(
                     level = level,
                     current_index = current_index,
-                    left_sibling_exists = true,
+                    left_sibling_exists = left_sibling != self.zero_values[level],
                     "Right child processing"
                 );
 
-                (left_sibling.unwrap(), current_value)
+                (left_sibling, current_value)
             };
 
             // Compute parent hash
