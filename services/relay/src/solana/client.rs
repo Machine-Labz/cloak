@@ -114,6 +114,13 @@ impl SolanaClient for RpcSolanaClient {
             .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
+    async fn get_slot(&self) -> Result<u64, Error> {
+        self.client
+            .get_slot()
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error> {
         self.client
             .get_balance(pubkey)

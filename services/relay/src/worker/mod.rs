@@ -1,4 +1,5 @@
 pub mod processor;
+pub mod window_scheduler;
 
 use std::sync::Arc;
 use std::time::Duration;

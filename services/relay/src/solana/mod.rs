@@ -43,6 +43,7 @@ pub trait SolanaClient: Send + Sync {
         transaction: &Transaction,
     ) -> Result<Signature, Error>;
     async fn get_block_height(&self) -> Result<u64, Error>;
+    async fn get_slot(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
     async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
 }
@@ -84,6 +85,11 @@ impl SolanaService {
             info!("SolanaService: PoW ClaimFinder configured");
         }
         self.claim_finder = claim_finder;
+    }
+
+    /// Get current Solana slot
+    pub async fn get_slot(&self) -> Result<u64, Error> {
+        self.client.get_slot().await
     }
 
     /// Check if a nullifier already exists on-chain
