@@ -94,15 +94,11 @@ impl SolanaService {
 
     /// Check if a nullifier already exists on-chain
     pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
-        // Get nullifier shard address from config
-        let nullifier_shard = if let Some(ref addr) = self.config.nullifier_shard_address {
-            Pubkey::from_str(addr)
-                .map_err(|e| Error::ValidationError(format!("Invalid nullifier shard address: {}", e)))?
-        } else {
-            return Err(Error::ValidationError("Nullifier shard address not configured".to_string()));
-        };
+        // Derive nullifier shard PDA from program ID
+        let (_, _, _, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id);
 
-        self.client.check_nullifier_exists(&nullifier_shard, nullifier).await
+        self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
     }
 
     /// Submit a withdraw transaction to Solana
@@ -224,42 +220,14 @@ impl SolanaService {
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
 
-        // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
-        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
-            Some(pool_addr),
-            Some(treasury_addr),
-            Some(roots_ring_addr),
-            Some(nullifier_shard_addr),
-        ) = (
-            &self.config.pool_address,
-            &self.config.treasury_address,
-            &self.config.roots_ring_address,
-            &self.config.nullifier_shard_address,
-        ) {
-            // Use configured addresses
-            let pool_pda = Pubkey::from_str(pool_addr)
-                .map_err(|e| Error::ValidationError(format!("Invalid pool address: {}", e)))?;
-            let treasury_pda = Pubkey::from_str(treasury_addr)
-                .map_err(|e| Error::ValidationError(format!("Invalid treasury address: {}", e)))?;
-            let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
-                Error::ValidationError(format!("Invalid roots ring address: {}", e))
-            })?;
-            let nullifier_shard_pda = Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
-                Error::ValidationError(format!("Invalid nullifier shard address: {}", e))
-            })?;
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id);
 
-            info!("Using configured account addresses:");
-            info!("  Pool: {}", pool_pda);
-            info!("  Treasury: {}", treasury_pda);
-            info!("  Roots Ring: {}", roots_ring_pda);
-            info!("  Nullifier Shard: {}", nullifier_shard_pda);
-
-            (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
-        } else {
-            // Fallback to PDA derivation
-            warn!("Account addresses not configured, deriving PDAs (this may cause errors if accounts don't exist)");
-            transaction_builder::derive_shield_pool_pdas(&self.program_id)
-        };
+        info!("Derived Shield Pool PDAs from program ID:");
+        info!("  Pool: {}", pool_pda);
+        info!("  Treasury: {}", treasury_pda);
+        info!("  Roots Ring: {}", roots_ring_pda);
+        info!("  Nullifier Shard: {}", nullifier_shard_pda);
 
         // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
         let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
@@ -313,7 +281,7 @@ impl SolanaService {
                     let recipient_pubkeys = recipient_pubkeys?;
 
                     // Build PoW-enabled transaction
-                    transaction_builder::build_withdraw_transaction_with_pow(
+                    let pow_tx = transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
                         public_104,
                         &planner_outputs,
@@ -332,7 +300,38 @@ impl SolanaService {
                         fee_payer_pubkey,
                         recent_blockhash,
                         priority_micro_lamports,
-                    )?
+                    )?;
+
+                    // Check if transaction size exceeds Solana's limit (1644 bytes encoded)
+                    let serialized_size = bincode::serialize(&pow_tx)
+                        .map(|bytes| bytes.len())
+                        .unwrap_or(0);
+
+                    if serialized_size > 1644 {
+                        warn!(
+                            "⚠️  PoW transaction too large ({} bytes > 1644 limit), falling back to non-PoW transaction",
+                            serialized_size
+                        );
+
+                        // Fallback to non-PoW transaction
+                        transaction_builder::build_withdraw_transaction(
+                            proof_bytes.clone(),
+                            public_104,
+                            &planner_outputs,
+                            self.program_id,
+                            pool_pda,
+                            roots_ring_pda,
+                            nullifier_shard_pda,
+                            treasury_pda,
+                            &recipient_pubkeys,
+                            fee_payer_pubkey,
+                            recent_blockhash,
+                            priority_micro_lamports,
+                        )?
+                    } else {
+                        info!("✓ PoW transaction size: {} bytes", serialized_size);
+                        pow_tx
+                    }
                 }
                 Ok(None) => {
                     // PoW mode is enabled but no claims are available yet
@@ -434,40 +433,8 @@ impl SolanaService {
                 let mut public_104 = [0u8; 104];
                 public_104.copy_from_slice(&job.public_inputs);
 
-                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
-                    Some(pool_addr),
-                    Some(treasury_addr),
-                    Some(roots_ring_addr),
-                    Some(nullifier_shard_addr),
-                ) = (
-                    &self.config.pool_address,
-                    &self.config.treasury_address,
-                    &self.config.roots_ring_address,
-                    &self.config.nullifier_shard_address,
-                ) {
-                    // Use configured addresses
-                    let pool_pda = Pubkey::from_str(pool_addr).map_err(|e| {
-                        Error::ValidationError(format!("Invalid pool address: {}", e))
-                    })?;
-                    let treasury_pda = Pubkey::from_str(treasury_addr).map_err(|e| {
-                        Error::ValidationError(format!("Invalid treasury address: {}", e))
-                    })?;
-                    let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
-                        Error::ValidationError(format!("Invalid roots ring address: {}", e))
-                    })?;
-                    let nullifier_shard_pda =
-                        Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
-                            Error::ValidationError(format!(
-                                "Invalid nullifier shard address: {}",
-                                e
-                            ))
-                        })?;
-
-                    (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
-                } else {
-                    // Fallback to PDA derivation
-                    transaction_builder::derive_shield_pool_pdas(&self.program_id)
-                };
+                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id);
 
                 let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
                     kp.pubkey()

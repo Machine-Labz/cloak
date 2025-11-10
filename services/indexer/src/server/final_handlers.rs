@@ -193,18 +193,17 @@ pub async fn deposit(
                 "✅ Successfully inserted leaf into Merkle tree"
             );
             
-            // Push new root to on-chain roots ring asynchronously (non-blocking)
-            tracing::info!("🔗 Scheduling root push to on-chain roots ring");
-            let solana_config = state.config.solana.clone();
-            let root_to_push = new_root.clone();
-            tokio::spawn(async move {
-                if let Err(e) = push_root_to_chain(&root_to_push, &solana_config).await {
-                    tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
-                    // The root will be available for manual push later
-                } else {
-                    tracing::info!("✅ Root successfully pushed to on-chain roots ring");
-                }
-            });
+            // Push new root to on-chain roots ring synchronously to prevent race conditions
+            // The withdrawal proof depends on this root being on-chain before it can be verified
+            tracing::info!("🔗 Pushing root to on-chain roots ring");
+            if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
+                tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                // Continue anyway - withdrawals can still work if root is pushed later
+                // or if the on-chain program has a grace period for root updates
+                tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
+            } else {
+                tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+            }
             
             tracing::info!("🎉 Deposit request completed successfully");
             (

@@ -276,8 +276,8 @@ pub fn build_withdraw_transaction(
         recipients,
     );
 
-    // Reduce compute units to avoid transaction size issues
-    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(600_000);
+    // Optimize compute units for transaction size
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(400_000);
     let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
 
     let mut msg = Message::new(&[cu_ix, pri_ix, withdraw_ix], Some(&fee_payer));
@@ -331,8 +331,7 @@ pub fn build_withdraw_transaction_with_pow(
         miner_authority,
     );
 
-    // Reduce compute units to fit transaction size limits with PoW
-    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(600_000);
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(400_000);
     let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
 
     let mut msg = Message::new(&[cu_ix, pri_ix, withdraw_ix], Some(&fee_payer));

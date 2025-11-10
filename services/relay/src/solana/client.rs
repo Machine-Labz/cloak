@@ -66,7 +66,16 @@ impl SolanaClient for RpcSolanaClient {
             .client
             .send_transaction(transaction)
             .await
-            .map_err(|e| Error::InternalServerError(e.to_string()))?;
+            .map_err(|e| {
+                error!("🔴 DEBUG: send_transaction failed: {:?}", e);
+                error!("🔴 DEBUG: Error details: {}", e);
+                // Check if it's a simulation error
+                let err_str = e.to_string();
+                if err_str.contains("0x1001") || err_str.contains("RootNotFound") {
+                    error!("🔴 DEBUG: This is a RootNotFound (0x1001) error!");
+                }
+                Error::InternalServerError(format!("send_transaction failed: {}", e))
+            })?;
 
 
         // Then confirm it with retries
