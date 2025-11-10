@@ -11,6 +11,10 @@ path = "src/prove_test.rs"
 name = "prove-test-multiple-outputs"
 path = "src/prove_test_multiple_outputs.rs"
 
+[[bin]]
+name = "scale-test"
+path = "src/scale_test.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"

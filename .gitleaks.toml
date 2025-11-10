@@ -15,6 +15,12 @@ regexes = [
     '''vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
     '''VKey Hash["\s:=]+0x[a-fA-F0-9]{64}''',
     '''sp1_vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
+    # Solana program IDs in code context (public values)
+    '''program_id.*["'"]([1-9A-HJ-NP-Za-km-z]{32,44})["']''',
+    '''Pubkey.*["'"]([1-9A-HJ-NP-Za-km-z]{32,44})["']''',
+    '''parse::<Pubkey>.*["'"]([1-9A-HJ-NP-Za-km-z]{32,44})["']''',
+    # Specific known program IDs (public values)
+    '''c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp''',
 ]
 
 # Paths to ignore
@@ -25,4 +31,7 @@ paths = [
     '''example.*\.json$''',
     # Ignore documentation about keys
     '''docs/.*VKEY.*\.md$''',
+    # Ignore test files (they contain test program IDs)
+    # Note: Only ignoring tooling/test, not programs/*/src/tests to catch real secrets
+    '''tooling/test/.*\.rs$''',
 ]

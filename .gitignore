@@ -98,3 +98,4 @@ Thumbs.db
 
 # Context
 .context/
+scripts/build-and-deploy.sh

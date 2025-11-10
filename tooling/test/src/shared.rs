@@ -43,12 +43,12 @@ impl TestConfig {
         Self {
             rpc_url: "https://api.testnet.solana.com".to_string(),
             program_id: "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".to_string(),
-            amount: 100_000_000, // 0.1 SOL
+            amount: 213_567_839, // 0.213567839 SOL (0.12 + 0.09 + fees, accounting for integer division)
             user_keypair_path: "user-keypair.json".to_string(),
             recipient_keypair_path: "recipient-keypair.json".to_string(),
             recipient2_keypair_path: "recipient-2-keypair.json".to_string(),
             program_keypair_path: "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp.json".to_string(),
-            indexer_url: "http://localhost:3001".to_string(),
+            indexer_url: "https://api.cloaklabz.xyz".to_string(),
         }
     }
 
@@ -291,4 +291,185 @@ pub fn ensure_user_funding(
     client.send_and_confirm_transaction(&transfer_tx)?;
     println!("   ✅ Transfer completed");
     Ok(())
+}
+
+/// Batch fund multiple user accounts efficiently (3 batches of ~30% each)
+/// If funding fails, automatically refunds all SOL back to admin
+pub fn batch_fund_accounts(
+    rpc_url: &str,
+    user_keypairs: &[&Keypair],
+    admin_keypair: &Keypair,
+    num_batches: usize,
+) -> Result<()> {
+    let client = RpcClient::new(rpc_url);
+
+    // Fund with 0.25 SOL (enough for test transactions with fees)
+    const FUNDING_AMOUNT: u64 = 250_000_000; // 0.25 SOL
+
+    // Check which accounts need funding
+    let mut accounts_to_fund = Vec::new();
+    for keypair in user_keypairs {
+        let balance = client.get_balance(&keypair.pubkey())?;
+        if balance < FUNDING_AMOUNT {
+            accounts_to_fund.push(keypair);
+        }
+    }
+
+    if accounts_to_fund.is_empty() {
+        println!("   ✅ All accounts already funded");
+        return Ok(());
+    }
+
+    println!("   📊 Need to fund {}/{} accounts", accounts_to_fund.len(), user_keypairs.len());
+
+    // Split into batches
+    let batch_size = (accounts_to_fund.len() + num_batches - 1) / num_batches;
+    let batches: Vec<_> = accounts_to_fund.chunks(batch_size).collect();
+
+    println!("   📦 Creating {} batches with ~{} accounts each", batches.len(), batch_size);
+
+    // Track successfully funded accounts for potential rollback
+    let mut funded_accounts: Vec<&Keypair> = Vec::new();
+
+    for (batch_idx, batch) in batches.iter().enumerate() {
+        println!("   🔄 Funding batch {}/{} ({} accounts)...", batch_idx + 1, batches.len(), batch.len());
+
+        let mut instructions = Vec::new();
+        let mut batch_funded_accounts = Vec::new();
+
+        for keypair in batch.iter() {
+            let current_balance = client.get_balance(&keypair.pubkey())?;
+            let transfer_amount = FUNDING_AMOUNT.saturating_sub(current_balance);
+
+            if transfer_amount > 0 {
+                let transfer_ix = system_instruction::transfer(
+                    &admin_keypair.pubkey(),
+                    &keypair.pubkey(),
+                    transfer_amount,
+                );
+                instructions.push(transfer_ix);
+                batch_funded_accounts.push(*keypair);
+            }
+        }
+
+        if instructions.is_empty() {
+            println!("      ✅ Batch {} - all accounts already funded", batch_idx + 1);
+            continue;
+        }
+
+        let blockhash = client.get_latest_blockhash()?;
+        let mut batch_tx = Transaction::new_with_payer(&instructions, Some(&admin_keypair.pubkey()));
+        batch_tx.sign(&[admin_keypair], blockhash);
+
+        match client.send_and_confirm_transaction(&batch_tx) {
+            Ok(_) => {
+                println!("      ✅ Batch {} - funded {} accounts", batch_idx + 1, instructions.len());
+                // Track successfully funded accounts
+                funded_accounts.extend(batch_funded_accounts);
+            }
+            Err(e) => {
+                println!("      ❌ Batch {} failed: {}", batch_idx + 1, e);
+                println!("   🔄 Rolling back: refunding SOL from {} previously funded accounts...", funded_accounts.len());
+
+                // Attempt to refund all previously funded accounts
+                if let Err(rollback_err) = rollback_funding(&client, &funded_accounts, admin_keypair) {
+                    println!("      ⚠️  Warning: Rollback encountered issues: {}", rollback_err);
+                    println!("      ℹ️  Some accounts may still have funded SOL");
+                } else {
+                    println!("   ✅ Rollback complete - all SOL refunded to admin");
+                }
+
+                return Err(anyhow::anyhow!("Batch funding failed: {}", e));
+            }
+        }
+    }
+
+    println!("   ✅ All {} accounts funded successfully", accounts_to_fund.len());
+    Ok(())
+}
+
+/// Public cleanup function to refund all funded accounts (used after test failures)
+pub fn cleanup_funded_accounts(
+    rpc_url: &str,
+    user_keypairs: &[&Keypair],
+    admin_keypair: &Keypair,
+) -> Result<()> {
+    let client = RpcClient::new(rpc_url);
+    println!("\n🧹 Cleaning up: Refunding SOL from all funded accounts...");
+    rollback_funding(&client, user_keypairs, admin_keypair)
+}
+
+/// Rollback funding by transferring all SOL back from funded accounts to admin
+fn rollback_funding(
+    client: &RpcClient,
+    funded_accounts: &[&Keypair],
+    admin_keypair: &Keypair,
+) -> Result<()> {
+    if funded_accounts.is_empty() {
+        return Ok(());
+    }
+
+    let mut total_refunded = 0u64;
+    let mut successful_refunds = 0usize;
+    let mut failed_refunds = 0usize;
+
+    for (idx, keypair) in funded_accounts.iter().enumerate() {
+        match client.get_balance(&keypair.pubkey()) {
+            Ok(balance) => {
+                // Transfer all balance (close the account)
+                // We need to leave exactly 5000 lamports for the transaction fee
+                if balance > 5000 {
+                    let refund_amount = balance.saturating_sub(5000);
+
+                    let transfer_ix = system_instruction::transfer(
+                        &keypair.pubkey(),
+                        &admin_keypair.pubkey(),
+                        refund_amount,
+                    );
+
+                    let blockhash = match client.get_latest_blockhash() {
+                        Ok(bh) => bh,
+                        Err(e) => {
+                            println!("      ⚠️  Account {}/{}: Failed to get blockhash: {}", idx + 1, funded_accounts.len(), e);
+                            failed_refunds += 1;
+                            continue;
+                        }
+                    };
+
+                    let mut refund_tx = Transaction::new_with_payer(&[transfer_ix], Some(&keypair.pubkey()));
+                    refund_tx.sign(&[*keypair], blockhash);
+
+                    match client.send_and_confirm_transaction(&refund_tx) {
+                        Ok(_) => {
+                            total_refunded += refund_amount;
+                            successful_refunds += 1;
+                            if (successful_refunds) % 5 == 0 {
+                                println!("      ✓ Refunded {}/{} accounts", successful_refunds, funded_accounts.len());
+                            }
+                        }
+                        Err(e) => {
+                            println!("      ⚠️  Account {}/{}: Failed to refund {} lamports: {}",
+                                idx + 1, funded_accounts.len(), refund_amount, e);
+                            failed_refunds += 1;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("      ⚠️  Account {}/{}: Failed to get balance: {}", idx + 1, funded_accounts.len(), e);
+                failed_refunds += 1;
+            }
+        }
+    }
+
+    println!("      📊 Rollback summary:");
+    println!("         - Successfully refunded: {} accounts", successful_refunds);
+    println!("         - Failed refunds: {} accounts", failed_refunds);
+    println!("         - Total SOL refunded: {} ({} SOL)", total_refunded, total_refunded as f64 / SOL_TO_LAMPORTS as f64);
+
+    if failed_refunds > 0 {
+        Err(anyhow::anyhow!("{} accounts failed to refund", failed_refunds))
+    } else {
+        Ok(())
+    }
 }

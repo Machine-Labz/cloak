@@ -144,6 +144,8 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/admin/push-root", post(admin_push_root))
         .route("/admin/insert-leaf", post(admin_insert_leaf))
         .route("/admin/reset", post(reset_database))
+        .route("/admin/push-root", post(admin_push_root))
+        .route("/admin/push-specific-root", post(admin_push_specific_root))
 }
 
 /// Start the HTTP server

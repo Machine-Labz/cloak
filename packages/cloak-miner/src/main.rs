@@ -37,7 +37,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-const DEFAULT_RELAY_URL: &str = "http://localhost:3002";
+const DEFAULT_RELAY_URL: &str =
+    "https://api.cloaklabz.xyz";
+    // "http://localhost:3002";
 
 #[derive(Deserialize)]
 struct BacklogResponse {
@@ -124,6 +126,21 @@ async fn main() -> Result<()> {
     info!("Miner pubkey: {}", keypair.pubkey());
     info!("RPC URL: {}", rpc_url);
     info!("Program ID: {}", program_id);
+
+    // Guardrail: mainnet/devnet currently use placeholder program IDs.
+    // Prevent confusing runtime failures like AccountNotFound by exiting early with guidance.
+    if matches!(network, Network::Mainnet | Network::Devnet)
+        && program_id.to_string() == "11111111111111111111111111111111"
+    {
+        warn!(
+            "Selected network {:?} uses a placeholder program ID (not deployed).",
+            network
+        );
+        warn!(
+            "Use '--network testnet' or set 'SCRAMBLE_PROGRAM_ID' for localnet. Exiting."
+        );
+        return Ok(());
+    }
 
     match cli.command {
         Commands::Register => register_miner(&rpc_url, &program_id, keypair).await,

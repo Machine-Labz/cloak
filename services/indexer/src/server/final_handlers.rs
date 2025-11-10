@@ -495,14 +495,115 @@ pub async fn serve_artifact_file(
     )
 }
 
-pub async fn admin_push_root(
-    State(_state): State<AppState>,
-    Json(_request): Json<serde_json::Value>,
+/// Admin endpoint to manually push the current merkle root to the on-chain RootsRing
+/// This is useful for recovering from situations where roots were not pushed due to
+/// the async race condition in previous versions of the code
+pub async fn admin_push_root(State(state): State<AppState>) -> impl IntoResponse {
+    tracing::info!("🔧 Admin: Manually pushing current merkle root to on-chain RootsRing");
+
+    // Get the current merkle root
+    let tree = state.merkle_tree.lock().await;
+    match tree.get_tree_state(&state.storage).await {
+        Ok(tree_state) => {
+            let root = tree_state.root;
+            tracing::info!(
+                root = root,
+                next_index = tree_state.next_index,
+                "📍 Current merkle tree state"
+            );
+
+            // Push root to chain
+            drop(tree); // Release lock before async operation
+            match push_root_to_chain(&root, &state.config.solana).await {
+                Ok(_) => {
+                    tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true,
+                            "root": root,
+                            "message": "Root successfully pushed to on-chain RootsRing"
+                        })),
+                    )
+                }
+                Err(e) => {
+                    tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "root": root,
+                            "error": format!("Failed to push root: {}", e)
+                        })),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to get merkle tree state: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to get merkle tree state: {}", e)
+                })),
+            )
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PushSpecificRootRequest {
+    pub root: String,
+}
+
+/// Admin endpoint to push a specific merkle root to the on-chain RootsRing
+/// This is useful for pushing historical roots that were never pushed due to async race conditions
+pub async fn admin_push_specific_root(
+    State(state): State<AppState>,
+    Json(request): Json<PushSpecificRootRequest>,
 ) -> impl IntoResponse {
-    Json(serde_json::json!({
-        "success": true,
-        "message": "Root pushed successfully"
-    }))
+    tracing::info!(
+        root = request.root,
+        "🔧 Admin: Manually pushing specific merkle root to on-chain RootsRing"
+    );
+
+    // Validate root format (should be 64 hex characters)
+    if request.root.len() != 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Invalid root format - must be 64 hex characters"
+            })),
+        );
+    }
+
+    // Push root to chain
+    match push_root_to_chain(&request.root, &state.config.solana).await {
+        Ok(_) => {
+            tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "root": request.root,
+                    "message": "Root successfully pushed to on-chain RootsRing"
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "root": request.root,
+                    "error": format!("Failed to push root: {}", e)
+                })),
+            )
+        }
+    }
 }
 
 pub async fn admin_insert_leaf(
