@@ -21,7 +21,16 @@ import {
   ScanNotesOptions,
   ScannedNote,
 } from "./types";
-import { generateNote, updateNoteWithDeposit, isWithdrawable } from "./note";
+import { 
+  generateNote, 
+  generateNoteFromWallet,
+  updateNoteWithDeposit, 
+  isWithdrawable,
+  findNoteByCommitment,
+  exportWalletKeys,
+  importWalletKeys,
+} from "./note-manager";
+import { StorageAdapter, MemoryStorageAdapter } from "./storage";
 import {
   validateTransfers,
   parseNote,
@@ -37,15 +46,16 @@ import { getDistributableAmount } from "../utils/fees";
 import { IndexerService } from "../services/IndexerService";
 import { ProverService } from "../services/ProverService";
 import { RelayService } from "../services/RelayService";
+import { DepositRecoveryService } from "../services/DepositRecoveryService";
 import { createDepositInstruction } from "../solana/instructions";
 import { getShieldPoolPDAs } from "../utils/pda";
-import { type CloakKeyPair, scanNotesForWallet } from "./keys";
+import { type CloakKeyPair, generateCloakKeys, scanNotesForWallet } from "./keys";
 import { prepareEncryptedOutput, prepareEncryptedOutputForRecipient, encodeNoteSimple } from "../helpers/encrypted-output";
 
 export const CLOAK_PROGRAM_ID = new PublicKey("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 const CLOAK_API_URL = 
-  "http://localhost:80"; 
-  // "https://api.cloaklabz.xyz";
+  // "http://localhost:80"; 
+  "https://api.cloaklabz.xyz";
 
 /**
  * Main Cloak SDK
@@ -88,6 +98,8 @@ export class CloakSDK {
   private indexer: IndexerService;
   private prover: ProverService;
   private relay: RelayService;
+  private depositRecovery: DepositRecoveryService;
+  private storage: StorageAdapter;
 
   /**
   * Create a new Cloak SDK client
@@ -116,14 +128,25 @@ export class CloakSDK {
     network?: Network;
     cloakKeys?: CloakKeyPair;
     apiUrl?: string;
+    storage?: StorageAdapter;
   }) {
     this.keypair = Keypair.fromSecretKey(config.keypairBytes);
     this.cloakKeys = config.cloakKeys;
+    this.storage = config.storage || new MemoryStorageAdapter();
 
     const apiUrl = config.apiUrl || CLOAK_API_URL;
     this.indexer = new IndexerService(apiUrl);
     this.prover = new ProverService(apiUrl, 5 * 60 * 1000);
     this.relay = new RelayService(apiUrl);
+    this.depositRecovery = new DepositRecoveryService(this.indexer, apiUrl);
+    
+    // Load keys from storage if not provided (synchronous only for constructor)
+    if (!this.cloakKeys) {
+      const storedKeys = this.storage.loadKeys();
+      if (storedKeys && !(storedKeys instanceof Promise)) {
+        this.cloakKeys = storedKeys;
+      }
+    }
 
     const { pool, commitments, rootsRing, nullifierShard, treasury } = getShieldPoolPDAs();
 
@@ -424,11 +447,23 @@ export class CloakSDK {
 
     options?.onProgress?.("Fetching Merkle proof...");
 
-    // Get current Merkle proof (in case tree has grown)
-    const merkleProof = await this.indexer.getMerkleProof(note.leafIndex!);
-
-    // Use historical root from note (or current if not available)
-    const merkleRoot = note.root || merkleProof.root!;
+    // Use historical Merkle proof from note if available (matches historical root)
+    // Otherwise fetch current proof (for notes that don't have historical proof stored)
+    let merkleProof: MerkleProof;
+    let merkleRoot: string;
+    
+    if (note.merkleProof && note.root) {
+      // Use historical proof and root from when note was deposited
+      merkleProof = {
+        pathElements: note.merkleProof.pathElements,
+        pathIndices: note.merkleProof.pathIndices,
+      };
+      merkleRoot = note.root;
+    } else {
+      // Fallback: fetch current proof (for backward compatibility)
+      merkleProof = await this.indexer.getMerkleProof(note.leafIndex!);
+      merkleRoot = merkleProof.root || (await this.indexer.getMerkleRoot()).root;
+    }
 
     options?.onProgress?.("Computing cryptographic values...");
 
@@ -506,7 +541,16 @@ export class CloakSDK {
     };
 
     // Generate proof
-    const proofResult = await this.prover.generateProof(proofInputs);
+    const proofResult = await this.prover.generateProof(proofInputs, {
+      onProgress: options?.onProofProgress,
+      onStart: () => options?.onProgress?.("Starting proof generation..."),
+      onSuccess: () => options?.onProgress?.("Proof generated successfully"),
+      onError: (error) => {
+        // Log detailed error for debugging
+        console.error("[CloakSDK] Proof generation error:", error);
+        options?.onProgress?.(`Proof generation error: ${error}`);
+      },
+    });
 
     if (!proofResult.success || !proofResult.proof || !proofResult.publicInputs) {
       // The ProverService already extracts and formats the error message
@@ -516,6 +560,9 @@ export class CloakSDK {
       if (errorMessage.startsWith("Proof generation failed: ")) {
         errorMessage = errorMessage.substring("Proof generation failed: ".length);
       }
+      
+      // Add context about the note being spent
+      errorMessage += `\nNote details: leafIndex=${note.leafIndex}, root=${merkleRoot.slice(0, 16)}..., nullifier=${nullifierHex.slice(0, 16)}...`;
       
       throw new Error(errorMessage);
     }
@@ -606,9 +653,24 @@ export class CloakSDK {
    * Generate a new note without depositing
    *
    * @param amountLamports - Amount for the note
+   * @param useWalletKeys - Whether to use wallet keys (v2.0 recommended)
    * @returns New note (not yet deposited)
    */
-  generateNote(amountLamports: number): CloakNote {
+  generateNote(amountLamports: number, useWalletKeys: boolean = false): CloakNote {
+    if (useWalletKeys && this.cloakKeys) {
+      return generateNoteFromWallet(amountLamports, this.cloakKeys, this.config.network);
+    } else if (useWalletKeys) {
+      // Generate keys if not provided but requested
+      const keys = generateCloakKeys();
+      this.cloakKeys = keys;
+      // Save to storage
+      const result = this.storage.saveKeys(keys);
+      if (result instanceof Promise) {
+        // Fire and forget - don't block
+        result.catch(() => {});
+      }
+      return generateNoteFromWallet(amountLamports, keys, this.config.network);
+    }
     return generateNote(amountLamports, this.config.network);
   }
 
@@ -671,6 +733,111 @@ export class CloakSDK {
    */
   async getTransactionStatus(requestId: string) {
     return this.relay.getStatus(requestId);
+  }
+
+  /**
+   * Recover a deposit that completed on-chain but failed to register
+   * 
+   * Use this when a deposit transaction succeeded but the browser crashed
+   * or lost connection before the indexer registration completed.
+   * 
+   * @param signature - Transaction signature
+   * @param commitment - Note commitment hash
+   * @param note - Optional: The full note if available
+   * @returns Recovery result with updated note
+   * 
+   * @example
+   * ```typescript
+   * const result = await sdk.recoverDeposit({
+   *   signature: "5Kn4...",
+   *   commitment: "abc123...",
+   *   note: myNote // optional if you have it
+   * });
+   * 
+   * if (result.success) {
+   *   console.log(`Recovered! Leaf index: ${result.leafIndex}`);
+   * }
+   * ```
+   */
+  async recoverDeposit(options: {
+    signature: string;
+    commitment: string;
+    note?: CloakNote;
+    onProgress?: (status: string) => void;
+  }): Promise<{
+    success: boolean;
+    leafIndex?: number;
+    root?: string;
+    slot?: number;
+    merkleProof?: {
+      pathElements: string[];
+      pathIndices: number[];
+    };
+    note?: CloakNote;
+    error?: string;
+  }> {
+    return this.depositRecovery.recoverDeposit(options);
+  }
+  
+  /**
+   * Load all notes from storage
+   * 
+   * @returns Array of saved notes
+   */
+  async loadNotes(): Promise<CloakNote[]> {
+    const notes = this.storage.loadAllNotes();
+    return Array.isArray(notes) ? notes : await notes;
+  }
+  
+  /**
+   * Save a note to storage
+   * 
+   * @param note - Note to save
+   */
+  async saveNote(note: CloakNote): Promise<void> {
+    const result = this.storage.saveNote(note);
+    if (result instanceof Promise) {
+      await result;
+    }
+  }
+  
+  /**
+   * Find a note by its commitment
+   * 
+   * @param commitment - Commitment hash
+   * @returns Note if found
+   */
+  async findNote(commitment: string): Promise<CloakNote | undefined> {
+    const notes = await this.loadNotes();
+    return findNoteByCommitment(notes, commitment);
+  }
+  
+  /**
+   * Import wallet keys from JSON
+   * 
+   * @param keysJson - JSON string containing keys
+   */
+  async importWalletKeys(keysJson: string): Promise<void> {
+    const keys = importWalletKeys(keysJson);
+    this.cloakKeys = keys;
+    const result = this.storage.saveKeys(keys);
+    if (result instanceof Promise) {
+      await result;
+    }
+  }
+  
+  /**
+   * Export wallet keys to JSON
+   * 
+   * WARNING: This exports secret keys! Store securely.
+   * 
+   * @returns JSON string with keys
+   */
+  exportWalletKeys(): string {
+    if (!this.cloakKeys) {
+      throw new CloakError("No wallet keys available", "wallet", false);
+    }
+    return exportWalletKeys(this.cloakKeys);
   }
 
   /**

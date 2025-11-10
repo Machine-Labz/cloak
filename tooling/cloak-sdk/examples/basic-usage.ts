@@ -31,9 +31,12 @@ async function main() {
   const keypair = Keypair.fromSecretKey(secretKey);
   const connection = new Connection("https://api.testnet.solana.com", "confirmed");
 
+  // Initialize SDK - storage is optional (defaults to in-memory)
+  // For persistence, pass a StorageAdapter: storage: new LocalStorageAdapter()
   const client = new CloakSDK({
     network: "testnet",
     keypairBytes: keypair.secretKey,
+    // storage: new MemoryStorageAdapter() // Optional - in-memory by default
   });
 
   console.log("✅ Cloak client initialized");

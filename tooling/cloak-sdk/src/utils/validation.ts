@@ -67,8 +67,8 @@ export function validateNote(note: any): asserts note is CloakNote {
   }
 
   // Validate network
-  if (!["localnet", "devnet", "mainnet"].includes(note.network)) {
-    throw new Error("Network must be localnet, devnet, or mainnet");
+  if (!["localnet", "devnet", "testnet", "mainnet"].includes(note.network)) {
+    throw new Error("Network must be localnet, devnet, testnet, or mainnet");
   }
 
   // If deposited, validate optional fields

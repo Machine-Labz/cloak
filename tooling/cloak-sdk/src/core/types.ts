@@ -26,7 +26,7 @@ export interface WalletAdapter {
 export class CloakError extends Error {
   constructor(
     message: string,
-    public category: "network" | "indexer" | "prover" | "relay" | "validation" | "wallet",
+    public category: "network" | "indexer" | "prover" | "relay" | "validation" | "wallet" | "environment",
     public retryable: boolean = false,
     public originalError?: Error
   ) {

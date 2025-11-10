@@ -1,6 +1,22 @@
 import { SP1ProofInputs, SP1ProofResult } from "../core/types";
 
 /**
+ * Options for proof generation
+ */
+export interface ProofGenerationOptions {
+  /** Progress callback - called with percentage (0-100) */
+  onProgress?: (progress: number) => void;
+  /** Called when proof generation starts */
+  onStart?: () => void;
+  /** Called on successful proof generation */
+  onSuccess?: (result: SP1ProofResult) => void;
+  /** Called on error */
+  onError?: (error: string) => void;
+  /** Custom timeout in milliseconds */
+  timeout?: number;
+}
+
+/**
  * Prover Service Client
  *
  * Handles zero-knowledge proof generation via the backend prover service.
@@ -29,6 +45,7 @@ export class ProverService {
    * This process typically takes 30-180 seconds depending on the backend.
    *
    * @param inputs - Circuit inputs (private + public + outputs)
+   * @param options - Optional progress tracking and callbacks
    * @returns Proof result with hex-encoded proof and public inputs
    *
    * @example
@@ -38,12 +55,31 @@ export class ProverService {
    *   console.log(`Proof: ${result.proof}`);
    * }
    * ```
+   * 
+   * @example
+   * ```typescript
+   * // With progress tracking
+   * const result = await prover.generateProof(inputs, {
+   *   onProgress: (progress) => console.log(`Progress: ${progress}%`),
+   *   onStart: () => console.log("Starting proof generation..."),
+   *   onSuccess: (result) => console.log("Proof generated!"),
+   *   onError: (error) => console.error("Failed:", error)
+   * });
+   * ```
    */
   async generateProof(
-    inputs: SP1ProofInputs
+    inputs: SP1ProofInputs,
+    options?: ProofGenerationOptions
   ): Promise<SP1ProofResult> {
     const startTime = Date.now();
-
+    const actualTimeout = options?.timeout || this.timeout;
+    
+    // Call onStart callback if provided
+    options?.onStart?.();
+    
+    // Track progress interval for cleanup
+    let progressInterval: NodeJS.Timeout | undefined;
+    
     try {
       // Prepare request body with snake_case field names for backend
       const requestBody = {
@@ -54,7 +90,17 @@ export class ProverService {
 
       // Create abort controller for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      const timeoutId = setTimeout(() => controller.abort(), actualTimeout);
+      
+      // Simulate progress updates (since we don't have real progress from the backend)
+      if (options?.onProgress) {
+        let progress = 0;
+        progressInterval = setInterval(() => {
+          // Simulate gradual progress up to 90%
+          progress = Math.min(90, progress + Math.random() * 10);
+          options.onProgress!(Math.floor(progress));
+        }, 2000);
+      }
 
       // Make API request
       const response = await fetch(`${this.indexerUrl}/api/v1/prove`, {
@@ -67,6 +113,7 @@ export class ProverService {
       });
 
       clearTimeout(timeoutId);
+      if (progressInterval) clearInterval(progressInterval);
 
       if (!response.ok) {
         let errorMessage = `${response.status} ${response.statusText}`;
@@ -82,6 +129,10 @@ export class ProverService {
         } catch {
           // Ignore parse errors
         }
+        
+        // Call onError callback
+        options?.onError?.(errorMessage);
+        
         // Return error result instead of throwing
         return {
           success: false,
@@ -89,6 +140,9 @@ export class ProverService {
           error: errorMessage,
         };
       }
+      
+      // Update progress to 100% before returning success
+      options?.onProgress?.(100);
 
       const rawData = (await response.json()) as any;
 
@@ -131,23 +185,35 @@ export class ProverService {
           // If not JSON, keep the error as-is
         }
       }
+  
+  // Call appropriate callback based on result
+  if (result.success) {
+    options?.onSuccess?.(result);
+  } else if (result.error) {
+    options?.onError?.(result.error);
+  }
 
-      return result;
+  return result;
     } catch (error) {
       const totalTime = Date.now() - startTime;
-
+      
+      // Clean up progress interval if it exists
+      if (progressInterval) clearInterval(progressInterval);
+      
+      let errorMessage: string;
       if (error instanceof Error && error.name === "AbortError") {
-        return {
-          success: false,
-          generationTimeMs: totalTime,
-          error: `Proof generation timed out after ${this.timeout}ms`,
-        };
+        errorMessage = `Proof generation timed out after ${actualTimeout}ms`;
+      } else {
+        errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
       }
+      
+      // Call error callback
+      options?.onError?.(errorMessage);
 
       return {
         success: false,
         generationTimeMs: totalTime,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: errorMessage,
       };
     }
   }

@@ -33,17 +33,38 @@ export type {
 // Export CloakError
 export { CloakError } from "./core/types";
 
-// Note management
+// Note management (from note.ts)
+export {
+  serializeNote,
+  downloadNote,
+  copyNoteToClipboard,
+} from "./core/note";
+
+// Note management (from note-manager.ts)
 export {
   generateNote,
   generateNoteFromWallet,
   parseNote,
-  serializeNote,
+  exportNote,
+  findNoteByCommitment,
+  filterNotesByNetwork,
+  filterWithdrawableNotes,
   isWithdrawable,
   updateNoteWithDeposit,
-  downloadNote,
-  copyNoteToClipboard,
-} from "./core/note";
+  // Wallet key management (re-exported from note-manager for convenience)
+  exportWalletKeys,
+  importWalletKeys,
+  getPublicViewKey,
+  getViewKey,
+  getRecipientAmount,
+} from "./core/note-manager";
+
+// Storage adapters
+export type { StorageAdapter } from "./core/storage";
+export {
+  MemoryStorageAdapter,
+  LocalStorageAdapter,
+} from "./core/storage";
 
 // Key management (v2.0 - view/spend keys)
 export type {
@@ -98,10 +119,32 @@ export {
   validateTransfers,
 } from "./utils/validation";
 
+// Network utilities
+export {
+  detectNetworkFromRpcUrl,
+  getRpcUrlForNetwork,
+  isValidRpcUrl,
+  getExplorerUrl,
+  getAddressExplorerUrl,
+} from "./utils/network";
+
+// Error utilities
+export {
+  parseTransactionError,
+  createCloakError,
+  formatErrorForLogging,
+} from "./utils/errors";
+
 // Service clients
 export { IndexerService } from "./services/IndexerService";
 export { ProverService } from "./services/ProverService";
+export type { ProofGenerationOptions } from "./services/ProverService";
 export { RelayService } from "./services/RelayService";
+export { DepositRecoveryService } from "./services/DepositRecoveryService";
+
+// Export service types
+export type { NotesRangeResponse } from "./services/IndexerService";
+export type { RecoveryOptions, RecoveryResult } from "./services/DepositRecoveryService";
 
 // Helpers
 export {
