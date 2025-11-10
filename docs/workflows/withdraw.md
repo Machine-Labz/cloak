@@ -156,7 +156,7 @@ async function checkNullifierSpent(nullifier: Uint8Array): Promise<boolean> {
   // Derive nullifier shard PDA
   const nullifierShardPda = deriveNullifierShardPda(
     nullifier,
-    SHIELD_POOL_PROGRAM_ID
+    CLOAK_PROGRAM_ID
   );
 
   // Check if account exists and contains this nullifier

@@ -43,10 +43,7 @@ serde_json = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
 
-# SP1 SDK for proof generation and TEE support
 sp1-sdk = "5.2"
-
-# SP1 Host library for direct proof generation
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
 cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
 

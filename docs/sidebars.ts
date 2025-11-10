@@ -28,8 +28,11 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Zero-Knowledge Layer',
+      link: {
+        type: 'doc',
+        id: 'zk/README',
+      },
       items: [
-        'zk/README',
         'zk/design',
         'zk/circuit-withdraw',
         'zk/encoding',

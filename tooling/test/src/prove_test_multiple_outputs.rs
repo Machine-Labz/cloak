@@ -331,7 +331,7 @@ async fn main() -> Result<()> {
             "   - Output #{} -> {}: {} lamports (delta {})",
             index,
             pk,
-            amount,
+            amount, 
             delta
         );
     }
@@ -1248,11 +1248,6 @@ fn create_program_accounts(
     println!("   - Nullifier shard PDA: {}", nullifier_shard_pda);
     println!("   - Treasury PDA: {}", treasury_pda);
 
-    // Create accounts at PDA addresses using create_account_with_seed
-    // We'll use a base key + seed approach to create accounts at deterministic addresses
-
-    println!("   Creating accounts at PDA addresses...");
-    
     // Debug: Print expected PDA addresses
     println!("   Debug - Expected PDAs:");
     println!("     Pool: {}", pool_pda);
@@ -1261,54 +1256,10 @@ fn create_program_accounts(
     println!("     Nullifier Shard: {}", nullifier_shard_pda);
     println!("     Treasury: {}", treasury_pda);
 
-    const ROOTS_RING_SIZE: usize = 2056;
-    const COMMITMENTS_SIZE: usize = CommitmentQueue::SIZE;
-    const NULLIFIER_SHARD_SIZE: usize = 4;
-
-    let pool_rent_exempt = client.get_minimum_balance_for_rent_exemption(32)?; // Pool now stores mint (32 bytes)
-    let create_pool_ix = system_instruction::create_account(
-        &admin_keypair.pubkey(),
-        &pool_pda,
-        pool_rent_exempt,
-        32, // Pool now stores mint
-        &program_id,
-    );
-
-    let create_commitments_ix = system_instruction::create_account(
-        &admin_keypair.pubkey(),
-        &commitments_pda,
-        client.get_minimum_balance_for_rent_exemption(COMMITMENTS_SIZE)?,
-        COMMITMENTS_SIZE as u64,
-        program_id,
-    );
-
-    let create_roots_ring_ix = system_instruction::create_account(
-        &admin_keypair.pubkey(),
-        &roots_ring_pda,
-        client.get_minimum_balance_for_rent_exemption(ROOTS_RING_SIZE)?,
-        ROOTS_RING_SIZE as u64,
-        program_id,
-    );
-
-    let create_nullifier_shard_ix = system_instruction::create_account(
-        &admin_keypair.pubkey(),
-        &nullifier_shard_pda,
-        client.get_minimum_balance_for_rent_exemption(NULLIFIER_SHARD_SIZE)?,
-        NULLIFIER_SHARD_SIZE as u64,
-        program_id,
-    );
-
-    let create_treasury_ix = system_instruction::create_account(
-        &admin_keypair.pubkey(),
-        &treasury_pda,
-        0,
-        0,
-        &solana_sdk::system_program::id(),
-    );
-
-    // Initialize pool with mint data
     // Ensure we use the exact same program ID as the program expects
-    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
+    let program_id_bytes: Pubkey = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp"
+        .parse::<Pubkey>()
+        .unwrap();
     let initialize_pool_ix = Instruction {
         program_id: program_id_bytes,
         accounts: vec![
@@ -1326,7 +1277,7 @@ fn create_program_accounts(
             data
         },
     };
-    
+
     // Debug: Print instruction details
     println!("   Debug - Instruction details:");
     println!("     Program ID: {}", program_id);
@@ -1507,7 +1458,7 @@ fn execute_withdraw_direct(
 
     for (index, (pk, amount)) in outputs.iter().enumerate() {
         println!(
-            "   - Output #{} -> {} ({} lamports)",
+            "   - Output #{} -> {} ({} lamports)", 
             index, pk, amount
         );
     }

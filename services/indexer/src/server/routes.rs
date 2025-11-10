@@ -8,7 +8,6 @@ use crate::server::middleware::{
     cors_layer, logging_middleware, request_size_limit, timeout_middleware,
 };
 use crate::server::prover_handler::generate_proof;
-use crate::server::rate_limiter::RateLimiter;
 use crate::sp1_tee_client::create_tee_client;
 use axum::{
     middleware,
@@ -17,7 +16,6 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
@@ -30,6 +28,24 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
 
     // Run migrations
     database.migrate().await?;
+
+    // Perform initial database health check and log pool stats
+    match database.health_check().await {
+        Ok(health) => {
+            tracing::info!(
+                current_time = %health.current_time,
+                pool_size = health.pool_stats.size,
+                pool_idle = health.pool_stats.idle,
+                response_time_ms = health.response_time_ms,
+                tables = ?health.tables_found,
+                stats = ?health.stats,
+                "Database health check passed at startup"
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Database health check failed at startup: {}", e);
+        }
+    }
 
     // Initialize storage
     tracing::info!("Initializing Merkle tree storage");
@@ -51,14 +67,6 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     // Initialize artifact manager
     tracing::info!("Initializing artifact manager");
     let artifact_manager = ArtifactManager::new(&config);
-
-    // Initialize rate limiter for proof generation
-    // Allow 3 proof requests per hour per client (SP1 proofs are expensive)
-    tracing::info!("Initializing rate limiter (3 requests per hour)");
-    let rate_limiter = Arc::new(RateLimiter::new(
-        Duration::from_secs(3600), // 1 hour window
-        3,                         // 3 requests per hour
-    ));
 
     // Initialize TEE client if enabled
     let tee_client = if config.sp1_tee.enabled {
@@ -86,7 +94,6 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
         merkle_tree: Arc::new(Mutex::new(merkle_tree)),
         artifact_manager,
         config: config.clone(),
-        rate_limiter,
         tee_client,
     };
 
@@ -134,15 +141,7 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/notes/range", get(get_notes_range))
         // Proof generation endpoint
         .route("/prove", post(generate_proof))
-        // Artifact endpoints
-        .route("/artifacts/withdraw/:version", get(get_withdraw_artifacts))
-        .route(
-            "/artifacts/files/:version/:filename",
-            get(serve_artifact_file),
-        )
-        // Admin endpoints (for development)
-        .route("/admin/push-root", post(admin_push_root))
-        .route("/admin/insert-leaf", post(admin_insert_leaf))
+        // Admin endpoints
         .route("/admin/reset", post(reset_database))
         .route("/admin/push-root", post(admin_push_root))
         .route("/admin/push-specific-root", post(admin_push_specific_root))

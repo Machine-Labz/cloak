@@ -70,16 +70,11 @@ pub struct MerkleProof {
 }
 
 /// Get PDA addresses for Shield Pool program
-pub fn get_pda_addresses(
-    program_id: &Pubkey,
-) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
+pub fn get_pda_addresses(program_id: &Pubkey) -> (Pubkey, Pubkey, Pubkey, Pubkey, Pubkey) {
     let (pool_pda, _) = Pubkey::find_program_address(&[b"pool"], program_id);
-    let (commitments_pda, _) =
-        Pubkey::find_program_address(&[b"commitments"], program_id);
-    let (roots_ring_pda, _) =
-        Pubkey::find_program_address(&[b"roots_ring"], program_id);
-    let (nullifier_shard_pda, _) =
-        Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
+    let (commitments_pda, _) = Pubkey::find_program_address(&[b"commitments"], program_id);
+    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring"], program_id);
+    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard"], program_id);
     let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury"], program_id);
     (
         pool_pda,

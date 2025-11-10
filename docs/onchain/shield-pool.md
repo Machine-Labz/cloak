@@ -174,7 +174,7 @@ The program uses `sp1-solana::verify_proof()` with:
 ```rust
 // Initialize shield pool
 let init_ix = Instruction {
-    program_id: SHIELD_POOL_PROGRAM_ID,
+    program_id: CLOAK_PROGRAM_ID,
     accounts: vec![
         AccountMeta::new(pool_pubkey, false),
         AccountMeta::new(roots_ring_pubkey, false),
@@ -186,7 +186,7 @@ let init_ix = Instruction {
 
 // Push Merkle root
 let push_root_ix = Instruction {
-    program_id: SHIELD_POOL_PROGRAM_ID,
+    program_id: CLOAK_PROGRAM_ID,
     accounts: vec![AccountMeta::new(roots_ring_pubkey, false)],
     data: [&[0x02], root.as_ref()].concat(),
 };
@@ -206,7 +206,7 @@ let withdraw_data = [
 ].concat();
 
 let withdraw_ix = Instruction {
-    program_id: SHIELD_POOL_PROGRAM_ID,
+    program_id: CLOAK_PROGRAM_ID,
     accounts: vec![
         AccountMeta::new(pool_pubkey, false),
         AccountMeta::new(treasury_pubkey, false),

@@ -201,8 +201,11 @@ impl JobRepository for PostgresJobRepository {
                 outputs_json, fee_bps, root_hash, nullifier, amount, outputs_hash,
                 tx_id, solana_signature, error_message, retry_count, max_retries,
                 created_at, updated_at, started_at, completed_at
-            FROM jobs 
-            WHERE status = 'queued' AND retry_count < max_retries ORDER BY created_at ASC LIMIT $1",
+            FROM jobs
+            WHERE status = 'queued' AND retry_count < max_retries
+            ORDER BY created_at ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED",
         )
         .bind(limit)
         .fetch_all(&self.pool)
