@@ -88,6 +88,42 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
         }
     }
 
+    // Check if nullifier already exists on-chain before attempting withdraw
+    tracing::info!("🔍 Checking if nullifier already exists on-chain");
+    match state.solana.check_nullifier_exists(&job.nullifier).await {
+        Ok(true) => {
+            tracing::info!("✅ Nullifier already exists on-chain - transaction was already processed");
+            // Mark job as completed since the transaction was already successfully processed
+            if let Err(e) = state
+                .job_repo
+                .update_job_status(job_id, JobStatus::Completed)
+                .await
+            {
+                error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                return Err(e);
+            }
+
+            // Store nullifier to prevent double-spending (if not already in local DB)
+            if let Err(e) = state
+                .nullifier_repo
+                .create_nullifier(job.nullifier.clone(), job_id)
+                .await
+            {
+                // Ignore duplicate key errors - nullifier might already be in our DB
+                tracing::debug!("Nullifier storage: {}", e);
+            }
+
+            return Ok(());
+        }
+        Ok(false) => {
+            tracing::info!("✓ Nullifier not found on-chain, proceeding with withdraw");
+        }
+        Err(e) => {
+            tracing::warn!("⚠️ Failed to check nullifier on-chain: {}, proceeding anyway", e);
+            // Continue with transaction - the on-chain program will reject if duplicate
+        }
+    }
+
     // Jitter submission slightly to reduce linkability
     let delay = crate::planner::jitter_delay(Instant::now());
     if delay > Duration::from_millis(0) {
@@ -124,10 +160,42 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
         Err(e) => {
             error!("❌ Job {} failed: {}", job_id, e);
 
+            let error_str = e.to_string();
+
+            // Check if the error indicates transaction was already processed
+            let already_processed = error_str.contains("already been processed") ||
+                error_str.contains("0x1020") || // Nullifier already spent error code
+                error_str.contains("DoubleSpend") ||
+                error_str.contains("custom program error: 0x1020");
+
+            if already_processed {
+                info!("✅ Job {} - Transaction already processed, marking as completed", job_id);
+
+                // Mark job as completed since transaction was successful (just duplicate attempt)
+                if let Err(e) = state
+                    .job_repo
+                    .update_job_status(job_id, JobStatus::Completed)
+                    .await
+                {
+                    error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                }
+
+                // Store nullifier to prevent double-spending (if not already in local DB)
+                if let Err(e) = state
+                    .nullifier_repo
+                    .create_nullifier(job.nullifier.clone(), job_id)
+                    .await
+                {
+                    // Ignore duplicate key errors
+                    tracing::debug!("Nullifier storage: {}", e);
+                }
+
+                return Ok(());
+            }
+
             // Check if we should retry based on error type
-            let should_retry = !e.to_string().contains("MissingAccounts") && // Don't retry account errors
-                !e.to_string().contains("ProofInvalid") && // Don't retry proof errors
-                !e.to_string().contains("DoubleSpend"); // Don't retry double spend errors
+            let should_retry = !error_str.contains("MissingAccounts") && // Don't retry account errors
+                !error_str.contains("ProofInvalid"); // Don't retry proof errors
 
             if should_retry {
                 warn!("🔄 Retrying job {} - Error: {}", job_id, e);

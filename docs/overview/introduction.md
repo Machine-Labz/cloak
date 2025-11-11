@@ -41,8 +41,29 @@ Cloak is a privacy-preserving exit router for Solana. It combines zero-knowledge
 3. **On-Chain ZK Verification** – SP1 Groth16 proofs verified on-chain via `sp1-solana`, ensuring trustless privacy guarantees.
 4. **Production Infrastructure** – Comprehensive testing, metrics, and operational tooling for reliable deployment.
 
+## Privacy Guarantees and Limitations
+
+**⚠️ Current Status: Testnet with Limited Privacy**
+
+Cloak's privacy strength depends on the **anonymity set size**. Currently in testnet with a small anonymity set (~10-50 users), the protocol provides minimal privacy suitable only for testing.
+
+**Our Transparent Approach:**
+- We explicitly document [how we plan to bootstrap the anonymity set](../zk/anonymity-set-strategy.md)
+- We publish real-time metrics on privacy strength
+- We will not launch mainnet until meaningful privacy thresholds are met
+- We focus on **hold time and stability**, not high-volume turnover
+
+**Why This Matters:**
+Many "privacy" projects launch without addressing the cold-start problem, hide their small anonymity sets, or boast about volume/TVL without understanding that high turnover destroys privacy. We're taking a different approach.
+
+**Learn More:**
+- [Anonymity Set Strategy](../zk/anonymity-set-strategy.md) - Detailed bootstrap plan
+- [Privacy Philosophy](../../PRIVACY_PHILOSOPHY.md) - Our commitment to real privacy
+- [Threat Model](../zk/threat-model.md) - Honest assessment of security
+
 ## Next Steps
 
+- **Understand Privacy First:** Read [Anonymity Set Strategy](../zk/anonymity-set-strategy.md)
 - Continue with the [Quickstart](./quickstart.md) to set up a local environment.
 - Review the [System Architecture](./system-architecture.md) for a component-level map.
 - Dive into the [Zero-Knowledge Layer](../zk/README.md) for protocol internals.

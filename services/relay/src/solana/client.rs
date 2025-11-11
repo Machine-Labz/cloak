@@ -18,7 +18,7 @@ pub struct RpcSolanaClient {
 
 impl RpcSolanaClient {
     pub async fn new(config: &SolanaConfig) -> Result<Self, Error> {
-        info!("Connecting to Solana RPC: {}", config.rpc_url);
+        info!("Connecting to Solana RPC");
 
         let commitment = match config.commitment.as_str() {
             "processed" => CommitmentConfig::processed(),
@@ -66,7 +66,16 @@ impl SolanaClient for RpcSolanaClient {
             .client
             .send_transaction(transaction)
             .await
-            .map_err(|e| Error::InternalServerError(e.to_string()))?;
+            .map_err(|e| {
+                error!("🔴 DEBUG: send_transaction failed: {:?}", e);
+                error!("🔴 DEBUG: Error details: {}", e);
+                // Check if it's a simulation error
+                let err_str = e.to_string();
+                if err_str.contains("0x1001") || err_str.contains("RootNotFound") {
+                    error!("🔴 DEBUG: This is a RootNotFound (0x1001) error!");
+                }
+                Error::InternalServerError(format!("send_transaction failed: {}", e))
+            })?;
 
 
         // Then confirm it with retries
@@ -114,11 +123,50 @@ impl SolanaClient for RpcSolanaClient {
             .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
+    async fn get_slot(&self) -> Result<u64, Error> {
+        self.client
+            .get_slot()
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error> {
         self.client
             .get_balance(pubkey)
             .await
             .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
+    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error> {
+        // Fetch the nullifier shard account data
+        match self.client.get_account_data(nullifier_shard).await {
+            Ok(data) => {
+                // The nullifier shard stores nullifiers as a set of 32-byte hashes
+                // Check if our nullifier exists in the account data
+                if nullifier.len() != 32 {
+                    return Err(Error::ValidationError("Nullifier must be 32 bytes".to_string()));
+                }
+
+                // Search for the nullifier in the account data
+                // Account data structure depends on the on-chain program implementation
+                // For now, we'll do a simple search through 32-byte chunks
+                for chunk in data.chunks_exact(32) {
+                    if chunk == nullifier {
+                        return Ok(true);
+                    }
+                }
+
+                Ok(false)
+            }
+            Err(e) => {
+                // If account doesn't exist, nullifier doesn't exist either
+                if e.to_string().contains("AccountNotFound") {
+                    Ok(false)
+                } else {
+                    Err(Error::InternalServerError(format!("Failed to check nullifier: {}", e)))
+                }
+            }
+        }
     }
 }
 

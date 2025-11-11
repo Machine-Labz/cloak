@@ -37,7 +37,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-const DEFAULT_RELAY_URL: &str = "http://localhost:3002";
+const DEFAULT_RELAY_URL: &str =
+    "https://api.cloaklabz.xyz";
+    // "http://localhost:3002";
 
 #[derive(Deserialize)]
 struct BacklogResponse {
@@ -124,6 +126,21 @@ async fn main() -> Result<()> {
     info!("Miner pubkey: {}", keypair.pubkey());
     info!("RPC URL: {}", rpc_url);
     info!("Program ID: {}", program_id);
+
+    // Guardrail: mainnet/devnet currently use placeholder program IDs.
+    // Prevent confusing runtime failures like AccountNotFound by exiting early with guidance.
+    if matches!(network, Network::Mainnet | Network::Devnet)
+        && program_id.to_string() == "11111111111111111111111111111111"
+    {
+        warn!(
+            "Selected network {:?} uses a placeholder program ID (not deployed).",
+            network
+        );
+        warn!(
+            "Use '--network testnet' or set 'SCRAMBLE_PROGRAM_ID' for localnet. Exiting."
+        );
+        return Ok(());
+    }
 
     match cli.command {
         Commands::Register => register_miner(&rpc_url, &program_id, keypair).await,
@@ -267,19 +284,29 @@ async fn check_relay_demand(relay_url: &str) -> Result<(bool, usize)> {
     let url = format!("{}/backlog", relay_url);
     match reqwest::get(&url).await {
         Ok(response) => {
-            match response.json::<BacklogResponse>().await {
+            let status = response.status();
+            let response_text = response.text().await.unwrap_or_else(|_| String::from("<failed to read response>"));
+            
+            if !status.is_success() {
+                warn!("Relay returned non-success status {}: {}", status, response_text);
+                return Ok((true, 0)); // Assume demand to avoid blocking mining
+            }
+            
+            match serde_json::from_str::<BacklogResponse>(&response_text) {
                 Ok(backlog) => {
                     let has_demand = backlog.pending_count > 0;
                     Ok((has_demand, backlog.pending_count))
                 }
                 Err(e) => {
-                    warn!("Failed to parse backlog response: {}", e);
+                    warn!("Failed to parse backlog response from {}: {}", url, e);
+                    warn!("Response body (first 200 chars): {}", &response_text.chars().take(200).collect::<String>());
                     Ok((true, 0)) // Assume demand to avoid blocking mining
                 }
             }
         }
         Err(e) => {
-            warn!("Failed to check relay backlog at {}: {}", url, e);
+            warn!("Failed to connect to relay at {}: {}", url, e);
+            warn!("Tip: For local development, set RELAY_URL=http://localhost:3002");
             Ok((true, 0)) // Assume demand if relay unreachable
         }
     }

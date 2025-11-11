@@ -44,16 +44,16 @@ impl PostgresTreeStorage {
         Self { pool }
     }
 
-    /// Store a note (deposit event) with encrypted output
-    pub async fn store_note(
+    /// Atomically allocate the next leaf index and store the note
+    /// This prevents race conditions when multiple deposits arrive concurrently
+    pub async fn allocate_and_store_note(
         &self,
         leaf_commit: &str,
         encrypted_output: &str,
-        leaf_index: i64,
         tx_signature: &str,
         slot: i64,
         block_time: Option<DateTime<Utc>>,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         let clean_commit = leaf_commit
             .strip_prefix("0x")
             .unwrap_or(leaf_commit)
@@ -61,6 +61,56 @@ impl PostgresTreeStorage {
 
         let start = std::time::Instant::now();
 
+        // Start a transaction
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            tracing::error!("Failed to begin transaction: {}", e);
+            IndexerError::Database(e)
+        })?;
+
+        // Atomically allocate next index using PostgreSQL sequence
+        // This is guaranteed to be unique across all concurrent transactions
+        let next_index: i64 = sqlx::query_scalar("SELECT nextval('leaf_index_seq')")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to allocate leaf index from sequence: {}", e);
+                IndexerError::Database(e)
+            })?;
+
+        tracing::info!(
+            next_index = next_index,
+            "Allocated leaf index from sequence (atomic, no race conditions)"
+        );
+
+        // Reserve the index in merkle_tree_nodes to maintain consistency
+        // This prevents the merkle tree from being out of sync with allocated indices
+        // The actual leaf hash will be computed and updated by insert_leaf()
+        sqlx::query(
+            r#"
+            INSERT INTO merkle_tree_nodes (level, index_at_level, value)
+            VALUES (0, $1, '0000000000000000000000000000000000000000000000000000000000000000')
+            ON CONFLICT (level, index_at_level)
+            DO UPDATE SET value = EXCLUDED.value
+            "#
+        )
+        .bind(next_index)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                index = next_index,
+                error = %e,
+                "Failed to reserve merkle tree node"
+            );
+            IndexerError::Database(e)
+        })?;
+
+        tracing::info!(
+            next_index = next_index,
+            "Reserved merkle tree node (will be updated with actual leaf hash)"
+        );
+
+        // Insert the note with the allocated index
         sqlx::query(
             r#"
             INSERT INTO notes (leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time) 
@@ -69,16 +119,16 @@ impl PostgresTreeStorage {
         )
         .bind(&clean_commit)
         .bind(encrypted_output)
-        .bind(leaf_index)
+        .bind(next_index)
         .bind(tx_signature)
         .bind(slot)
         .bind(block_time.unwrap_or_else(Utc::now))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             tracing::error!(
                 leaf_commit = %clean_commit,
-                leaf_index = leaf_index,
+                leaf_index = next_index,
                 tx_signature = tx_signature,
                 slot = slot,
                 error = %e,
@@ -87,19 +137,25 @@ impl PostgresTreeStorage {
             IndexerError::Database(e)
         })?;
 
+        // Commit the transaction
+        tx.commit().await.map_err(|e| {
+            tracing::error!("Failed to commit transaction: {}", e);
+            IndexerError::Database(e)
+        })?;
+
         let duration = start.elapsed();
         crate::log_database_operation!("INSERT", "notes", duration.as_millis() as u64);
 
         tracing::info!(
             leaf_commit = %clean_commit,
-            leaf_index = leaf_index,
+            leaf_index = next_index,
             tx_signature = tx_signature,
             slot = slot,
             encrypted_output_length = encrypted_output.len(),
-            "Stored note"
+            "Stored note with atomically allocated index"
         );
 
-        Ok(())
+        Ok(next_index)
     }
 
     /// Reset the database by clearing all data
@@ -491,39 +547,39 @@ impl TreeStorage for PostgresTreeStorage {
     async fn get_max_leaf_index(&self) -> Result<u64> {
         let start = std::time::Instant::now();
 
-        // Get all leaf indices in order
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT index_at_level FROM merkle_tree_nodes WHERE level = 0 ORDER BY index_at_level",
+        // Get the current value of the SEQUENCE
+        // This is the source of truth for next index allocation
+        let sequence_value: Option<i64> = sqlx::query_scalar(
+            "SELECT last_value FROM leaf_index_seq",
         )
-        .fetch_all(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(IndexerError::Database)?;
 
-        let indices: Vec<i64> = rows.into_iter().map(|(index,)| index).collect();
-
-        let next_index = if indices.is_empty() {
-            tracing::info!("No leaves found, starting from index 0");
-            0
+        // If sequence doesn't exist yet or is at initial value, check notes table as fallback
+        let next_index = if let Some(seq_val) = sequence_value {
+            // Sequence exists, next index is current value + 1
+            // (last_value is the last allocated value, so next is +1)
+            seq_val + 1
         } else {
-            // Find the first gap or return the next consecutive index
-            let mut next_index = indices.len() as i64; // Start with the length (next available index)
-            for i in 0..indices.len() {
-                if indices[i] != i as i64 {
-                    next_index = i as i64; // Found a gap, use that index
-                    break;
-                }
-            }
-            next_index
+            // Fallback: query notes table for max leaf_index
+            let max_index: Option<i64> = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(leaf_index), -1) FROM notes",
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map_err(IndexerError::Database)?;
+
+            max_index.unwrap_or(-1) + 1
         };
 
         let duration = start.elapsed();
-        crate::log_database_operation!("SELECT", "merkle_tree_nodes", duration.as_millis() as u64);
+        crate::log_database_operation!("SELECT", "leaf_index_seq", duration.as_millis() as u64);
 
         tracing::info!(
-            total_leaves = indices.len(),
-            max_index = indices.iter().max().unwrap_or(&-1),
+            sequence_value = sequence_value,
             next_index = next_index,
-            "Retrieved max leaf index"
+            "Retrieved max leaf index from SEQUENCE"
         );
 
         Ok(next_index as u64)

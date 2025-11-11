@@ -45,11 +45,18 @@ struct Migration {
 }
 
 fn get_migrations() -> Vec<Migration> {
-    vec![Migration {
-        id: "001_initial_schema",
-        name: "Initial schema for Cloak Indexer",
-        sql: include_str!("../migrations/001_initial_schema.sql"),
-    }]
+    vec![
+        Migration {
+            id: "001_initial_schema",
+            name: "Initial schema for Cloak Indexer",
+            sql: include_str!("../migrations/001_initial_schema.sql"),
+        },
+        Migration {
+            id: "002_add_leaf_index_sequence",
+            name: "Add sequence for atomic leaf index allocation",
+            sql: include_str!("../migrations/002_add_leaf_index_sequence.sql"),
+        },
+    ]
 }
 
 async fn create_migrations_table(pool: &Pool<Postgres>) -> Result<()> {

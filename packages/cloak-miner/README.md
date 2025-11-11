@@ -71,12 +71,14 @@ solana airdrop 1 ~/.config/solana/miner.json --url devnet
 
 ### 2. Register as Miner (One-time)
 
+Important: Mainnet and devnet program IDs are placeholders right now. Use `--network testnet` for public testing, or `--network localnet` with `SCRAMBLE_PROGRAM_ID` for local development.
+
 ```bash
 # Mainnet (default)
 cloak-miner --keypair ~/.config/solana/miner.json register
 
-# Devnet
-cloak-miner --network devnet --keypair ~/.config/solana/miner.json register
+# Testnet
+cloak-miner --network testnet --keypair ~/.config/solana/miner.json register
 
 # Localnet (requires SCRAMBLE_PROGRAM_ID env var)
 SCRAMBLE_PROGRAM_ID=<YOUR_LOCAL_PROGRAM_ID> \
@@ -91,8 +93,8 @@ This creates your miner PDA on-chain.
 # Mainnet (default)
 cloak-miner --keypair ~/.config/solana/miner.json mine
 
-# Devnet
-cloak-miner --network devnet --keypair ~/.config/solana/miner.json mine --timeout 30 --interval 10
+# Testnet
+cloak-miner --network testnet --keypair ~/.config/solana/miner.json mine --timeout 30 --interval 10
 
 # Localnet with custom RPC
 SCRAMBLE_PROGRAM_ID=<YOUR_LOCAL_PROGRAM_ID> \
@@ -110,7 +112,8 @@ SCRAMBLE_PROGRAM_ID=<YOUR_LOCAL_PROGRAM_ID> \
 **Environment Variables:**
 ```bash
 # Network selection
-export CLOAK_NETWORK=devnet           # mainnet, devnet, or localnet
+export CLOAK_NETWORK=testnet          # testnet (recommended)
+# mainnet/devnet currently use placeholder program IDs
 
 # Optional: Custom RPC URL
 export SOLANA_RPC_URL=https://api.devnet.solana.com
@@ -131,8 +134,8 @@ cloak-miner mine
 # Mainnet
 cloak-miner --keypair ~/.config/solana/miner.json status
 
-# Devnet
-cloak-miner --network devnet --keypair ~/.config/solana/miner.json status
+# Testnet
+cloak-miner --network testnet --keypair ~/.config/solana/miner.json status
 
 # Localnet
 SCRAMBLE_PROGRAM_ID=<ID> cloak-miner --network localnet --keypair ~/.config/solana/miner.json status
@@ -262,6 +265,16 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release --package cloak-miner
 ```
 
 ## Troubleshooting
+
+### "AccountNotFound" (or cannot fetch registry)
+This usually means the wrong network/program ID was used.
+
+- Ensure you are on testnet: `--network testnet` (recommended)
+- Or set a local program id for localnet: `SCRAMBLE_PROGRAM_ID=<ID> --network localnet`
+- Verify the registry exists on the selected network:
+  - Derive PDA in code with seed `b"registry"` and the scramble-registry program id
+  - Or run `cloak-miner --network testnet status`
+- Re-run one-time registration: `cloak-miner --network testnet register`
 
 ### "Miner not registered"
 Run `cloak-miner register` first.

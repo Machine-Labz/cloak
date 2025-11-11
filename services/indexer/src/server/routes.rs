@@ -141,16 +141,10 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/notes/range", get(get_notes_range))
         // Proof generation endpoint
         .route("/prove", post(generate_proof))
-        // Artifact endpoints
-        .route("/artifacts/withdraw/:version", get(get_withdraw_artifacts))
-        .route(
-            "/artifacts/files/:version/:filename",
-            get(serve_artifact_file),
-        )
-        // Admin endpoints (for development)
-        .route("/admin/push-root", post(admin_push_root))
-        .route("/admin/insert-leaf", post(admin_insert_leaf))
+        // Admin endpoints
         .route("/admin/reset", post(reset_database))
+        .route("/admin/push-root", post(admin_push_root))
+        .route("/admin/push-specific-root", post(admin_push_specific_root))
 }
 
 /// Start the HTTP server

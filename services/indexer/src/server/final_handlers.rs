@@ -29,8 +29,8 @@ pub struct AppState {
 pub struct DepositRequest {
     pub leaf_commit: String,
     pub encrypted_output: String,
-    pub tx_signature: Option<String>,
-    pub slot: Option<i64>,
+    pub tx_signature: String,
+    pub slot: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,8 +109,8 @@ pub async fn deposit(
     tracing::info!(
         leaf_commit = request.leaf_commit,
         encrypted_output_len = request.encrypted_output.len(),
-        tx_signature = request.tx_signature.as_deref().unwrap_or("none"),
-        slot = request.slot.unwrap_or(-1),
+        tx_signature = request.tx_signature,
+        slot = request.slot,
         "Processing deposit request"
     );
 
@@ -138,127 +138,92 @@ pub async fn deposit(
         );
     }
 
-    // Get the next available leaf index
-    tracing::info!("🔍 Getting next available leaf index");
-    let next_index = match state.storage.get_max_leaf_index().await {
+    // Validate transaction signature format (base58 Solana signature)
+    if request.tx_signature.is_empty() {
+        tracing::warn!("Empty transaction signature provided");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Transaction signature is required"
+            })),
+        );
+    }
+
+    // Atomically allocate next index and store the note in the database
+    // This prevents race conditions when multiple deposits arrive concurrently
+    tracing::info!("💾 Atomically allocating index and storing note");
+    let allocated_index = match state
+        .storage
+        .allocate_and_store_note(
+            &request.leaf_commit,
+            &request.encrypted_output,
+            &request.tx_signature,
+            request.slot,
+            Some(chrono::Utc::now()),
+        )
+        .await
+    {
         Ok(index) => {
-            tracing::info!(next_index = index, "Next leaf index retrieved");
+            tracing::info!(
+                leaf_index = index,
+                "✅ Note stored successfully with atomically allocated index"
+            );
             index
         }
         Err(e) => {
-            tracing::error!("❌ Failed to get next leaf index: {}", e);
+            tracing::error!("❌ Failed to allocate index and store note: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "error": "Failed to get next leaf index"
+                    "error": "Failed to store note",
+                    "details": e.to_string()
                 })),
             );
         }
     };
 
-    // Generate a unique transaction signature if not provided
-    let tx_signature = request.tx_signature.unwrap_or_else(|| {
-        format!(
-            "test_tx_{}_{}",
-            next_index,
-            chrono::Utc::now().timestamp_millis()
-        )
-    });
-
-    // Use current slot or generate a test slot
-    let slot = request.slot.unwrap_or(1000 + next_index as i64);
-
-    tracing::info!(
-        tx_signature = tx_signature,
-        slot = slot,
-        "Generated transaction signature and slot"
-    );
-
-    // Store the note in the database
-    tracing::info!("💾 Storing note in database");
-    let store_result = state
-        .storage
-        .store_note(
-            &request.leaf_commit,
-            &request.encrypted_output,
-            next_index as i64,
-            &tx_signature,
-            slot,
-            Some(chrono::Utc::now()),
-        )
-        .await;
-
-    match store_result {
-        Ok(_) => {
-            tracing::info!("✅ Note stored successfully in database");
-
-            // Update the next leaf index in metadata
-            tracing::info!("📝 Updating next leaf index metadata");
-            if let Err(e) = state
-                .storage
-                .update_metadata("next_leaf_index", &(next_index + 1).to_string())
-                .await
-            {
-                tracing::warn!("⚠️ Failed to update next leaf index metadata: {}", e);
+    // Insert the leaf into the merkle tree and get the new root
+    tracing::info!("🌳 Inserting leaf into Merkle tree");
+    let mut tree = state.merkle_tree.lock().await;
+    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
+        Ok((new_root, _)) => {
+            tracing::info!(
+                leaf_index = allocated_index,
+                new_root = new_root,
+                "✅ Successfully inserted leaf into Merkle tree"
+            );
+            
+            // Push new root to on-chain roots ring synchronously to prevent race conditions
+            // The withdrawal proof depends on this root being on-chain before it can be verified
+            tracing::info!("🔗 Pushing root to on-chain roots ring");
+            if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
+                tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                // Continue anyway - withdrawals can still work if root is pushed later
+                // or if the on-chain program has a grace period for root updates
+                tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
             } else {
-                tracing::info!("✅ Next leaf index metadata updated");
+                tracing::info!("✅ Root successfully pushed to on-chain roots ring");
             }
-
-            // Insert the leaf into the merkle tree and get the new root
-            tracing::info!("🌳 Inserting leaf into Merkle tree");
-            let mut tree = state.merkle_tree.lock().await;
-            match tree.insert_leaf(&request.leaf_commit, &state.storage).await {
-                Ok((new_root, _)) => {
-                    tracing::info!(
-                        leaf_index = next_index,
-                        new_root = new_root,
-                        "✅ Successfully inserted leaf into Merkle tree"
-                    );
-                    
-                    // Push new root to on-chain roots ring asynchronously (non-blocking)
-                    tracing::info!("🔗 Scheduling root push to on-chain roots ring");
-                    let solana_config = state.config.solana.clone();
-                    let root_to_push = new_root.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = push_root_to_chain(&root_to_push, &solana_config).await {
-                            tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
-                            // The root will be available for manual push later
-                        } else {
-                            tracing::info!("✅ Root successfully pushed to on-chain roots ring");
-                        }
-                    });
-                    
-                    tracing::info!("🎉 Deposit request completed successfully");
-                    (
-                        StatusCode::CREATED,
-                        Json(serde_json::json!({
-                            "success": true,
-                            "leafIndex": next_index,
-                            "root": new_root,
-                            "nextIndex": next_index + 1,
-                            "leafCommit": request.leaf_commit.to_lowercase(),
-                            "message": "Deposit processed successfully"
-                        })),
-                    )
-                }
-                Err(e) => {
-                    tracing::error!("❌ Failed to insert leaf into merkle tree: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({
-                            "error": "Failed to update merkle tree",
-                            "details": e.to_string()
-                        })),
-                    )
-                }
-            }
+            
+            tracing::info!("🎉 Deposit request completed successfully");
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "success": true,
+                    "leafIndex": allocated_index,
+                    "root": new_root,
+                    "nextIndex": allocated_index + 1,
+                    "leafCommit": request.leaf_commit.to_lowercase(),
+                    "message": "Deposit processed successfully"
+                })),
+            )
         }
         Err(e) => {
-            tracing::error!("❌ Failed to store note: {}", e);
+            tracing::error!("❌ Failed to insert leaf into merkle tree: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "error": "Failed to store note",
+                    "error": "Failed to update merkle tree",
                     "details": e.to_string()
                 })),
             )
@@ -515,14 +480,115 @@ pub async fn serve_artifact_file(
     )
 }
 
-pub async fn admin_push_root(
-    State(_state): State<AppState>,
-    Json(_request): Json<serde_json::Value>,
+/// Admin endpoint to manually push the current merkle root to the on-chain RootsRing
+/// This is useful for recovering from situations where roots were not pushed due to
+/// the async race condition in previous versions of the code
+pub async fn admin_push_root(State(state): State<AppState>) -> impl IntoResponse {
+    tracing::info!("🔧 Admin: Manually pushing current merkle root to on-chain RootsRing");
+
+    // Get the current merkle root
+    let tree = state.merkle_tree.lock().await;
+    match tree.get_tree_state(&state.storage).await {
+        Ok(tree_state) => {
+            let root = tree_state.root;
+            tracing::info!(
+                root = root,
+                next_index = tree_state.next_index,
+                "📍 Current merkle tree state"
+            );
+
+            // Push root to chain
+            drop(tree); // Release lock before async operation
+            match push_root_to_chain(&root, &state.config.solana).await {
+                Ok(_) => {
+                    tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true,
+                            "root": root,
+                            "message": "Root successfully pushed to on-chain RootsRing"
+                        })),
+                    )
+                }
+                Err(e) => {
+                    tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "root": root,
+                            "error": format!("Failed to push root: {}", e)
+                        })),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to get merkle tree state: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to get merkle tree state: {}", e)
+                })),
+            )
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PushSpecificRootRequest {
+    pub root: String,
+}
+
+/// Admin endpoint to push a specific merkle root to the on-chain RootsRing
+/// This is useful for pushing historical roots that were never pushed due to async race conditions
+pub async fn admin_push_specific_root(
+    State(state): State<AppState>,
+    Json(request): Json<PushSpecificRootRequest>,
 ) -> impl IntoResponse {
-    Json(serde_json::json!({
-        "success": true,
-        "message": "Root pushed successfully"
-    }))
+    tracing::info!(
+        root = request.root,
+        "🔧 Admin: Manually pushing specific merkle root to on-chain RootsRing"
+    );
+
+    // Validate root format (should be 64 hex characters)
+    if request.root.len() != 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Invalid root format - must be 64 hex characters"
+            })),
+        );
+    }
+
+    // Push root to chain
+    match push_root_to_chain(&request.root, &state.config.solana).await {
+        Ok(_) => {
+            tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "root": request.root,
+                    "message": "Root successfully pushed to on-chain RootsRing"
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "root": request.root,
+                    "error": format!("Failed to push root: {}", e)
+                })),
+            )
+        }
+    }
 }
 
 pub async fn admin_insert_leaf(
