@@ -232,6 +232,17 @@ export class CloakSDK {
         }
       }
 
+    options?.onProgress?.("Checking account balance...");
+
+    // Check account balance before attempting deposit
+    const balance = await connection.getBalance(this.keypair.publicKey);
+    const requiredAmount = note.amount + 5000; // Amount + estimated transaction fee
+    if (balance < requiredAmount) {
+      throw new Error(
+        `Insufficient balance. Required: ${requiredAmount} lamports (${note.amount} + fees), Available: ${balance} lamports`
+      );
+    }
+
     options?.onProgress?.("Creating deposit transaction...");
 
     // Create deposit instruction
