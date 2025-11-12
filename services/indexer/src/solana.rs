@@ -52,7 +52,7 @@ pub async fn push_root_to_chain(
     // Create instruction data: [discriminator: 1 byte][root: 32 bytes]
     let mut instruction_data = vec![1u8]; // AdminPushRoot discriminator
     instruction_data.extend_from_slice(&root_bytes);
-    
+
     // Parse mint address (empty = native SOL)
     let mint = if config.mint_address.is_empty() {
         Pubkey::default() // Native SOL
@@ -60,15 +60,20 @@ pub async fn push_root_to_chain(
         Pubkey::from_str(&config.mint_address)
             .context("Invalid mint address")?
     };
-    
+
     // Derive roots ring PDA with mint
     let program_id = Pubkey::from_str(&config.shield_pool_program_id)
         .context("Invalid shield pool program ID")?;
-    let (roots_ring_pda, _) = Pubkey::find_program_address(
-        &[b"roots_ring", mint.as_ref()], 
+    let (roots_ring_pda, _bump) = Pubkey::find_program_address(
+        &[b"roots_ring", mint.as_ref()],
         &program_id
     );
-    
+
+    tracing::info!(
+        roots_ring_pda = %roots_ring_pda,
+        mint = %mint,
+        "Derived roots_ring PDA from program ID with mint"
+    );
     // Create instruction
     let instruction = Instruction {
         program_id,

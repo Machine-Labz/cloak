@@ -65,7 +65,9 @@ pub trait SolanaClient: Send + Sync {
         transaction: &Transaction,
     ) -> Result<Signature, Error>;
     async fn get_block_height(&self) -> Result<u64, Error>;
+    async fn get_slot(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
+    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
 }
 
 pub struct SolanaService {
@@ -105,6 +107,20 @@ impl SolanaService {
             info!("SolanaService: PoW ClaimFinder configured");
         }
         self.claim_finder = claim_finder;
+    }
+
+    /// Get current Solana slot
+    pub async fn get_slot(&self) -> Result<u64, Error> {
+        self.client.get_slot().await
+    }
+
+    /// Check if a nullifier already exists on-chain
+    pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
+        // Derive nullifier shard PDA from program ID
+        let (_, _, _, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+
+        self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
     }
 
     /// Submit a withdraw transaction to Solana
@@ -353,7 +369,8 @@ impl SolanaService {
                         None
                     };
 
-                    transaction_builder::build_withdraw_transaction_with_pow(
+                    // Build PoW-enabled transaction
+                    let pow_tx = transaction_builder::build_withdraw_transaction_with_pow(
                         proof_bytes.clone(),
                         public_104,
                         &planner_outputs,
@@ -377,7 +394,42 @@ impl SolanaService {
                         recipient_token_accounts_slice,
                         treasury_token_account,
                         miner_token_account,
-                    )?
+                    )?;
+
+                    // Check if transaction size exceeds Solana's limit (1644 bytes encoded)
+                    let serialized_size = bincode::serialize(&pow_tx)
+                        .map(|bytes| bytes.len())
+                        .unwrap_or(0);
+
+                    if serialized_size > 1644 {
+                        warn!(
+                            "⚠️  PoW transaction too large ({} bytes > 1644 limit), falling back to non-PoW transaction",
+                            serialized_size
+                        );
+
+                        // Fallback to non-PoW transaction
+                        transaction_builder::build_withdraw_transaction(
+                            proof_bytes.clone(),
+                            public_104,
+                            &planner_outputs,
+                            self.program_id,
+                            pool_pda,
+                            roots_ring_pda,
+                            nullifier_shard_pda,
+                            treasury_pda,
+                            &recipient_pubkeys,
+                            fee_payer_pubkey,
+                            recent_blockhash,
+                            priority_micro_lamports,
+                            if is_spl_mint { Some(mint) } else { None },
+                            pool_token_account,
+                            recipient_token_accounts_slice,
+                            treasury_token_account,
+                        )?
+                    } else {
+                        info!("✓ PoW transaction size: {} bytes", serialized_size);
+                        pow_tx
+                    }
                 }
                 Ok(None) => {
                     warn!(
