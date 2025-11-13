@@ -4,7 +4,7 @@ pub mod repository;
 use crate::error::Error;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use tracing::{debug, info};
+use tracing::info;
 
 pub type DatabasePool = PgPool;
 

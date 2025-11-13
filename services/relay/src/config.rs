@@ -9,7 +9,15 @@ pub struct Config {
     pub solana: SolanaConfig,
     pub database: DatabaseConfig,
     pub metrics: MetricsConfig,
+    pub jupiter: JupiterConfig,
     // Note: No miner config - relay queries on-chain for claims from independent miners
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct JupiterConfig {
+    pub enabled: bool,
+    pub api_url: String,
+    pub slippage_bps: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -34,6 +42,9 @@ pub struct SolanaConfig {
     // PoW Scrambler Registry (optional - if not set, PoW is disabled)
     // Relay queries on-chain for available claims from independent miners
     pub scramble_registry_program_id: Option<String>,
+
+    // Token mint address (empty = native SOL)
+    pub mint_address: Option<String>,
 
     // Shield Pool Account Addresses (optional - if not set, will calculate PDAs)
     pub pool_address: Option<String>,
@@ -92,6 +103,10 @@ impl Config {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
                     if val.is_empty() { None } else { Some(val) }
                 },
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
+                    if val.is_empty() { None } else { Some(val) }
+                },
                 pool_address: {
                     let val = get_env_var("CLOAK_POOL_ADDRESS", "").trim().to_string();
                     if val.is_empty() { None } else { Some(val) }
@@ -117,6 +132,11 @@ impl Config {
                 enabled: get_env_var("RELAY_METRICS_ENABLED", "true").parse().unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
+            },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false").parse().unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
             },
         };
 
@@ -233,6 +253,10 @@ impl Config {
                 ws_url: get_env_var("SOLANA_WS_URL", "ws://localhost:8900").to_string(),
                 commitment: get_env_var("SOLANA_COMMITMENT", "confirmed").to_string(),
                 program_id: get_env_var("CLOAK_PROGRAM_ID", "").to_string(),
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
+                    if val.is_empty() { None } else { Some(val) }
+                },
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
                     if val.is_empty() { None } else { Some(val) }
@@ -274,6 +298,11 @@ impl Config {
                     .unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
+            },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false").parse().unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
             },
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),

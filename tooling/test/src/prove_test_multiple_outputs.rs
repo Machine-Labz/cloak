@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
         println!("\n✅ Using existing program accounts on testnet...");
         use test_complete_flow_rust::shared::get_pda_addresses;
         let (pool, commitments, roots_ring, nullifier_shard, treasury) =
-            get_pda_addresses(&program_id);
+            get_pda_addresses(&program_id, &Pubkey::default());
 
         println!("   - Pool (derived PDA): {}", pool);
         println!("   - Commitments log (derived PDA): {}", commitments);
@@ -1240,12 +1240,12 @@ fn create_program_accounts(
     // Use the exact same program ID as the program expects
     let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
-        get_pda_addresses(&program_id_bytes);
+        get_pda_addresses(&program_id_bytes, &mint);
 
     println!("   - Pool PDA: {}", pool_pda);
     println!("   - Commitments PDA: {}", commitments_pda);
-    println!("   - Roots ring PDA: {}", roots_ring_pda);
-    println!("   - Nullifier shard PDA: {}", nullifier_shard_pda);
+    println!("   - Roots Ring PDA: {}", roots_ring_pda);
+    println!("   - Nullifier Shard PDA: {}", nullifier_shard_pda);
     println!("   - Treasury PDA: {}", treasury_pda);
 
     // Debug: Print expected PDA addresses
@@ -1257,6 +1257,7 @@ fn create_program_accounts(
     println!("     Treasury: {}", treasury_pda);
 
     // Ensure we use the exact same program ID as the program expects
+    // gitleaks:allow - This is a Solana program ID (public key), not a secret
     let program_id_bytes: Pubkey = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp"
         .parse::<Pubkey>()
         .unwrap();
