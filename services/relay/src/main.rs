@@ -162,29 +162,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/orchestrate/withdraw",
             post(orchestrator::orchestrate_withdraw),
         )
-        // Local proving endpoint (temporary until full worker proving pipeline)
-        .route(
-            "/jobs/:job_id/prove-local",
-            post(api::prove_local::prove_local),
-        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(app_state.clone());
 
-    // Spawn the worker task to process jobs
-    let worker_state = app_state.clone();
+    // Spawn the window scheduler task to process jobs in batched windows
+    let scheduler_state = app_state.clone();
     tokio::spawn(async move {
-        let worker = worker::Worker::new(worker_state)
-            .with_poll_interval(std::time::Duration::from_secs(1))
-            .with_max_concurrent_jobs(10);
+        // Configure windowing: process when slot ends in 0 or 5
+        let window_config = worker::window_scheduler::WindowConfig {
+            slot_patterns: vec![0, 5],  // Every ~5 slots (~2.5s)
+            min_batch_size: None,        // No minimum - process whatever is ready
+            max_batch_size: 50,          // Safety limit
+            poll_interval_secs: 1,       // Check slot every second
+        };
 
-        worker.run().await;
+        let scheduler = Arc::new(worker::window_scheduler::WindowScheduler::new(
+            scheduler_state,
+            window_config,
+        ));
+
+        scheduler.run().await;
     });
 
     // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     info!("Relay service listening on {}", addr);
-    info!("Worker task spawned and running");
+    info!("Window scheduler spawned and running (processing on slot patterns: 0, 5)");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

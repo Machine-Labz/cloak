@@ -142,7 +142,7 @@ DB_PASSWORD=secret
 PORT=3001
 TREE_HEIGHT=32
 SOLANA_RPC_URL=http://127.0.0.1:8899
-SHIELD_POOL_PROGRAM_ID=<program-id>
+CLOAK_PROGRAM_ID=<program-id>
 ```
 
 Set `RUST_LOG=info` to view structured logs.

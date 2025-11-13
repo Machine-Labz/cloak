@@ -177,7 +177,7 @@ Both services use environment variables for configuration:
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 - `PORT` - HTTP server port
 - `SOLANA_RPC_URL` - Solana cluster endpoint
-- `SHIELD_POOL_PROGRAM_ID` - Shield pool program to monitor
+- `CLOAK_PROGRAM_ID` - Shield pool program to monitor
 - `TREE_HEIGHT` - Merkle tree depth (default: 32)
 
 **Relay:**

@@ -11,6 +11,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Docusaurus
+.docusaurus/
+build/
+.cache/
+
 # Solana
 test-ledger/
 *.so

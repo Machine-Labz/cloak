@@ -94,16 +94,11 @@ solana airdrop 1 ~/.config/solana/miner.json --url devnet
 
 ### 2. Register as Miner (One-Time)
 
+Important: Mainnet/devnet program IDs are placeholders right now. Use testnet for public testing.
+
 ```bash
-# Mainnet
-cloak-miner --keypair ~/.config/solana/miner.json register
-
-# Devnet
-cloak-miner --network devnet --keypair ~/.config/solana/miner.json register
-
-# Localnet (requires SCRAMBLE_PROGRAM_ID env var)
-SCRAMBLE_PROGRAM_ID=<program_id> \
-  cloak-miner --network localnet --keypair ~/.config/solana/miner.json register
+# Testnet
+cloak-miner --network testnet --keypair ~/.config/solana/miner.json register
 ```
 
 This creates your miner PDA on-chain.
@@ -111,21 +106,11 @@ This creates your miner PDA on-chain.
 ### 3. Start Mining
 
 ```bash
-# Mainnet (default)
-cloak-miner --keypair ~/.config/solana/miner.json mine
-
-# Devnet with custom settings
-cloak-miner --network devnet \
+# Testnet with custom settings
+cloak-miner --network testnet \
   --keypair ~/.config/solana/miner.json \
   --timeout 30 \
   --interval 10 \
-  mine
-
-# Localnet
-SCRAMBLE_PROGRAM_ID=<program_id> \
-  cloak-miner --network localnet \
-  --rpc-url http://localhost:8899 \
-  --keypair ~/.config/solana/miner.json \
   mine
 ```
 
@@ -142,7 +127,7 @@ cloak-miner [OPTIONS] register
 
 **Example:**
 ```bash
-cloak-miner --network devnet --keypair ./miner.json register
+cloak-miner --network testnet --keypair ./miner.json register
 ```
 
 **What it does:**
@@ -171,7 +156,7 @@ cloak-miner [OPTIONS] mine
 
 **Example:**
 ```bash
-cloak-miner --network devnet \
+cloak-miner --network testnet \
   --keypair ./miner.json \
   --timeout 60 \
   --interval 5 \
@@ -210,7 +195,7 @@ cloak-miner [OPTIONS] status
 
 **Example:**
 ```bash
-cloak-miner --network devnet --keypair ./miner.json status
+cloak-miner --network testnet --keypair ./miner.json status
 ```
 
 **Output:**
@@ -234,7 +219,7 @@ These options apply to all commands:
 
 **Network Selection:**
 ```bash
---network <NETWORK>     # mainnet, devnet, or localnet (default: mainnet)
+--network <NETWORK>     # testnet, localnet
 --rpc-url <URL>        # Custom RPC URL (overrides network default)
 ```
 
@@ -255,10 +240,10 @@ Configure miner via environment variables:
 
 ```bash
 # Network selection
-export CLOAK_NETWORK=devnet        # mainnet, devnet, or localnet
+export CLOAK_NETWORK=testnet       # testnet (recommended)
 
 # Custom RPC URL
-export SOLANA_RPC_URL=https://api.devnet.solana.com
+export SOLANA_RPC_URL=https://api.testnet.solana.com
 
 # Keypair path
 export MINER_KEYPAIR_PATH=~/.config/solana/miner.json
@@ -272,7 +257,7 @@ export RUST_LOG=info               # trace, debug, info, warn, error
 
 **Then simply:**
 ```bash
-cloak-miner mine
+cloak-miner --network testnet mine
 ```
 
 ## Mining Algorithm
@@ -507,8 +492,20 @@ Error: Miner account not found
 **Solution:**
 ```bash
 # Register first
-cloak-miner --network devnet --keypair ./miner.json register
+cloak-miner --network testnet --keypair ./miner.json register
 ```
+
+---
+
+### "AccountNotFound" (or cannot fetch registry)
+
+**Likely cause:** Wrong network/program ID. Mainnet/devnet use placeholders and are not deployed.
+
+**Fix:**
+- Run with `--network testnet`
+- For localnet, set `SCRAMBLE_PROGRAM_ID=<your_program_id>` and `--network localnet`
+- Check registry exists: `cloak-miner --network testnet status`
+- If needed, re-run registration: `cloak-miner --network testnet register`
 
 ---
 

@@ -11,10 +11,129 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ---
 
+## November 2025
+
+### ✨ Features
+
+- feat(database): add beta interest registrations table for mainnet beta waitlist ([50b1384](https://github.com/Machine-Labz/cloak/commit/50b13840b21e1991143003b8e4d5e327f04348c2))
+  <details>
+  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+18</span> / <span className="text-red-500">-1</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `deployment/init.sql` | <span className="text-green-500">+17</span> / <span className="text-red-500">-0</span> |
+  | `services/web` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+
+  </details>
+
+### 📚 Documentation
+
+- chore(docs): update documentation links and environment variable names ([5dfde7c](https://github.com/Machine-Labz/cloak/commit/5dfde7c01d7439f544ddd84e59fe534c271f7c03))
+  <details>
+  <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+11</span> / <span className="text-red-500">-12</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/api/indexer.md` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `docs/offchain/indexer.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/offchain/overview.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/offchain/relay.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/offchain/web-app.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
+  | `docs/onchain/shield-pool.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+  | `docs/workflows/deposit.md` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `docs/workflows/withdraw.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+
+  </details>
+
+### 🔧 Maintenance
+
+- chore(web): update subproject commit reference to 5d56e8a ([ad1dfc9](https://github.com/Machine-Labz/cloak/commit/ad1dfc963570e40d76ad74e0338cd939fdcfce32))
+  <details>
+  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/web` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+
+  </details>
+
+---
+
 ## October 2025
 
 ### ✨ Features
 
+- refactor(indexer): remove rate limiter implementation and related references ([2d4110a](https://github.com/Machine-Labz/cloak/commit/2d4110af49326ce8f749af5be8988528363614f3))
+  <details>
+  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+0</span> / <span className="text-red-500">-172</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-2</span> |
+  | `services/indexer/src/server/mod.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
+  | `services/indexer/src/server/rate_limiter.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-158</span> |
+  | `services/indexer/src/server/routes.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-11</span> |
+
+  </details>
+- feat(nginx): enhance Nginx configuration to support additional CORS origin and improve header management ([e861a11](https://github.com/Machine-Labz/cloak/commit/e861a11b18d2e8dca37bcd4d5d4a3fc75018fd42))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+22</span> / <span className="text-red-500">-31</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `.github/workflows/build-and-push-images.yml` | <span className="text-green-500">+5</span> / <span className="text-red-500">-28</span> |
+  | `deployment/compose.yml` | <span className="text-green-500">+4</span> / <span className="text-red-500">-3</span> |
+  | `deployment/nginx/nginx.conf` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
+
+  </details>
+- feat(ci): add GitHub Actions workflow for building, pushing, and deploying Docker images ([9119120](https://github.com/Machine-Labz/cloak/commit/91191200421b565660edf198f4b986e193e6d219))
+  <details>
+  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+71</span> / <span className="text-red-500">-3</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `.github/workflows/build-and-push-images.yml` | <span className="text-green-500">+70</span> / <span className="text-red-500">-0</span> |
+  | `deployment/compose.yml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-3</span> |
+
+  </details>
+- feat(deployment): add Docker Compose setup and database initialization script ([8a88b7b](https://github.com/Machine-Labz/cloak/commit/8a88b7b6d41d74d25d91399321f7829f4ca61a95))
+  <details>
+  <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+751</span> / <span className="text-red-500">-239</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `deployment/README.md` | <span className="text-green-500">+74</span> / <span className="text-red-500">-0</span> |
+  | `compose.yml => deployment/compose.yml` | <span className="text-green-500">+23</span> / <span className="text-red-500">-2</span> |
+  | `deployment/init.sql` | <span className="text-green-500">+240</span> / <span className="text-red-500">-0</span> |
+  | `deployment/nginx/Dockerfile` | <span className="text-green-500">+21</span> / <span className="text-red-500">-0</span> |
+  | `deployment/nginx/README.md` | <span className="text-green-500">+90</span> / <span className="text-red-500">-0</span> |
+  | `deployment/nginx/TESTING.md` | <span className="text-green-500">+132</span> / <span className="text-red-500">-0</span> |
+  | `deployment/nginx/nginx.conf` | <span className="text-green-500">+171</span> / <span className="text-red-500">-0</span> |
+  | `init.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-237</span> |
+
+  </details>
+- feat(tests): add comprehensive test for complete flow with multiple outputs ([2894260](https://github.com/Machine-Labz/cloak/commit/2894260200cdec35a66f35ecd8c0e67f96531a11))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+100</span> / <span className="text-red-500">-39</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `tooling/test/Cargo.toml` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+  | `tooling/test/src/prove_test.rs` | <span className="text-green-500">+13</span> / <span className="text-red-500">-10</span> |
+  | `tooling/test/src/shared.rs` | <span className="text-green-500">+84</span> / <span className="text-red-500">-26</span> |
+
+  </details>
+- feat(docker): update Docker Compose configuration and add database initialization script ([9219c52](https://github.com/Machine-Labz/cloak/commit/9219c527293bfcd51af1506b857b00aa71d8343d))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+269</span> / <span className="text-red-500">-28</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `Cargo.lock` | <span className="text-green-500">+5</span> / <span className="text-red-500">-5</span> |
+  | `compose.yml` | <span className="text-green-500">+27</span> / <span className="text-red-500">-23</span> |
+  | `init.sql` | <span className="text-green-500">+237</span> / <span className="text-red-500">-0</span> |
+
+  </details>
 - feat(backlog): add backlog status API and enhance database migrations ([d021b64](https://github.com/Machine-Labz/cloak/commit/d021b64f12fd86c83ea5c97511dd79e9a82219d0))
   <details>
   <summary>📂 <strong>5 files changed</strong>: <span className="text-green-500">+102</span> / <span className="text-red-500">-12</span></summary>
@@ -301,6 +420,91 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `programs/shield-pool/src/tests/withdraw.rs` | <span className="text-green-500">+21</span> / <span className="text-red-500">-36</span> |
 
   </details>
+- implement changelog generation and enhance documentation styling ([ff52fe9](https://github.com/Machine-Labz/cloak/commit/ff52fe95f3120a1c6f6b9ed7d2a8936e7946da93))
+  <details>
+  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+118</span> / <span className="text-red-500">-6</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/scripts/generate-changelog.js` | <span className="text-green-500">+68</span> / <span className="text-red-500">-6</span> |
+  | `docs/src/css/custom.css` | <span className="text-green-500">+50</span> / <span className="text-red-500">-0</span> |
+
+  </details>
+- enhance documentation with changelog generation and updates ([9adc544](https://github.com/Machine-Labz/cloak/commit/9adc5446bffa8da862922ed6a3163a6edec4f3fd))
+  <details>
+  <summary>📂 <strong>7 files changed</strong>: <span className="text-green-500">+542</span> / <span className="text-red-500">-92</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/docs/CHANGELOG.md` | <span className="text-green-500">+96</span> / <span className="text-red-500">-0</span> |
+  | `docs/package.json` | <span className="text-green-500">+4</span> / <span className="text-red-500">-2</span> |
+  | `docs/scripts/generate-changelog.js` | <span className="text-green-500">+308</span> / <span className="text-red-500">-0</span> |
+  | `docs/sidebars.ts` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
+  | `docs/src/css/custom.css` | <span className="text-green-500">+119</span> / <span className="text-red-500">-89</span> |
+  | `docs/src/pages/index.mdx` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/vercel.json` | <span className="text-green-500">+13</span> / <span className="text-red-500">-0</span> |
+
+  </details>
+- add docusaurus documentation site ([1ed3972](https://github.com/Machine-Labz/cloak/commit/1ed39723e845333c35aa9fefe09c0d61dd85e59a))
+  <details>
+  <summary>📂 <strong>52 files changed</strong>: <span className="text-green-500">+5996</span> / <span className="text-red-500">-3</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs-site/README.md` | <span className="text-green-500">+55</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/babel.config.js` | <span className="text-green-500">+3</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/docusaurus.config.ts` | <span className="text-green-500">+76</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/package.json` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/sidebars.ts` | <span className="text-green-500">+121</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/src/css/custom.css` | <span className="text-green-500">+195</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/src/pages/index.mdx` | <span className="text-green-500">+52</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/static/img/cloaklogo.svg` | <span className="text-green-500">+12</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/static/img/favicon.svg` | <span className="text-green-500">+18</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/static/img/logo.svg` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/tsconfig.base.json` | <span className="text-green-500">+19</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/tsconfig.json` | <span className="text-green-500">+9</span> / <span className="text-red-500">-0</span> |
+  | `docs/CHANGELOG.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
+  | `docs/DIAGRAMS_INDEX.md` | <span className="text-green-500">+236</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_ARCHITECTURE_FIXED.md` | <span className="text-green-500">+184</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_CORRECT_ARCHITECTURE.md` | <span className="text-green-500">+425</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_DOC_UPDATES_SUMMARY.md` | <span className="text-green-500">+374</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_INTEGRATION_COMPLETE.md` | <span className="text-green-500">+317</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_INTEGRATION_GUIDE.md` | <span className="text-green-500">+453</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_QUICK_REFERENCE.md` | <span className="text-green-500">+333</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_REFACTOR_SUMMARY.md` | <span className="text-green-500">+414</span> / <span className="text-red-500">-0</span> |
+  | `docs/POW_WILDCARD_IMPLEMENTATION.md` | <span className="text-green-500">+438</span> / <span className="text-red-500">-0</span> |
+  | `docs/api/indexer.md` | <span className="text-green-500">+88</span> / <span className="text-red-500">-0</span> |
+  | `docs/api/relay.md` | <span className="text-green-500">+78</span> / <span className="text-red-500">-0</span> |
+  | `docs/api/validator-agent.md` | <span className="text-green-500">+90</span> / <span className="text-red-500">-0</span> |
+  | `docs/glossary.md` | <span className="text-green-500">+6</span> / <span className="text-red-500">-1</span> |
+  | `docs/nonzk/frontend.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/offchain/indexer.md` | <span className="text-green-500">+96</span> / <span className="text-red-500">-0</span> |
+  | `docs/offchain/relay.md` | <span className="text-green-500">+102</span> / <span className="text-red-500">-0</span> |
+  | `docs/offchain/web-app.md` | <span className="text-green-500">+73</span> / <span className="text-red-500">-0</span> |
+  | `docs/onchain/scramble-registry.md` | <span className="text-green-500">+58</span> / <span className="text-red-500">-0</span> |
+  | `docs/onchain/shield-pool-upstream.md` | <span className="text-green-500">+62</span> / <span className="text-red-500">-0</span> |
+  | `docs/onchain/shield-pool.md` | <span className="text-green-500">+90</span> / <span className="text-red-500">-0</span> |
+  | `docs/operations/metrics-guide.md` | <span className="text-green-500">+419</span> / <span className="text-red-500">-0</span> |
+  | `docs/operations/runbook.md` | <span className="text-green-500">+146</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/introduction.md` | <span className="text-green-500">+47</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/quickstart.md` | <span className="text-green-500">+118</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/status.md` | <span className="text-green-500">+17</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/system-architecture.md` | <span className="text-green-500">+76</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/tech-stack.md` | <span className="text-green-500">+40</span> / <span className="text-red-500">-0</span> |
+  | `docs/overview/visual-flow.md` | <span className="text-green-500">+35</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/cloak-miner.md` | <span className="text-green-500">+67</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/cloak-proof-extract.md` | <span className="text-green-500">+52</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/tooling-test.md` | <span className="text-green-500">+52</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/vkey-generator.md` | <span className="text-green-500">+43</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/zk-guest-sp1.md` | <span className="text-green-500">+72</span> / <span className="text-red-500">-0</span> |
+  | `docs/packages/zk-verifier-program.md` | <span className="text-green-500">+29</span> / <span className="text-red-500">-0</span> |
+  | `docs/pow/overview.md` | <span className="text-green-500">+43</span> / <span className="text-red-500">-0</span> |
+  | `docs/roadmap.md` | <span className="text-green-500">+6</span> / <span className="text-red-500">-1</span> |
+  | `docs/workflows/deposit.md` | <span className="text-green-500">+58</span> / <span className="text-red-500">-0</span> |
+  | `docs/workflows/pow-withdraw.md` | <span className="text-green-500">+60</span> / <span className="text-red-500">-0</span> |
+  | `docs/workflows/withdraw.md` | <span className="text-green-500">+109</span> / <span className="text-red-500">-0</span> |
+
+  </details>
 - add docusaurus documentation site ([78cbe05](https://github.com/Machine-Labz/cloak/commit/78cbe05ad6887df464067287c9f75cfbf89b61ab))
   <details>
   <summary>📂 <strong>53 files changed</strong>: <span className="text-green-500">+6261</span> / <span className="text-red-500">-35</span></summary>
@@ -580,73 +784,6 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `services/relay/src/api/mod.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-4</span> |
 
   </details>
-- update Docker configuration and dependencies ([70d4383](https://github.com/Machine-Labz/cloak/commit/70d438349aa931f0997622c77f973b46d1d3a7f2))
-  <details>
-  <summary>📂 <strong>26 files changed</strong>: <span className="text-green-500">+1386</span> / <span className="text-red-500">-615</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `Cargo.lock` | <span className="text-green-500">+256</span> / <span className="text-red-500">-248</span> |
-  | `Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docker-compose.yml` | <span className="text-green-500">+7</span> / <span className="text-red-500">-14</span> |
-  | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-6</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-12</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-8</span> |
-  | `programs/shield-pool/src/state/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/Dockerfile` | <span className="text-green-500">+10</span> / <span className="text-red-500">-4</span> |
-  | `services/indexer/artifacts/.gitkeep` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-  | `services/indexer/src/bin/migrate.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `services/indexer/src/database/migrations.rs` | <span className="text-green-500">+96</span> / <span className="text-red-500">-14</span> |
-  | `services/indexer/src/database/storage.rs` | <span className="text-green-500">+38</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/main.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-2</span> |
-  | `services/indexer/src/merkle.rs` | <span className="text-green-500">+45</span> / <span className="text-red-500">-16</span> |
-  | `...s/indexer/src/migrations/001_initial_schema.sql` | <span className="text-green-500">+8</span> / <span className="text-red-500">-9</span> |
-  | `...xer/src/migrations/001_initial_schema_fixed.sql` | <span className="text-green-500">+107</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+181</span> / <span className="text-red-500">-40</span> |
-  | `services/indexer/src/server/middleware.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
-  | `services/indexer/src/server/routes.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `services/relay/Cargo.toml` | <span className="text-green-500">+6</span> / <span className="text-red-500">-0</span> |
-  | `services/relay/Dockerfile` | <span className="text-green-500">+77</span> / <span className="text-red-500">-0</span> |
-  | `tooling/test/src/lib.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `tooling/test/src/localnet_test.rs` | <span className="text-green-500">+481</span> / <span className="text-red-500">-187</span> |
-  | `tooling/test/src/shared.rs` | <span className="text-green-500">+31</span> / <span className="text-red-500">-38</span> |
-  | `tooling/test/src/testnet_test.rs` | <span className="text-green-500">+26</span> / <span className="text-red-500">-8</span> |
-
-  </details>
-- update Docker configuration and dependencies ([ceb6b97](https://github.com/Machine-Labz/cloak/commit/ceb6b97742c1222ced7fd03c71c88731652bbcb2))
-  <details>
-  <summary>📂 <strong>25 files changed</strong>: <span className="text-green-500">+1340</span> / <span className="text-red-500">-584</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `Cargo.lock` | <span className="text-green-500">+256</span> / <span className="text-red-500">-248</span> |
-  | `Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docker-compose.yml` | <span className="text-green-500">+8</span> / <span className="text-red-500">-10</span> |
-  | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-12</span> |
-  | `programs/shield-pool/src/state/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/Dockerfile` | <span className="text-green-500">+10</span> / <span className="text-red-500">-4</span> |
-  | `services/indexer/artifacts/.gitkeep` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-  | `services/indexer/src/bin/migrate.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `services/indexer/src/database/migrations.rs` | <span className="text-green-500">+96</span> / <span className="text-red-500">-14</span> |
-  | `services/indexer/src/database/storage.rs` | <span className="text-green-500">+38</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/main.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-2</span> |
-  | `services/indexer/src/merkle.rs` | <span className="text-green-500">+45</span> / <span className="text-red-500">-16</span> |
-  | `...s/indexer/src/migrations/001_initial_schema.sql` | <span className="text-green-500">+8</span> / <span className="text-red-500">-9</span> |
-  | `...xer/src/migrations/001_initial_schema_fixed.sql` | <span className="text-green-500">+107</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+181</span> / <span className="text-red-500">-40</span> |
-  | `services/indexer/src/server/middleware.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
-  | `services/indexer/src/server/routes.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `services/relay/Cargo.toml` | <span className="text-green-500">+6</span> / <span className="text-red-500">-0</span> |
-  | `services/relay/Dockerfile` | <span className="text-green-500">+77</span> / <span className="text-red-500">-0</span> |
-  | `tooling/test/src/lib.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `tooling/test/src/localnet_test.rs` | <span className="text-green-500">+433</span> / <span className="text-red-500">-172</span> |
-  | `tooling/test/src/shared.rs` | <span className="text-green-500">+31</span> / <span className="text-red-500">-38</span> |
-  | `tooling/test/src/testnet_test.rs` | <span className="text-green-500">+26</span> / <span className="text-red-500">-8</span> |
-
-  </details>
 
 ### 🐛 Bug Fixes
 
@@ -757,78 +894,95 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
 
   </details>
-- Merge branch 'feat/hotfix-proof-gen' of github.com:Cloak-Labz/cloak into feat/hotfix-proof-gen ([7da4b99](https://github.com/Machine-Labz/cloak/commit/7da4b9970d755c92b7c2f2c65a7f130c75722426))
-  <details>
-  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+60</span> / <span className="text-red-500">-45</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `docker-compose.yml` | <span className="text-green-500">+0</span> / <span className="text-red-500">-5</span> |
-  | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-6</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-8</span> |
-  | `tooling/test/src/localnet_test.rs` | <span className="text-green-500">+59</span> / <span className="text-red-500">-26</span> |
-
-  </details>
-- fixes ([6c0933f](https://github.com/Machine-Labz/cloak/commit/6c0933fae35a8f5c44d0d4b0d59c614fae90119b))
-  <details>
-  <summary>📂 <strong>26 files changed</strong>: <span className="text-green-500">+440</span> / <span className="text-red-500">-296</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `docker-compose.yml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-4</span> |
-  | `...shield-pool/src/instructions/admin_push_root.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/tests/deposit.rs` | <span className="text-green-500">+9</span> / <span className="text-red-500">-9</span> |
-  | `programs/shield-pool/src/tests/mod.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/tests/withdraw.rs` | <span className="text-green-500">+48</span> / <span className="text-red-500">-46</span> |
-  | `services/indexer/Dockerfile` | <span className="text-green-500">+8</span> / <span className="text-red-500">-6</span> |
-  | `services/indexer/src/artifacts.rs` | <span className="text-green-500">+17</span> / <span className="text-red-500">-9</span> |
-  | `services/indexer/src/bin/migrate.rs` | <span className="text-green-500">+8</span> / <span className="text-red-500">-8</span> |
-  | `services/indexer/src/database/connection.rs` | <span className="text-green-500">+9</span> / <span className="text-red-500">-10</span> |
-  | `services/indexer/src/database/migrations.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-4</span> |
-  | `services/indexer/src/database/storage.rs` | <span className="text-green-500">+42</span> / <span className="text-red-500">-31</span> |
-  | `services/indexer/src/logging.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-1</span> |
-  | `services/indexer/src/merkle.rs` | <span className="text-green-500">+12</span> / <span className="text-red-500">-3</span> |
-  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+60</span> / <span className="text-red-500">-39</span> |
-  | `services/indexer/src/server/middleware.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-5</span> |
-  | `services/indexer/src/server/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
-  | `services/relay/src/api/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
-  | `services/relay/src/api/status.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-4</span> |
-  | `services/relay/src/api/withdraw.rs` | <span className="text-green-500">+50</span> / <span className="text-red-500">-32</span> |
-  | `services/relay/src/db/mod.rs` | <span className="text-green-500">+11</span> / <span className="text-red-500">-8</span> |
-  | `services/relay/src/db/models.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-5</span> |
-  | `services/relay/src/db/repository.rs` | <span className="text-green-500">+28</span> / <span className="text-red-500">-6</span> |
-  | `services/relay/src/error.rs` | <span className="text-green-500">+8</span> / <span className="text-red-500">-2</span> |
-  | `services/relay/src/main.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-7</span> |
-  | `services/relay/src/queue/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `services/relay/src/queue/redis_queue.rs` | <span className="text-green-500">+98</span> / <span className="text-red-500">-50</span> |
-
-  </details>
-- docker divergencies ([157b26b](https://github.com/Machine-Labz/cloak/commit/157b26b18792346a64c3b6de80072aea8487ae08))
-  <details>
-  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+16</span> / <span className="text-red-500">-16</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `docker-compose.yml` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
-  | `justfile` | <span className="text-green-500">+4</span> / <span className="text-red-500">-4</span> |
-  | `services/indexer/Dockerfile` | <span className="text-green-500">+5</span> / <span className="text-red-500">-5</span> |
-  | `services/indexer/justfile` | <span className="text-green-500">+5</span> / <span className="text-red-500">-5</span> |
-
-  </details>
-- workspace ([48fc7b1](https://github.com/Machine-Labz/cloak/commit/48fc7b1317d0efaeb678b1bc6527f705a8d524fd))
-  <details>
-  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+386</span> / <span className="text-red-500">-74</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `Cargo.lock` | <span className="text-green-500">+375</span> / <span className="text-red-500">-66</span> |
-  | `services/indexer/Cargo.toml` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
-  | `services/relay/Cargo.toml` | <span className="text-green-500">+8</span> / <span className="text-red-500">-5</span> |
-
-  </details>
 
 ### 📚 Documentation
 
+- Remove obsolete README and testing documentation for Nginx and deployment configurations. Update Nginx configuration to include CORS support and enhance proxy settings for the prove endpoint, allowing for extended timeouts and streaming responses. ([8a381c5](https://github.com/Machine-Labz/cloak/commit/8a381c5647620ce4f79e17bfdf28c1da61531a98))
+  <details>
+  <summary>📂 <strong>4 files changed</strong>: <span className="text-green-500">+54</span> / <span className="text-red-500">-296</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `deployment/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-74</span> |
+  | `deployment/nginx/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-90</span> |
+  | `deployment/nginx/TESTING.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-132</span> |
+  | `deployment/nginx/nginx.conf` | <span className="text-green-500">+54</span> / <span className="text-red-500">-0</span> |
+
+  </details>
+- refactor(docker): simplify Dockerfile build commands for indexer and relay services ([581dcc0](https://github.com/Machine-Labz/cloak/commit/581dcc00942c0f97a48b30c41357865c07e8069c))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+21</span> / <span className="text-red-500">-4</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/Dockerfile` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `services/relay/Dockerfile` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `services/relay/src/claim_manager.rs` | <span className="text-green-500">+19</span> / <span className="text-red-500">-2</span> |
+
+  </details>
+- refactor(indexer): optimize Dockerfile and update configuration handling ([a1904e6](https://github.com/Machine-Labz/cloak/commit/a1904e609e42d891abbec380e108fa287520fbc2))
+  <details>
+  <summary>📂 <strong>14 files changed</strong>: <span className="text-green-500">+234</span> / <span className="text-red-500">-249</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `compose.yml` | <span className="text-green-500">+7</span> / <span className="text-red-500">-19</span> |
+  | `services/indexer/Dockerfile` | <span className="text-green-500">+2</span> / <span className="text-red-500">-1</span> |
+  | `services/indexer/src/config.rs` | <span className="text-green-500">+8</span> / <span className="text-red-500">-54</span> |
+  | `services/indexer/src/database/connection.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-8</span> |
+  | `services/indexer/src/logging.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-3</span> |
+  | `services/relay/Dockerfile` | <span className="text-green-500">+2</span> / <span className="text-red-500">-4</span> |
+  | `services/relay/src/api/status.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
+  | `services/relay/src/claim_manager.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-50</span> |
+  | `services/relay/src/config.rs` | <span className="text-green-500">+189</span> / <span className="text-red-500">-49</span> |
+  | `services/relay/src/db/mod.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-3</span> |
+  | `services/relay/src/main.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `services/relay/src/solana/client.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-6</span> |
+  | `services/relay/src/solana/mod.rs` | <span className="text-green-500">+19</span> / <span className="text-red-500">-27</span> |
+  | `services/relay/src/validation/mod.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-23</span> |
+
+  </details>
+- feat(relay): enhance Dockerfile and refactor withdraw logic for multiple outputs ([eb1b4c5](https://github.com/Machine-Labz/cloak/commit/eb1b4c5d2b91676ffaa1b854108584ec4ca8a328))
+  <details>
+  <summary>📂 <strong>6 files changed</strong>: <span className="text-green-500">+175</span> / <span className="text-red-500">-153</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/relay/Dockerfile` | <span className="text-green-500">+27</span> / <span className="text-red-500">-2</span> |
+  | `services/relay/migrations/001_init.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-55</span> |
+  | `services/relay/src/db/mod.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `services/relay/src/solana/client.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-3</span> |
+  | `services/relay/src/solana/mod.rs` | <span className="text-green-500">+38</span> / <span className="text-red-500">-11</span> |
+  | `services/relay/src/solana/transaction_builder.rs` | <span className="text-green-500">+105</span> / <span className="text-red-500">-81</span> |
+
+  </details>
+- refactor(indexer): optimize Dockerfile build process and update logging configuration ([cb3b65e](https://github.com/Machine-Labz/cloak/commit/cb3b65ed289b6ff2c64140e17b6624c202798ae7))
+  <details>
+  <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+71</span> / <span className="text-red-500">-65</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/Dockerfile` | <span className="text-green-500">+1</span> / <span className="text-red-500">-4</span> |
+  | `services/indexer/init.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-21</span> |
+  | `services/indexer/src/cloudwatch.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-4</span> |
+  | `services/indexer/src/config.rs` | <span className="text-green-500">+36</span> / <span className="text-red-500">-11</span> |
+  | `services/indexer/src/logging.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `...s/indexer/src/migrations/001_initial_schema.sql` | <span className="text-green-500">+22</span> / <span className="text-red-500">-19</span> |
+  | `services/indexer/src/server/final_handlers.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `services/indexer/src/server/prover_handler.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+
+  </details>
+- refactor(docs): update homepage configuration and enhance documentation structure ([5d8dfcc](https://github.com/Machine-Labz/cloak/commit/5d8dfcc887e9c982a4db5bac77231be087e5de7c))
+  <details>
+  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+133</span> / <span className="text-red-500">-231</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/docs/CHANGELOG.md` | <span className="text-green-500">+131</span> / <span className="text-red-500">-229</span> |
+  | `docs/docusaurus.config.ts` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
+  | `docs/overview/introduction.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
+
+  </details>
 - feat(docs): update documentation structure and content for clarity and consistency ([309595b](https://github.com/Machine-Labz/cloak/commit/309595b92137941327a9cfc7adb4f4b1527074cd))
   <details>
   <summary>📂 <strong>8 files changed</strong>: <span className="text-green-500">+34</span> / <span className="text-red-500">-83</span></summary>
@@ -1013,6 +1167,122 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | `docs/pow-architecture.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-505</span> |
 
   </details>
+- update documentation structure and remove obsolete files ([23dfa5f](https://github.com/Machine-Labz/cloak/commit/23dfa5f34322facbdf798856756b0f5786bb379a))
+  <details>
+  <summary>📂 <strong>27 files changed</strong>: <span className="text-green-500">+74</span> / <span className="text-red-500">-2704</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `docs/docs/CHANGELOG.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-126</span> |
+  | `docs/docs/COMPLETE_FLOW_STATUS.md` | <span className="text-green-500">+9</span> / <span className="text-red-500">-12</span> |
+  | `docs/docs/DIAGRAMS_INDEX.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-236</span> |
+  | `docs/docs/POW_ARCHITECTURE_FIXED.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-184</span> |
+  | `docs/docs/POW_CORRECT_ARCHITECTURE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-425</span> |
+  | `docs/docs/POW_DOC_UPDATES_SUMMARY.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-374</span> |
+  | `docs/docs/POW_INTEGRATION_COMPLETE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-317</span> |
+  | `docs/docs/POW_QUICK_REFERENCE.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-4</span> |
+  | `docs/docs/POW_REFACTOR_SUMMARY.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-414</span> |
+  | `docs/docs/POW_WILDCARD_IMPLEMENTATION.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-438</span> |
+  | `docs/docs/README.md` | <span className="text-green-500">+14</span> / <span className="text-red-500">-14</span> |
+  | `docs/docs/api/validator-agent.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/docs/nonzk/frontend.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-14</span> |
+  | `docs/docs/nonzk/indexer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-17</span> |
+  | `docs/docs/nonzk/relayer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-13</span> |
+  | `docs/docs/offchain/indexer.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
+  | `docs/docs/offchain/web-app.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-2</span> |
+  | `docs/docs/onchain/shield-pool-upstream.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-62</span> |
+  | `docs/docs/overview/introduction.md` | <span className="text-green-500">+9</span> / <span className="text-red-500">-9</span> |
+  | `docs/docs/overview/tech-stack.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/docs/overview/visual-flow.md` | <span className="text-green-500">+2</span> / <span className="text-red-500">-2</span> |
+  | `docs/docs/packages/cloak-miner.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/docs/pow/overview.md` | <span className="text-green-500">+11</span> / <span className="text-red-500">-10</span> |
+  | `docs/docs/roadmap.md` | <span className="text-green-500">+18</span> / <span className="text-red-500">-13</span> |
+  | `docs/docs/workflows/pow-withdraw.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/docs/zk/encoding.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `docs/sidebars.ts` | <span className="text-green-500">+2</span> / <span className="text-red-500">-11</span> |
+
+  </details>
+- restructure Docusaurus documentation site and update .gitignore ([cac3670](https://github.com/Machine-Labz/cloak/commit/cac367056911b527416b020546da2e4d4c405d82))
+  <details>
+  <summary>📂 <strong>73 files changed</strong>: <span className="text-green-500">+228</span> / <span className="text-red-500">-16</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `.gitignore` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
+  | `DOCUSAURUS_RESTRUCTURE.md` | <span className="text-green-500">+105</span> / <span className="text-red-500">-0</span> |
+  | `README.md` | <span className="text-green-500">+9</span> / <span className="text-red-500">-9</span> |
+  | `docs/.gitignore` | <span className="text-green-500">+15</span> / <span className="text-red-500">-0</span> |
+  | `docs-site/README.md => docs/README-docusaurus.md` | <span className="text-green-500">+5</span> / <span className="text-red-500">-4</span> |
+  | `docs/VERCEL_DEPLOYMENT.md` | <span className="text-green-500">+87</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/babel.config.js` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/CHANGELOG.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/COMPLETE_FLOW_STATUS.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/DIAGRAMS_INDEX.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_ARCHITECTURE_FIXED.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_CORRECT_ARCHITECTURE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_DOC_UPDATES_SUMMARY.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_INTEGRATION_COMPLETE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_INTEGRATION_GUIDE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_QUICK_REFERENCE.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_REFACTOR_SUMMARY.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/POW_WILDCARD_IMPLEMENTATION.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/api/indexer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/api/relay.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/api/validator-agent.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/glossary.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/nonzk/frontend.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/nonzk/indexer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/nonzk/relayer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/offchain/indexer.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/offchain/relay.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/offchain/web-app.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/onchain/scramble-registry.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/onchain/shield-pool-upstream.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/onchain/shield-pool.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/operations/metrics-guide.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/operations/runbook.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/introduction.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/quickstart.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/status.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/system-architecture.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/tech-stack.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/overview/visual-flow.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/cloak-miner.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/cloak-proof-extract.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/tooling-test.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/vkey-generator.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/zk-guest-sp1.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/packages/zk-verifier-program.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/pow-scrambler-gate.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/pow/overview.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/roadmap.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/workflows/deposit.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/workflows/pow-withdraw.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/workflows/withdraw.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/api-contracts.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/circuit-withdraw.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/design.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/encoding.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/merkle.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/onchain-verifier.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/prover-sp1.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/testing.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `docs/{ => docs}/zk/threat-model.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/docusaurus.config.ts` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
+  | `{docs-site => docs}/package.json` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/sidebars.ts` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
+  | `{docs-site => docs}/src/css/custom.css` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/src/pages/index.mdx` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/static/img/cloaklogo.svg` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/static/img/favicon.svg` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/static/img/logo.svg` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/tsconfig.base.json` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/tsconfig.json` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+  | `{docs-site => docs}/yarn.lock` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
+
+  </details>
 - remove sp1-wasm-prover references; document zk-guest-sp1/backend proving ([b83810d](https://github.com/Machine-Labz/cloak/commit/b83810dac6e63ddf94931566992562bb29a03652))
   <details>
   <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+52</span> / <span className="text-red-500">-44</span></summary>
@@ -1042,6 +1312,34 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
 
 ### ♻️ Refactoring
 
+- refactor(test): clean up account creation logic and improve code readability ([4b223b3](https://github.com/Machine-Labz/cloak/commit/4b223b3dccafef50a81d228661fee487a234ca70))
+  <details>
+  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+10</span> / <span className="text-red-500">-64</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `tooling/test/src/prove_test_multiple_outputs.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-55</span> |
+  | `tooling/test/src/shared.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-9</span> |
+
+  </details>
+- refactor(solana): derive roots_ring PDA and update instruction creation ([abf887f](https://github.com/Machine-Labz/cloak/commit/abf887fa76ade60d8ee9751fdfe2dfd8e7fbf8d2))
+  <details>
+  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+16</span> / <span className="text-red-500">-5</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `services/indexer/src/solana.rs` | <span className="text-green-500">+16</span> / <span className="text-red-500">-5</span> |
+
+  </details>
+- feat(instructions): refactor withdraw logic to support multiple recipients and improve data parsing ([315d971](https://github.com/Machine-Labz/cloak/commit/315d9714c593f3ed603029f7a269d17dcbda012f))
+  <details>
+  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+314</span> / <span className="text-red-500">-258</span></summary>
+
+  | File | Changes |
+  |------|--------|
+  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+314</span> / <span className="text-red-500">-258</span> |
+
+  </details>
 - refactor(instructions): clean up deposit and withdraw instructions by removing unused code ([3bfe576](https://github.com/Machine-Labz/cloak/commit/3bfe576c908231d2ae7c842714b6ae9ad7ac7dc1))
   <details>
   <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+1</span> / <span className="text-red-500">-11</span></summary>
@@ -1105,258 +1403,6 @@ View the complete history on [GitHub](https://github.com/Machine-Labz/cloak/comm
   | File | Changes |
   |------|--------|
   | `packages/zk-guest-sp1/tests/golden.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-7</span> |
-
-  </details>
-- update public inputs structure and enhance error handling ([1f55a46](https://github.com/Machine-Labz/cloak/commit/1f55a4659360167bedc5f1f7efcfe90fdcbddc24))
-  <details>
-  <summary>📂 <strong>13 files changed</strong>: <span className="text-green-500">+578</span> / <span className="text-red-500">-252</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `packages/zk-guest-sp1/guest/src/main.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `packages/zk-guest-sp1/out/public.json` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/error.rs` | <span className="text-green-500">+7</span> / <span className="text-red-500">-3</span> |
-  | `programs/shield-pool/src/instructions/deposit.rs` | <span className="text-green-500">+10</span> / <span className="text-red-500">-12</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+165</span> / <span className="text-red-500">-111</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+8</span> / <span className="text-red-500">-0</span> |
-  | `programs/shield-pool/src/tests/admin_push_root.rs` | <span className="text-green-500">+167</span> / <span className="text-red-500">-3</span> |
-  | `programs/shield-pool/src/tests/deposit.rs` | <span className="text-green-500">+142</span> / <span className="text-red-500">-72</span> |
-  | `programs/shield-pool/src/tests/mod.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-4</span> |
-  | `services/indexer/src/database/migrations.rs` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `tooling/test/src/localnet_test.rs` | <span className="text-green-500">+71</span> / <span className="text-red-500">-42</span> |
-  | `tooling/test/src/shared.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-
-  </details>
-
----
-
-## September 2025
-
-### ✨ Features
-
-- add rust indexer ([1549328](https://github.com/Machine-Labz/cloak/commit/154932892fc64a74ecbe6464433a35b574a71a98))
-  <details>
-  <summary>📂 <strong>28 files changed</strong>: <span className="text-green-500">+3567</span> / <span className="text-red-500">-11</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `Cargo.toml` | <span className="text-green-500">+5</span> / <span className="text-red-500">-4</span> |
-  | `docker-compose.yml` | <span className="text-green-500">+19</span> / <span className="text-red-500">-7</span> |
-  | `services/indexer-rs/.dockerignore` | <span className="text-green-500">+53</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/.env.example` | <span className="text-green-500">+38</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/.gitignore` | <span className="text-green-500">+46</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/Cargo.toml` | <span className="text-green-500">+91</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/Dockerfile` | <span className="text-green-500">+72</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/README.md` | <span className="text-green-500">+301</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/artifacts/.gitkeep` | <span className="text-green-500">+1</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/init.sql` | <span className="text-green-500">+15</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/justfile` | <span className="text-green-500">+195</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/artifacts.rs` | <span className="text-green-500">+301</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/bin/migrate.rs` | <span className="text-green-500">+29</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/config.rs` | <span className="text-green-500">+162</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/database/connection.rs` | <span className="text-green-500">+174</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/database/migrations.rs` | <span className="text-green-500">+124</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/database/mod.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/database/storage.rs` | <span className="text-green-500">+484</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/error.rs` | <span className="text-green-500">+232</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/lib.rs` | <span className="text-green-500">+11</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/logging.rs` | <span className="text-green-500">+167</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/main.rs` | <span className="text-green-500">+31</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/merkle.rs` | <span className="text-green-500">+367</span> / <span className="text-red-500">-0</span> |
-  | `...ndexer-rs/src/migrations/001_initial_schema.sql` | <span className="text-green-500">+151</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/server/final_handlers.rs` | <span className="text-green-500">+225</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/server/middleware.rs` | <span className="text-green-500">+102</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/server/mod.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer-rs/src/server/routes.rs` | <span className="text-green-500">+161</span> / <span className="text-red-500">-0</span> |
-
-  </details>
-- updating todo list ([ad31307](https://github.com/Machine-Labz/cloak/commit/ad31307975417542ea1c20899a7e074235cf7445))
-  <details>
-  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+47</span> / <span className="text-red-500">-47</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `services/relay/TODO.md` | <span className="text-green-500">+47</span> / <span className="text-red-500">-47</span> |
-
-  </details>
-- feat(indexer): add commitment uniqueness check and admin cleanup endpoint ([1c9fe3f](https://github.com/Machine-Labz/cloak/commit/1c9fe3f96bb711c5f129e87d08ed587dc07ff1bc))
-  <details>
-  <summary>📂 <strong>3 files changed</strong>: <span className="text-green-500">+114</span> / <span className="text-red-500">-7</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `services/indexer/pnpm-workspace.yaml` | <span className="text-green-500">+5</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/api/routes.ts` | <span className="text-green-500">+41</span> / <span className="text-red-500">-1</span> |
-  | `services/indexer/src/db/storage.ts` | <span className="text-green-500">+68</span> / <span className="text-red-500">-6</span> |
-
-  </details>
-- Cloak privacy protocol implementation ([7db43e0](https://github.com/Machine-Labz/cloak/commit/7db43e0c3b72750a59348e46373cd036944beceb))
-  <details>
-  <summary>📂 <strong>28 files changed</strong>: <span className="text-green-500">+1763</span> / <span className="text-red-500">-2098</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.gitignore` | <span className="text-green-500">+9</span> / <span className="text-red-500">-4</span> |
-  | `Cargo.lock` | <span className="text-green-500">+81</span> / <span className="text-red-500">-122</span> |
-  | `LICENSE` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `Makefile` | <span className="text-green-500">+0</span> / <span className="text-red-500">-26</span> |
-  | `packages/zk-guest-sp1/guest/src/encoding.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-4</span> |
-  | `packages/zk-guest-sp1/host/src/encoding.rs` | <span className="text-green-500">+4</span> / <span className="text-red-500">-2</span> |
-  | `programs/shield-pool/Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-2</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+17</span> / <span className="text-red-500">-19</span> |
-  | `...shield-pool/src/instructions/admin_push_root.rs` | <span className="text-green-500">+2</span> / <span className="text-red-500">-21</span> |
-  | `...rams/shield-pool/src/instructions/initialize.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-88</span> |
-  | `programs/shield-pool/src/instructions/mod.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-10</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+135</span> / <span className="text-red-500">-151</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+7</span> / <span className="text-red-500">-12</span> |
-  | `programs/shield-pool/src/state/mod.rs` | <span className="text-green-500">+23</span> / <span className="text-red-500">-34</span> |
-  | `programs/shield-pool/src/tests/admin_push_root.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-119</span> |
-  | `...s/shield-pool/src/tests/admin_push_root_test.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-90</span> |
-  | `programs/shield-pool/src/tests/deposit.rs` | <span className="text-green-500">+85</span> / <span className="text-red-500">-59</span> |
-  | `...shield-pool/src/tests/end_to_end_integration.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-404</span> |
-  | `programs/shield-pool/src/tests/indexer_api_test.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-301</span> |
-  | `...ield-pool/src/tests/integration_with_indexer.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-333</span> |
-  | `programs/shield-pool/src/tests/mod.rs` | <span className="text-green-500">+5</span> / <span className="text-red-500">-8</span> |
-  | `programs/shield-pool/src/tests/withdraw.rs` | <span className="text-green-500">+178</span> / <span className="text-red-500">-201</span> |
-  | `services/indexer/src/db/storage.ts` | <span className="text-green-500">+26</span> / <span className="text-red-500">-5</span> |
-  | `services/indexer/src/lib/merkle.ts` | <span className="text-green-500">+28</span> / <span className="text-red-500">-3</span> |
-  | `test_complete_flow_rust/Cargo.toml` | <span className="text-green-500">+10</span> / <span className="text-red-500">-0</span> |
-  | `test_complete_flow_rust/src/main.rs` | <span className="text-green-500">+138</span> / <span className="text-red-500">-78</span> |
-  | `test_complete_flow_rust/src/testnet_test.rs` | <span className="text-green-500">+1000</span> / <span className="text-red-500">-0</span> |
-  | `tooling/README.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-
-  </details>
-
-### 🐛 Bug Fixes
-
-- relay as workspace member ([788bf1f](https://github.com/Machine-Labz/cloak/commit/788bf1f0be47a0d2f3f7e182b39b286b78aa4616))
-  <details>
-  <summary>📂 <strong>1 file changed</strong>: <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `Cargo.toml` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-
-  </details>
-
-### 📚 Documentation
-
-- update documentation and project structure for improved clarity ([4d24452](https://github.com/Machine-Labz/cloak/commit/4d24452fed22260ad4b3d747499081888b4c3fd8))
-  <details>
-  <summary>📂 <strong>15 files changed</strong>: <span className="text-green-500">+297</span> / <span className="text-red-500">-42</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `.cursor/prompts/implement-onchain-withdraw.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `.cursor/rules/00-overview.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `.cursor/rules/50-onchain.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `.gitignore` | <span className="text-green-500">+10</span> / <span className="text-red-500">-1</span> |
-  | `apps/web/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-6</span> |
-  | `docs/CHANGELOG.md` | <span className="text-green-500">+121</span> / <span className="text-red-500">-0</span> |
-  | `docs/COMPLETE_FLOW_STATUS.md` | <span className="text-green-500">+85</span> / <span className="text-red-500">-11</span> |
-  | `docs/README.md` | <span className="text-green-500">+21</span> / <span className="text-red-500">-1</span> |
-  | `docs/glossary.md` | <span className="text-green-500">+4</span> / <span className="text-red-500">-1</span> |
-  | `docs/roadmap.md` | <span className="text-green-500">+39</span> / <span className="text-red-500">-13</span> |
-  | `docs/zk/README.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docs/zk/circuit-withdraw.md` | <span className="text-green-500">+3</span> / <span className="text-red-500">-2</span> |
-  | `docs/zk/encoding.md` | <span className="text-green-500">+8</span> / <span className="text-red-500">-1</span> |
-  | `docs/zk/onchain-verifier.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-  | `docs/zk/testing.md` | <span className="text-green-500">+1</span> / <span className="text-red-500">-1</span> |
-
-  </details>
-
-### ♻️ Refactoring
-
-- refactor(core): remove TS indexer and leave just the RS one ([60487fc](https://github.com/Machine-Labz/cloak/commit/60487fc7dd4bda8d6457ed65cc1c038398571439))
-  <details>
-  <summary>📂 <strong>55 files changed</strong>: <span className="text-green-500">+354</span> / <span className="text-red-500">-4499</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `services/indexer-rs/.dockerignore` | <span className="text-green-500">+0</span> / <span className="text-red-500">-53</span> |
-  | `services/indexer-rs/.env.example` | <span className="text-green-500">+0</span> / <span className="text-red-500">-38</span> |
-  | `services/indexer-rs/.gitignore` | <span className="text-green-500">+0</span> / <span className="text-red-500">-46</span> |
-  | `services/indexer-rs/Dockerfile` | <span className="text-green-500">+0</span> / <span className="text-red-500">-72</span> |
-  | `services/indexer-rs/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-301</span> |
-  | `services/indexer-rs/artifacts/.gitkeep` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1</span> |
-  | `services/indexer/.dockerignore` | <span className="text-green-500">+24</span> / <span className="text-red-500">-22</span> |
-  | `services/indexer/.env.example` | <span className="text-green-500">+23</span> / <span className="text-red-500">-9</span> |
-  | `services/indexer/.gitignore` | <span className="text-green-500">+17</span> / <span className="text-red-500">-30</span> |
-  | `services/{indexer-rs => indexer}/Cargo.toml` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/Dockerfile` | <span className="text-green-500">+44</span> / <span className="text-red-500">-55</span> |
-  | `services/indexer/README.md` | <span className="text-green-500">+246</span> / <span className="text-red-500">-90</span> |
-  | `services/indexer/artifacts/README.md` | <span className="text-green-500">+0</span> / <span className="text-red-500">-26</span> |
-  | `services/indexer/bunfig.toml` | <span className="text-green-500">+0</span> / <span className="text-red-500">-11</span> |
-  | `services/{indexer-rs => indexer}/init.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/jest.config.js` | <span className="text-green-500">+0</span> / <span className="text-red-500">-33</span> |
-  | `services/{indexer-rs => indexer}/justfile` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/package.json` | <span className="text-green-500">+0</span> / <span className="text-red-500">-56</span> |
-  | `services/indexer/src/api/routes.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-354</span> |
-  | `services/indexer/src/api/server.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-221</span> |
-  | `services/{indexer-rs => indexer}/src/artifacts.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...ices/{indexer-rs => indexer}/src/bin/migrate.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/{indexer-rs => indexer}/src/config.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...dexer-rs => indexer}/src/database/connection.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...dexer-rs => indexer}/src/database/migrations.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...ces/{indexer-rs => indexer}/src/database/mod.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...{indexer-rs => indexer}/src/database/storage.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/db/connection.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-164</span> |
-  | `...ndexer/src/db/migrations/001_initial_schema.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-151</span> |
-  | `services/indexer/src/db/storage.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-358</span> |
-  | `services/{indexer-rs => indexer}/src/error.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/index.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-39</span> |
-  | `services/{indexer-rs => indexer}/src/lib.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/lib/artifacts.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-266</span> |
-  | `services/indexer/src/lib/config.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-52</span> |
-  | `services/indexer/src/lib/logger.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-80</span> |
-  | `services/indexer/src/lib/merkle.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-316</span> |
-  | `services/{indexer-rs => indexer}/src/logging.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/{indexer-rs => indexer}/src/main.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/{indexer-rs => indexer}/src/merkle.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `... indexer}/src/migrations/001_initial_schema.sql` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/scripts/migrate.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-167</span> |
-  | `services/indexer/src/scripts/test-deposit.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-183</span> |
-  | `services/indexer/src/scripts/test-full-flow.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-321</span> |
-  | `...xer-rs => indexer}/src/server/final_handlers.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...indexer-rs => indexer}/src/server/middleware.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/{indexer-rs => indexer}/src/server/mod.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `...es/{indexer-rs => indexer}/src/server/routes.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-0</span> |
-  | `services/indexer/src/tests/api.test.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-172</span> |
-  | `services/indexer/src/tests/artifacts.test.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-208</span> |
-  | `services/indexer/src/tests/merkle.test.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-205</span> |
-  | `services/indexer/src/tests/setup.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-17</span> |
-  | `services/indexer/src/tests/storage.test.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-264</span> |
-  | `services/indexer/src/types/index.ts` | <span className="text-green-500">+0</span> / <span className="text-red-500">-90</span> |
-  | `services/indexer/tsconfig.json` | <span className="text-green-500">+0</span> / <span className="text-red-500">-28</span> |
-
-  </details>
-- feat(zk-guest-sp1): refactor fee calculation and public input structure ([edae219](https://github.com/Machine-Labz/cloak/commit/edae2197623016e1c22b4bc1eb4e7821d19767c4))
-  <details>
-  <summary>📂 <strong>7 files changed</strong>: <span className="text-green-500">+249</span> / <span className="text-red-500">-126</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `packages/zk-guest-sp1/guest/src/encoding.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-6</span> |
-  | `packages/zk-guest-sp1/guest/src/main.rs` | <span className="text-green-500">+3</span> / <span className="text-red-500">-8</span> |
-  | `packages/zk-guest-sp1/host/src/bin/cloak-zk.rs` | <span className="text-green-500">+12</span> / <span className="text-red-500">-9</span> |
-  | `programs/shield-pool/src/constants.rs` | <span className="text-green-500">+6</span> / <span className="text-red-500">-1</span> |
-  | `programs/shield-pool/src/instructions/withdraw.rs` | <span className="text-green-500">+65</span> / <span className="text-red-500">-36</span> |
-  | `programs/shield-pool/src/lib.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-14</span> |
-  | `test_complete_flow_rust/src/main.rs` | <span className="text-green-500">+157</span> / <span className="text-red-500">-52</span> |
-
-  </details>
-
-### 🔧 Maintenance
-
-- remove obsolete Rust project files for test_complete_flow_rust ([de7364d](https://github.com/Machine-Labz/cloak/commit/de7364d450fbd41100866058187c7dfcadd6e13e))
-  <details>
-  <summary>📂 <strong>2 files changed</strong>: <span className="text-green-500">+0</span> / <span className="text-red-500">-1029</span></summary>
-
-  | File | Changes |
-  |------|--------|
-  | `test_complete_flow_rust/Cargo.toml` | <span className="text-green-500">+0</span> / <span className="text-red-500">-29</span> |
-  | `test_complete_flow_rust/src/testnet_test.rs` | <span className="text-green-500">+0</span> / <span className="text-red-500">-1000</span> |
 
   </details>
 

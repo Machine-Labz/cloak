@@ -1,4 +1,5 @@
 pub mod client;
+pub mod jupiter;
 pub mod submit;
 pub mod transaction_builder;
 
@@ -116,9 +117,21 @@ impl SolanaService {
 
     /// Check if a nullifier already exists on-chain
     pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
-        // Derive nullifier shard PDA from program ID
+        // Parse mint address (use configured mint or default to native SOL)
+        let mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default()
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default()
+        };
+
+        // Derive nullifier shard PDA from program ID with mint
         let (_, _, _, nullifier_shard_pda) =
-            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint);
 
         self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
     }

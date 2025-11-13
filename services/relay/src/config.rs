@@ -9,7 +9,15 @@ pub struct Config {
     pub solana: SolanaConfig,
     pub database: DatabaseConfig,
     pub metrics: MetricsConfig,
+    pub jupiter: JupiterConfig,
     // Note: No miner config - relay queries on-chain for claims from independent miners
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct JupiterConfig {
+    pub enabled: bool,
+    pub api_url: String,
+    pub slippage_bps: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -124,6 +132,11 @@ impl Config {
                 enabled: get_env_var("RELAY_METRICS_ENABLED", "true").parse().unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
+            },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false").parse().unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
             },
         };
 
@@ -285,6 +298,11 @@ impl Config {
                     .unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
+            },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false").parse().unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
             },
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),

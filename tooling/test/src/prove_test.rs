@@ -32,8 +32,8 @@ use zk_guest_sp1_host::{
 struct DepositRequest {
     leaf_commit: String,
     encrypted_output: String,
-    tx_signature: Option<String>,
-    slot: Option<i64>,
+    tx_signature: String,
+    slot: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -500,8 +500,8 @@ async fn deposit_to_indexer(indexer_url: &str, test_data: &mut TestData) -> Resu
                     .as_secs()
             ))
         },
-        tx_signature: Some(unique_tx_signature),
-        slot: Some(1000),
+        tx_signature: unique_tx_signature,
+        slot: 1000,
     };
 
     let deposit_response = http_client
@@ -1555,7 +1555,7 @@ async fn execute_withdraw_via_relay(
     let response: Result<WithdrawResponse, anyhow::Error> = {
         let client = reqwest::Client::new();
         let response = client
-            .post("http://localhost:3002/withdraw")
+            .post("https://api.cloaklabz.xyz/withdraw")
             .json(&withdraw_request)
             .send()
             .await?;
@@ -1615,7 +1615,7 @@ async fn execute_withdraw_via_relay(
         // Check job status using the status endpoint
         let status_response = client
             .get(&format!(
-                "http://localhost:3002/status/{}",
+                "https://api.cloaklabz.xyz/status/{}",
                 response.data.request_id
             ))
             .send()

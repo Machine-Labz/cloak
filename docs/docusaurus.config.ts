@@ -24,10 +24,10 @@ const config: Config = {
       'classic',
       {
         docs: {
-          path: './',
+          path: './docs',
           routeBasePath: '/',
           sidebarPath: require.resolve('./sidebars.ts'),
-          editUrl: 'https://github.com/cloak-labz/cloak/edit/master/docs',
+          editUrl: 'https://github.com/cloak-labz/cloak/edit/master/docs/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
           exclude: [
@@ -41,10 +41,7 @@ const config: Config = {
             '**/tsconfig*.json',
             '**/babel.config.js',
             '**/vercel.json',
-            '**/scripts/**',
-            '**/src/**',
-            '**/static/**',
-            '**/docs/**',
+            'README.md',
           ],
         },
         blog: false,

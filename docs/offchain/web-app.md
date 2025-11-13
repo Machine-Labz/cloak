@@ -10,7 +10,6 @@ The Cloak web client lives in [`services/web`](https://github.com/cloak-labz/clo
 ## Features
 
 - **Transaction Hub (`/transaction`)** – Tabbed interface for deposits and withdrawals with wallet connection via `@solana/wallet-adapter-react`.
-- **Privacy Demo (`/privacy-demo`)** – Walk-through describing how private notes work with interactive explanations.
 - **Admin Console (`/admin`)** – Tooling to verify/create program-derived accounts (pool, roots ring, nullifier shard, treasury) directly from the browser.
 - **WASM Prover Playground (`/wasm-test`)** – Experiments with in-browser proving using the `wasm-prover/` bundle.
 - **Note Manager Utilities** – `lib/note-manager.ts` handles note generation, serialization, encryption placeholders, file download/upload, and fee calculations.

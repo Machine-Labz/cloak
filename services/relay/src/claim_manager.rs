@@ -11,7 +11,7 @@
 
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{account::Account, pubkey::Pubkey};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::error::Error;
 
@@ -158,7 +158,8 @@ impl ClaimFinder {
 
                     if is_wildcard {
                         wildcard_found += 1;
-                        info!(
+                        // Log at debug level to avoid excessive logging
+                        debug!(
                             "🌟 WILDCARD claim {} (status: {}, consumed: {}/{}, expires: {}, current_slot: {})",
                             pubkey, claim.status, claim.consumed_count, claim.max_consumes, claim.expires_at_slot, current_slot
                         );
@@ -217,6 +218,22 @@ impl ClaimFinder {
                     parse_failed += 1;
                 }
             }
+        }
+
+        // Log summary at debug level
+        if wildcard_found > 0 {
+            debug!(
+                "Searched {} accounts: {} wildcard claims found ({} size_filtered, {} parse_failed, {} batch_mismatch, {} not_revealed, {} expired, {} fully_consumed, {} account_verification_failed)",
+                accounts.len(),
+                wildcard_found,
+                size_filtered,
+                parse_failed,
+                batch_mismatch,
+                not_revealed,
+                expired,
+                fully_consumed,
+                account_verification_failed
+            );
         }
 
         Ok(None)
