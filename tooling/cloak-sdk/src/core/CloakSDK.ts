@@ -198,26 +198,6 @@ export class CloakSDK {
     options?: DepositOptions
   ): Promise<DepositResult> {
     try {
-      // Privacy warning for testnet
-      if (this.config.network !== "mainnet" && !options?.skipPrivacyWarning) {
-        console.warn(`
-┌─────────────────────────────────────────────────────────────┐
-│  ⚠️  PRIVACY WARNING - TESTNET ONLY                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Current privacy level: WEAK (Experimental)                 │
-│  Anonymity set: ~10-50 deposits                             │
-│  Privacy strength: ~3-6 bits of entropy                     │
-│                                                             │
-│  DO NOT use for production privacy needs.                   │
-│                                                             │
-│  Learn more:                                                │
-│  https://github.com/cloak-labz/cloak/blob/main/PRIVACY_STATUS.md
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-        `);
-      }
-
       // Determine if we're using a provided note or generating a new one
       let note: CloakNote;
 
