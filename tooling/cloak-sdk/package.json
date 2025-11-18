@@ -40,6 +40,7 @@
     "url": "https://github.com/cloak-protocol/sdk/issues"
   },
   "dependencies": {
+    "@cloaklabz/sdk": "^0.1.1",
     "@noble/hashes": "^2.0.1",
     "@solana/web3.js": "^1.98.4",
     "bs58": "^5.0.0",
@@ -56,9 +57,6 @@
     "tsup": "^8.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.0.0"
-  },
-  "peerDependencies": {
-    "@solana/web3.js": "^1.0.0"
   },
   "files": [
     "dist",
