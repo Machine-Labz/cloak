@@ -35,6 +35,9 @@ struct CircuitInputs {
     pub private: PrivateInputs,
     pub public: PublicInputs,
     pub outputs: Vec<Output>,
+    /// Optional swap parameters for swap-mode withdrawals
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub swap_params: Option<SwapParams>,
 }
 
 // Custom serde module for hex strings
@@ -113,22 +116,43 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     }
 
     // Constraint 5: sum(outputs) + fee(amount) == amount
-    // Fee is fixed in the program, so we calculate it directly
+    // For swap mode: outputs should be empty (all goes to swap)
+    // For regular mode: outputs + fee = amount
     let outputs_sum: u64 = outputs.iter().map(|o| o.amount).sum();
     let fee = calculate_fee(private.amount);
-    let total_spent = outputs_sum + fee;
 
-    if total_spent != private.amount {
-        return Err(anyhow!(
-            "Amount conservation failed: outputs({}) + fee({}) != amount({})",
-            outputs_sum,
-            fee,
-            private.amount
-        ));
+    if inputs.swap_params.is_some() {
+        // Swap mode: verify outputs are empty (all amount goes to swap minus fee)
+        if outputs_sum != 0 {
+            return Err(anyhow!(
+                "Swap mode requires empty outputs, got outputs_sum = {}",
+                outputs_sum
+            ));
+        }
+    } else {
+        // Regular mode: verify conservation law
+        let total_spent = outputs_sum + fee;
+        if total_spent != private.amount {
+            return Err(anyhow!(
+                "Amount conservation failed: outputs({}) + fee({}) != amount({})",
+                outputs_sum,
+                fee,
+                private.amount
+            ));
+        }
     }
 
     // Constraint 6: H(serialize(outputs)) == outputs_hash
-    let computed_outputs_hash = compute_outputs_hash(outputs);
+    // For swap mode: outputs_hash = H(output_mint || recipient_ata || min_output_amount || public_amount)
+    // For regular mode: outputs_hash = H(output[0] || output[1] || ... || output[n-1])
+    let computed_outputs_hash = if let Some(ref swap_params) = inputs.swap_params {
+        // Swap mode: compute outputs_hash from swap parameters
+        compute_swap_outputs_hash(swap_params, public.amount)
+    } else {
+        // Regular mode: compute outputs_hash from outputs array
+        compute_outputs_hash(outputs)
+    };
+
     if computed_outputs_hash != public.outputs_hash {
         return Err(anyhow!("Outputs hash mismatch"));
     }
@@ -190,6 +214,7 @@ mod tests {
                 amount,
             },
             outputs,
+            swap_params: None, // Regular mode (not swap)
         }
     }
 
