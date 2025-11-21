@@ -77,6 +77,7 @@ impl Sp1TeeClient {
         private_inputs: &str,
         public_inputs: &str,
         outputs: &str,
+        swap_params: Option<&str>,
     ) -> Result<TeeProofResult> {
         let start_time = std::time::Instant::now();
 
@@ -93,15 +94,27 @@ impl Sp1TeeClient {
         let (pk, vk) = client.setup(ELF);
         info!("SP1 verifying key hash: 0x{}", hex::encode(vk.bytes32()));
 
-        // Prepare the combined input
-        let combined_input = format!(
-            r#"{{
-                "private": {},
-                "public": {},
-                "outputs": {}
-            }}"#,
-            private_inputs, public_inputs, outputs
-        );
+        // Prepare the combined input, optionally including swap_params
+        let combined_input = if let Some(sp) = swap_params {
+            format!(
+                r#"{{
+                    "private": {},
+                    "public": {},
+                    "outputs": {},
+                    "swap_params": {}
+                }}"#,
+                private_inputs, public_inputs, outputs, sp
+            )
+        } else {
+            format!(
+                r#"{{
+                    "private": {},
+                    "public": {},
+                    "outputs": {}
+                }}"#,
+                private_inputs, public_inputs, outputs
+            )
+        };
 
         let mut stdin = SP1Stdin::new();
         stdin.write(&combined_input);

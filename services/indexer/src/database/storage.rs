@@ -91,7 +91,7 @@ impl PostgresTreeStorage {
             VALUES (0, $1, '0000000000000000000000000000000000000000000000000000000000000000')
             ON CONFLICT (level, index_at_level)
             DO UPDATE SET value = EXCLUDED.value
-            "#
+            "#,
         )
         .bind(next_index)
         .execute(&mut *tx)
@@ -549,12 +549,11 @@ impl TreeStorage for PostgresTreeStorage {
 
         // Get the current value of the SEQUENCE
         // This is the source of truth for next index allocation
-        let sequence_value: Option<i64> = sqlx::query_scalar(
-            "SELECT last_value FROM leaf_index_seq",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(IndexerError::Database)?;
+        let sequence_value: Option<i64> =
+            sqlx::query_scalar("SELECT last_value FROM leaf_index_seq")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(IndexerError::Database)?;
 
         // If sequence doesn't exist yet or is at initial value, check notes table as fallback
         let next_index = if let Some(seq_val) = sequence_value {
@@ -563,12 +562,11 @@ impl TreeStorage for PostgresTreeStorage {
             seq_val + 1
         } else {
             // Fallback: query notes table for max leaf_index
-            let max_index: Option<i64> = sqlx::query_scalar(
-                "SELECT COALESCE(MAX(leaf_index), -1) FROM notes",
-            )
-            .fetch_one(&self.pool)
-            .await
-            .map_err(IndexerError::Database)?;
+            let max_index: Option<i64> =
+                sqlx::query_scalar("SELECT COALESCE(MAX(leaf_index), -1) FROM notes")
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(IndexerError::Database)?;
 
             max_index.unwrap_or(-1) + 1
         };

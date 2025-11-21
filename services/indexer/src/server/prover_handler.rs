@@ -6,6 +6,7 @@ use axum::{
 };
 use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
+use blake3::Hasher;
 use std::{net::SocketAddr, time::Instant};
 
 /// Helper function to create deprecation headers
@@ -14,9 +15,7 @@ fn create_deprecation_headers() -> HeaderMap {
     headers.insert("Deprecation", HeaderValue::from_static("true"));
     headers.insert(
         "Link",
-        HeaderValue::from_static(
-            "<https://docs.cloaklabz.xyz/zk>; rel=\"deprecation\"",
-        ),
+        HeaderValue::from_static("<https://docs.cloaklabz.xyz/zk>; rel=\"deprecation\""),
     );
     headers
 }
@@ -26,6 +25,8 @@ pub struct ProveRequest {
     pub private_inputs: String, // JSON string
     pub public_inputs: String,  // JSON string
     pub outputs: String,        // JSON string
+    #[serde(default)]
+    pub swap_params: Option<serde_json::Value>, // Optional swap params JSON object
 }
 
 #[derive(Debug, Serialize)]
@@ -139,7 +140,89 @@ pub async fn generate_proof(
         )
             .into_response();
     }
+    if let Some(ref sp) = request.swap_params {
+        if let Err(e) = serde_json::to_string(sp) {
+            tracing::error!("❌ Invalid swap_params JSON: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProveResponse {
+                    success: false,
+                    proof: None,
+                    public_inputs: None,
+                    generation_time_ms: 0,
+                    total_cycles: None,
+                    total_syscalls: None,
+                    execution_report: None,
+                    proof_method: None,
+                    wallet_address: None,
+                    error: Some(format!("Invalid swap_params JSON: {}", e)),
+                }),
+            )
+                .into_response();
+        }
+    }
     tracing::info!("✅ Input validation passed");
+
+    // Optional: pre-compute and log expected outputs_hash in swap mode for easier debugging
+    if let Some(ref sp) = request.swap_params {
+        // Try to parse public inputs to extract amount and outputs_hash
+        if let (Ok(public_inputs_val), Ok(sp_val)) = (
+            serde_json::from_str::<serde_json::Value>(&request.public_inputs),
+            serde_json::from_value::<serde_json::Value>(sp.clone()),
+        ) {
+            let amount_opt = public_inputs_val.get("amount").and_then(|v| v.as_u64());
+            let outputs_hash_hex_opt = public_inputs_val
+                .get("outputs_hash")
+                .and_then(|v| v.as_str());
+
+            let out_mint_opt = sp_val.get("output_mint").and_then(|v| v.as_str());
+            let recip_ata_opt = sp_val.get("recipient_ata").and_then(|v| v.as_str());
+            let min_out_opt = sp_val.get("min_output_amount").and_then(|v| v.as_u64());
+
+            if let (Some(amount), Some(outputs_hash_hex), Some(out_mint), Some(recip_ata), Some(min_out)) =
+                (amount_opt, outputs_hash_hex_opt, out_mint_opt, recip_ata_opt, min_out_opt)
+            {
+                // Helper to parse base58 or 0x-hex into 32 bytes
+                let parse_addr = |s: &str| -> Option<[u8; 32]> {
+                    let raw = if let Some(hex) = s.strip_prefix("0x") { hex } else { s };
+                    if let Ok(bytes) = hex::decode(raw) {
+                        if bytes.len() == 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(&bytes);
+                            return Some(arr);
+                        }
+                    }
+                    if let Ok(bytes) = bs58::decode(s).into_vec() {
+                        if bytes.len() == 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(&bytes);
+                            return Some(arr);
+                        }
+                    }
+                    None
+                };
+
+                if let (Some(mint32), Some(ata32)) = (parse_addr(out_mint), parse_addr(recip_ata)) {
+                    let mut hasher = Hasher::new();
+                    hasher.update(&mint32);
+                    hasher.update(&ata32);
+                    hasher.update(&min_out.to_le_bytes());
+                    hasher.update(&amount.to_le_bytes());
+                    let expected = hasher.finalize();
+                    let expected_hex = hex::encode(expected.as_bytes());
+                    tracing::info!(
+                        expected_outputs_hash = expected_hex.as_str(),
+                        public_outputs_hash = outputs_hash_hex,
+                        amount,
+                        min_out,
+                        output_mint = out_mint,
+                        recipient_ata = recip_ata,
+                        "Computed swap outputs_hash debug"
+                    );
+                }
+            }
+        }
+    }
 
     tracing::info!("🚀 Starting TEE proof generation (this may take 30-180 seconds)...");
 
@@ -158,7 +241,10 @@ pub async fn generate_proof(
                 execution_report: None,
                 proof_method: None,
                 wallet_address: None,
-                error: Some("TEE client not configured. Proof generation is only available via TEE.".to_string()),
+                error: Some(
+                    "TEE client not configured. Proof generation is only available via TEE."
+                        .to_string(),
+                ),
             }),
         )
             .into_response();
@@ -171,11 +257,14 @@ pub async fn generate_proof(
         state.config.sp1_tee.timeout_seconds
     );
 
+    let swap_params_str = request.swap_params.as_ref().map(|v| v.to_string());
+
     match tee_client
         .generate_proof(
             &request.private_inputs,
             &request.public_inputs,
             &request.outputs,
+            swap_params_str.as_deref(),
         )
         .await
     {

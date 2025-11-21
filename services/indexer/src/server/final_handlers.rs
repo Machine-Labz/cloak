@@ -185,14 +185,17 @@ pub async fn deposit(
     // Insert the leaf into the merkle tree and get the new root
     tracing::info!("🌳 Inserting leaf into Merkle tree");
     let mut tree = state.merkle_tree.lock().await;
-    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
+    match tree
+        .insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage)
+        .await
+    {
         Ok((new_root, _)) => {
             tracing::info!(
                 leaf_index = allocated_index,
                 new_root = new_root,
                 "✅ Successfully inserted leaf into Merkle tree"
             );
-            
+
             // Push new root to on-chain roots ring synchronously to prevent race conditions
             // The withdrawal proof depends on this root being on-chain before it can be verified
             tracing::info!("🔗 Pushing root to on-chain roots ring");
@@ -204,7 +207,7 @@ pub async fn deposit(
             } else {
                 tracing::info!("✅ Root successfully pushed to on-chain roots ring");
             }
-            
+
             tracing::info!("🎉 Deposit request completed successfully");
             (
                 StatusCode::CREATED,

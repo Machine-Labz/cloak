@@ -219,15 +219,24 @@ fn get_admin_keypair_from_env() -> Option<Vec<u8>> {
     // Try to get admin keypair from environment variable as JSON array
     if let Ok(mut keypair_json) = std::env::var("ADMIN_KEYPAIR") {
         // Strip surrounding single or double quotes if present
-        keypair_json = keypair_json.trim().trim_matches('\'').trim_matches('"').to_string();
+        keypair_json = keypair_json
+            .trim()
+            .trim_matches('\'')
+            .trim_matches('"')
+            .to_string();
 
         match serde_json::from_str::<Vec<u8>>(&keypair_json) {
             Ok(keypair_bytes) => {
                 if keypair_bytes.len() == 64 {
-                    tracing::info!("✅ Loaded admin keypair from ADMIN_KEYPAIR environment variable");
+                    tracing::info!(
+                        "✅ Loaded admin keypair from ADMIN_KEYPAIR environment variable"
+                    );
                     return Some(keypair_bytes);
                 } else {
-                    tracing::warn!("⚠️ ADMIN_KEYPAIR has invalid length: {} (expected 64)", keypair_bytes.len());
+                    tracing::warn!(
+                        "⚠️ ADMIN_KEYPAIR has invalid length: {} (expected 64)",
+                        keypair_bytes.len()
+                    );
                 }
             }
             Err(e) => {
@@ -239,23 +248,28 @@ fn get_admin_keypair_from_env() -> Option<Vec<u8>> {
     // Try to get from file path
     if let Ok(keypair_path) = std::env::var("ADMIN_KEYPAIR_PATH") {
         match std::fs::read_to_string(&keypair_path) {
-            Ok(keypair_data) => {
-                match serde_json::from_str::<Vec<u8>>(&keypair_data) {
-                    Ok(keypair_bytes) => {
-                        if keypair_bytes.len() == 64 {
-                            tracing::info!("✅ Loaded admin keypair from file: {}", keypair_path);
-                            return Some(keypair_bytes);
-                        } else {
-                            tracing::warn!("⚠️ Admin keypair file has invalid length: {} (expected 64)", keypair_bytes.len());
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("⚠️ Failed to parse admin keypair file as JSON: {}", e);
+            Ok(keypair_data) => match serde_json::from_str::<Vec<u8>>(&keypair_data) {
+                Ok(keypair_bytes) => {
+                    if keypair_bytes.len() == 64 {
+                        tracing::info!("✅ Loaded admin keypair from file: {}", keypair_path);
+                        return Some(keypair_bytes);
+                    } else {
+                        tracing::warn!(
+                            "⚠️ Admin keypair file has invalid length: {} (expected 64)",
+                            keypair_bytes.len()
+                        );
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("⚠️ Failed to parse admin keypair file as JSON: {}", e);
+                }
+            },
             Err(e) => {
-                tracing::warn!("⚠️ Failed to read admin keypair file {}: {}", keypair_path, e);
+                tracing::warn!(
+                    "⚠️ Failed to read admin keypair file {}: {}",
+                    keypair_path,
+                    e
+                );
             }
         }
     }
