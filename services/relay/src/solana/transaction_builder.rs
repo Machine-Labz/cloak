@@ -41,6 +41,11 @@ const RECIPIENT_ADDR_LEN: usize = 32;
 const RECIPIENT_AMOUNT_LEN: usize = 8;
 const POW_BATCH_HASH_LEN: usize = 32;
 
+// Swap-mode specific constants
+const OUTPUT_MINT_LEN: usize = 32;
+const RECIPIENT_ATA_LEN: usize = 32;
+const MIN_OUTPUT_AMOUNT_LEN: usize = 8;
+
 /// Build the withdraw instruction body (supports 1-N outputs)
 /// Layout: [proof][public:104][nf-dup:32][num_outputs:1][(recipient:32, amount:8)...]
 pub fn build_withdraw_ix_body(
@@ -122,6 +127,42 @@ pub fn build_withdraw_ix_body_with_pow(
     Ok(data)
 }
 
+/// Build the withdraw-swap instruction body (swap mode)
+/// Layout: [proof][public:104][nf-dup:32][output_mint:32][recipient_ata:32][min_output_amount:8]
+pub fn build_withdraw_swap_ix_body(
+    proof: &[u8],
+    public_104: &[u8; PUBLIC_INPUTS_LEN],
+    output_mint: &Pubkey,
+    recipient_ata: &Pubkey,
+    min_output_amount: u64,
+) -> Result<Vec<u8>, Error> {
+    if proof.is_empty() {
+        return Err(Error::ValidationError("proof must be non-empty".into()));
+    }
+
+    let expected_len = proof.len()
+        + PUBLIC_INPUTS_LEN
+        + DUPLICATE_NULLIFIER_LEN
+        + OUTPUT_MINT_LEN
+        + RECIPIENT_ATA_LEN
+        + MIN_OUTPUT_AMOUNT_LEN;
+
+    let mut data = Vec::with_capacity(expected_len);
+    data.extend_from_slice(proof);
+    data.extend_from_slice(public_104);
+    // duplicate nullifier = public[32..64]
+    data.extend_from_slice(&public_104[32..64]);
+    data.extend_from_slice(output_mint.as_ref());
+    data.extend_from_slice(recipient_ata.as_ref());
+    data.extend_from_slice(&min_output_amount.to_le_bytes());
+
+    debug_assert_eq!(data.len(), expected_len);
+
+    tracing::info!("WithdrawSwap instruction data: proof_len={}, total_len={}, expected=468", proof.len(), data.len());
+
+    Ok(data)
+}
+
 /// Build an Instruction for shield-pool::Withdraw with discriminant = 2
 ///
 /// Accounts layout for native SOL:
@@ -187,6 +228,47 @@ pub fn build_withdraw_instruction(
         }
         accounts.push(AccountMeta::new(treasury_token, false)); // treasury_token_account (writable)
     }
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+/// Build an Instruction for shield-pool::WithdrawSwap (discriminant = 4)
+///
+/// Accounts layout:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. swap_state_pda (writable)
+/// 5. system_program (readonly)
+/// 6. payer (signer, writable)
+pub fn build_withdraw_swap_instruction(
+    program_id: Pubkey,
+    body: &[u8],
+    pool_pda: Pubkey,
+    treasury: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    swap_state_pda: Pubkey,
+    payer: Pubkey,
+) -> Instruction {
+    let mut data = Vec::with_capacity(1 + body.len());
+    data.push(4u8); // ShieldPoolInstruction::WithdrawSwap
+    data.extend_from_slice(body);
+
+    let accounts = vec![
+        AccountMeta::new(pool_pda, false),           // 0
+        AccountMeta::new(treasury, false),           // 1
+        AccountMeta::new_readonly(roots_ring_pda, false), // 2
+        AccountMeta::new(nullifier_shard_pda, false),     // 3
+        AccountMeta::new(swap_state_pda, false),     // 4
+        AccountMeta::new_readonly(system_program::id(), false), // 5
+        AccountMeta::new(payer, true),               // 6 (signer)
+    ];
 
     Instruction {
         program_id,
@@ -303,6 +385,11 @@ pub(crate) fn derive_shield_pool_pdas(
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
 }
 
+/// Derive the swap state PDA for a given nullifier
+pub(crate) fn derive_swap_state_pda(program_id: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"swap_state", nullifier.as_ref()], program_id)
+}
+
 /// Derive commitments PDA for a specific mint.
 pub(crate) fn derive_commitments_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
     let (commitments_pda, _) =
@@ -391,6 +478,99 @@ pub fn build_withdraw_transaction(
     msg.recent_blockhash = recent_blockhash;
     let tx = Transaction::new_unsigned(msg);
     Ok(tx)
+}
+
+/// Build a full Transaction for WithdrawSwap including compute budget
+pub fn build_withdraw_swap_transaction(
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    output_mint: Pubkey,
+    recipient_ata: Pubkey,
+    min_output_amount: u64,
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    treasury: Pubkey,
+    swap_state_pda: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+) -> Result<Transaction, Error> {
+    let body = build_withdraw_swap_ix_body(
+        proof_bytes.as_slice(),
+        &public_104,
+        &output_mint,
+        &recipient_ata,
+        min_output_amount,
+    )?;
+
+    let withdraw_swap_ix = build_withdraw_swap_instruction(
+        program_id,
+        &body,
+        pool_pda,
+        treasury,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        swap_state_pda,
+        fee_payer,
+    );
+
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(600_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+    let mut msg = Message::new(&[cu_ix, pri_ix, withdraw_swap_ix], Some(&fee_payer));
+    msg.recent_blockhash = recent_blockhash;
+    Ok(Transaction::new_unsigned(msg))
+}
+
+/// Build an Instruction for shield-pool::ExecuteSwap (discriminant = 5)
+/// Data: [nullifier (32)]
+/// Accounts:
+/// 0. swap_state_pda (writable)
+/// 1. recipient_ata (readonly)
+/// 2. payer (writable)
+/// 3. token_program (readonly)
+pub fn build_execute_swap_instruction(
+    program_id: Pubkey,
+    nullifier: [u8; 32],
+    swap_state_pda: Pubkey,
+    recipient_ata: Pubkey,
+    payer: Pubkey,
+) -> Instruction {
+    let mut data = Vec::with_capacity(1 + 32);
+    data.push(5u8); // ShieldPoolInstruction::ExecuteSwap
+    data.extend_from_slice(&nullifier);
+
+    let accounts = vec![
+        AccountMeta::new(swap_state_pda, false),
+        AccountMeta::new_readonly(recipient_ata, false),
+        AccountMeta::new(payer, false),
+        AccountMeta::new_readonly(spl_token::id(), false),
+    ];
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+pub fn build_release_swap_funds_instruction(
+    program_id: Pubkey,
+    swap_state_pda: Pubkey,
+    relay: Pubkey,
+) -> Instruction {
+    let mut data = vec![6]; // ReleaseSwapFunds instruction tag
+    
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(swap_state_pda, false),
+            AccountMeta::new(relay, true),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }
 }
 
 /// Build a full legacy Transaction with PoW support.
@@ -829,4 +1009,161 @@ mod tests {
             + RECIPIENT_AMOUNT_LEN;
         assert_eq!(ci.data.len() - 1, expected_body_len);
     }
+}
+
+// ============================================================================
+// FUND WSOL ATA INSTRUCTION
+// ============================================================================
+
+/// Build FundWsolAta instruction to transfer SOL from SwapState PDA to wSOL ATA
+///
+/// This must be called BEFORE OrcaSwap to fund the wSOL token account.
+/// Separated because Solana doesn't allow manual lamport manipulation + CPI in same instruction.
+///
+/// Instruction data: [discriminator:1][amount:8]
+pub fn build_fund_wsol_instruction(
+    program_id: Pubkey,
+    nullifier: [u8; 32],
+    amount: u64,
+) -> Instruction {
+    let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
+    let wsol_mint = solana_sdk::pubkey!("So11111111111111111111111111111111111111112");
+    let wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+
+    let mut data = Vec::with_capacity(9);
+    data.push(7u8); // FundWsolAta discriminator
+    data.extend_from_slice(&amount.to_le_bytes());
+
+    let accounts = vec![
+        AccountMeta::new(swap_state_pda, false),
+        AccountMeta::new(wsol_ata, false),
+        AccountMeta::new_readonly(spl_token::id(), false),
+    ];
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+// ============================================================================
+// ORCA SWAP INSTRUCTION
+// ============================================================================
+
+/// Build OrcaSwap instruction to execute on-chain swap via Orca Whirlpool CPI
+///
+/// This instruction swaps SOL → output token using Orca's concentrated liquidity pools
+///
+/// Instruction data: [discriminator:1][amount:8][other_amount_threshold:8][sqrt_price_limit:16]
+pub fn build_orca_swap_instruction(
+    program_id: Pubkey,
+    nullifier: [u8; 32],
+    amount: u64,
+    min_output_amount: u64,
+    output_mint: Pubkey,
+    recipient_ata: Pubkey,
+) -> Result<Instruction, Error> {
+    // Orca Whirlpool Program ID (same for mainnet & devnet)
+    let whirlpool_program_id = solana_sdk::pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+
+    // Derive SwapState PDA
+    let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
+
+    // Native SOL mint (wrapped SOL)
+    let wsol_mint = solana_sdk::pubkey!("So11111111111111111111111111111111111111112");
+
+    // Derive wSOL ATA for SwapState PDA
+    let wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+
+    // For devnet SOL/USDC pool with tick spacing 64
+    // Devnet whirlpool config
+    let devnet_config = solana_sdk::pubkey!("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR");
+
+    // Derive Whirlpool PDA for SOL/USDC pool
+    let (whirlpool_pda, _) = Pubkey::find_program_address(
+        &[
+            b"whirlpool",
+            devnet_config.as_ref(),
+            wsol_mint.as_ref(),
+            output_mint.as_ref(),
+            &64u16.to_le_bytes(), // tick spacing
+        ],
+        &whirlpool_program_id,
+    );
+
+    // For simplified implementation, we'll derive tick arrays with default indices
+    // In production, these should be queried from the pool's current price
+    let (tick_array_0, _) = Pubkey::find_program_address(
+        &[
+            b"tick_array",
+            whirlpool_pda.as_ref(),
+            &0i32.to_le_bytes(), // start tick index
+        ],
+        &whirlpool_program_id,
+    );
+
+    let (tick_array_1, _) = Pubkey::find_program_address(
+        &[
+            b"tick_array",
+            whirlpool_pda.as_ref(),
+            &(64i32).to_le_bytes(), // start tick index + tick spacing
+        ],
+        &whirlpool_program_id,
+    );
+
+    let (tick_array_2, _) = Pubkey::find_program_address(
+        &[
+            b"tick_array",
+            whirlpool_pda.as_ref(),
+            &(128i32).to_le_bytes(), // start tick index + 2 * tick spacing
+        ],
+        &whirlpool_program_id,
+    );
+
+    // Note: In production, vault addresses should be queried from the whirlpool account
+    // For now, we use the standard PDA derivation
+    let (vault_a, _) = Pubkey::find_program_address(
+        &[b"vault", whirlpool_pda.as_ref()],
+        &whirlpool_program_id,
+    );
+
+    let (vault_b, _) = Pubkey::find_program_address(
+        &[b"vault", whirlpool_pda.as_ref()],
+        &whirlpool_program_id,
+    );
+
+    let (oracle, _) = Pubkey::find_program_address(
+        &[b"oracle", whirlpool_pda.as_ref()],
+        &whirlpool_program_id,
+    );
+
+    // Build instruction data
+    let mut data = Vec::with_capacity(33);
+    data.push(6u8); // OrcaSwap discriminator
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.extend_from_slice(&min_output_amount.to_le_bytes());
+    data.extend_from_slice(&0u128.to_le_bytes()); // sqrt_price_limit = 0 (no limit)
+
+    // Build accounts
+    let accounts = vec![
+        AccountMeta::new(swap_state_pda, false),
+        AccountMeta::new(wsol_ata, false),
+        AccountMeta::new(recipient_ata, false),
+        AccountMeta::new(whirlpool_pda, false),
+        AccountMeta::new(vault_a, false),
+        AccountMeta::new(vault_b, false),
+        AccountMeta::new(tick_array_0, false),
+        AccountMeta::new(tick_array_1, false),
+        AccountMeta::new(tick_array_2, false),
+        AccountMeta::new_readonly(oracle, false),
+        AccountMeta::new_readonly(spl_token::id(), false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data,
+    })
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::planner::{build_public_inputs_104, calculate_fee};
+use crate::planner::{build_public_inputs_104, calculate_fee_legacy};
 use crate::{
     db::models::CreateJob,
     db::repository::{JobRepository, NullifierRepository},
@@ -50,7 +50,7 @@ pub async fn orchestrate_withdraw(
     nf_arr.copy_from_slice(&nf_bytes);
 
     // Compute recipient amount and outputs_hash
-    let fee = calculate_fee(req.amount);
+    let fee = calculate_fee_legacy(req.amount);
     let recipient_amount = req.amount.saturating_sub(fee);
     if recipient_amount == 0 {
         return Err(Error::ValidationError(

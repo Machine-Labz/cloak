@@ -1,5 +1,8 @@
 use crate::{
-    constants::ADMIN_AUTHORITY, error::ShieldPoolError, state::{CommitmentQueue, NullifierShard, Pool, RootsRing}, ID
+    constants::ADMIN_AUTHORITY,
+    error::ShieldPoolError,
+    state::{CommitmentQueue, NullifierShard, Pool, RootsRing},
+    ID,
 };
 use pinocchio::sysvars::rent::Rent;
 use pinocchio::{
@@ -45,14 +48,22 @@ pub fn process_initialize_instruction(
     let program_id = Pubkey::from(ID);
     let rent = Rent::get()?;
 
-    create_pda_account(&admin, &pool, &program_id, b"pool", &mint, Pool::SIZE, &rent)?;
-    
+    create_pda_account(
+        &admin,
+        &pool,
+        &program_id,
+        b"pool",
+        &mint,
+        Pool::SIZE,
+        &rent,
+    )?;
+
     // Initialize pool state with mint
     {
         let mut pool_state = Pool::from_account_info(&pool)?;
         pool_state.set_mint(&mint);
     }
-    
+
     create_pda_account(
         &admin,
         &commitments,
@@ -115,7 +126,11 @@ fn create_pda_account(
 
     let lamports = rent.minimum_balance(space);
     let bump_seed = [bump];
-    let seeds = [Seed::from(seed), Seed::from(mint.as_ref()), Seed::from(bump_seed.as_ref())];
+    let seeds = [
+        Seed::from(seed),
+        Seed::from(mint.as_ref()),
+        Seed::from(bump_seed.as_ref()),
+    ];
     let signer = Signer::from(&seeds);
 
     CreateAccount {

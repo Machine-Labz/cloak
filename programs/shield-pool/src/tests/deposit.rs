@@ -14,7 +14,8 @@ fn test_deposit_instruction() {
     let user = Pubkey::new_from_array([0x11u8; 32]);
     let mint = Pubkey::default(); // Native SOL
     let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 0u64;
     let sk_spend = [0x42u8; 32];
@@ -130,7 +131,8 @@ fn test_deposit_insufficient_funds() {
     let user = Pubkey::new_from_array([0x11u8; 32]);
     let mint = Pubkey::default(); // Native SOL
     let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 2_000_000_000u64;
     let leaf_commit = [0x42u8; 32];
@@ -210,7 +212,8 @@ fn test_deposit_duplicate_commitment() {
     let user = Pubkey::new_from_array([0x91u8; 32]);
     let mint = Pubkey::default(); // Native SOL
     let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 0u64;
     let commitment = [0xAAu8; 32];

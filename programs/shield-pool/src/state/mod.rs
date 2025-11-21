@@ -296,3 +296,154 @@ impl NullifierShard {
         Ok(())
     }
 }
+
+/// SwapState: Stores pending swap parameters for two-transaction swap flow
+/// Layout:
+/// [nullifier: 32][sol_amount: 8][output_mint: 32][recipient_ata: 32]
+/// [min_output_amount: 8][created_slot: 8][bump: 1]
+/// Total: 121 bytes
+///
+/// PDA derivation: seeds = [b"swap_state", nullifier]
+pub struct SwapState(*mut u8);
+
+impl SwapState {
+    pub const SIZE: usize = 32 + 8 + 32 + 32 + 8 + 8 + 1; // 121 bytes
+
+    pub const SEED_PREFIX: &'static [u8] = b"swap_state";
+
+    #[inline(always)]
+    pub fn from_account_info(account_info: &AccountInfo) -> Result<Self, ProgramError> {
+        if account_info.owner() != &ID {
+            return Err(ShieldPoolError::InvalidAccountOwner.into());
+        }
+        if account_info.data_len() != Self::SIZE {
+            return Err(ShieldPoolError::InvalidAccountSize.into());
+        }
+        Ok(Self::from_account_info_unchecked(account_info))
+    }
+
+    #[inline(always)]
+    pub fn from_account_info_unchecked(account_info: &AccountInfo) -> Self {
+        unsafe { Self(account_info.borrow_mut_data_unchecked().as_mut_ptr()) }
+    }
+
+    // Getters
+    #[inline(always)]
+    pub fn nullifier(&self) -> [u8; 32] {
+        unsafe {
+            let mut bytes = [0u8; 32];
+            core::ptr::copy_nonoverlapping(self.0, bytes.as_mut_ptr(), 32);
+            bytes
+        }
+    }
+
+    #[inline(always)]
+    pub fn sol_amount(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(32) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn output_mint(&self) -> Pubkey {
+        unsafe {
+            let mut bytes = [0u8; 32];
+            core::ptr::copy_nonoverlapping(self.0.add(40), bytes.as_mut_ptr(), 32);
+            Pubkey::from(bytes)
+        }
+    }
+
+    #[inline(always)]
+    pub fn recipient_ata(&self) -> Pubkey {
+        unsafe {
+            let mut bytes = [0u8; 32];
+            core::ptr::copy_nonoverlapping(self.0.add(72), bytes.as_mut_ptr(), 32);
+            Pubkey::from(bytes)
+        }
+    }
+
+    #[inline(always)]
+    pub fn min_output_amount(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(104) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn created_slot(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(112) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn bump(&self) -> u8 {
+        unsafe { *self.0.add(120) }
+    }
+
+    // Setters
+    #[inline(always)]
+    pub fn set_nullifier(&mut self, nullifier: &[u8; 32]) {
+        unsafe {
+            core::ptr::copy_nonoverlapping(nullifier.as_ptr(), self.0, 32);
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_sol_amount(&mut self, amount: u64) {
+        unsafe {
+            *(self.0.add(32) as *mut u64) = amount.to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_output_mint(&mut self, mint: &Pubkey) {
+        unsafe {
+            core::ptr::copy_nonoverlapping(mint.as_ref().as_ptr(), self.0.add(40), 32);
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_recipient_ata(&mut self, ata: &Pubkey) {
+        unsafe {
+            core::ptr::copy_nonoverlapping(ata.as_ref().as_ptr(), self.0.add(72), 32);
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_min_output_amount(&mut self, amount: u64) {
+        unsafe {
+            *(self.0.add(104) as *mut u64) = amount.to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_created_slot(&mut self, slot: u64) {
+        unsafe {
+            *(self.0.add(112) as *mut u64) = slot.to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_bump(&mut self, bump: u8) {
+        unsafe {
+            *self.0.add(120) = bump;
+        }
+    }
+
+    /// Initialize a new SwapState with all fields
+    #[inline(always)]
+    pub fn initialize(
+        &mut self,
+        nullifier: &[u8; 32],
+        sol_amount: u64,
+        output_mint: &Pubkey,
+        recipient_ata: &Pubkey,
+        min_output_amount: u64,
+        created_slot: u64,
+        bump: u8,
+    ) {
+        self.set_nullifier(nullifier);
+        self.set_sol_amount(sol_amount);
+        self.set_output_mint(output_mint);
+        self.set_recipient_ata(recipient_ata);
+        self.set_min_output_amount(min_output_amount);
+        self.set_created_slot(created_slot);
+        self.set_bump(bump);
+    }
+
+}

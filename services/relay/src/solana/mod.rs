@@ -2,11 +2,14 @@ pub mod client;
 pub mod jupiter;
 pub mod submit;
 pub mod transaction_builder;
+pub mod swap;
 
 use async_trait::async_trait;
+use base64;
 use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    message::Message,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
     transaction::Transaction,
@@ -32,9 +35,8 @@ fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
         solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
     // Token Program ID
-    const TOKEN_PROGRAM_ID: Pubkey = solana_sdk::pubkey!(
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-    );
+    const TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
     // Find the associated token account address
     let (ata, _) = Pubkey::find_program_address(
@@ -68,7 +70,12 @@ pub trait SolanaClient: Send + Sync {
     async fn get_block_height(&self) -> Result<u64, Error>;
     async fn get_slot(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
-    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
+    async fn check_nullifier_exists(
+        &self,
+        nullifier_shard: &Pubkey,
+        nullifier: &[u8],
+    ) -> Result<bool, Error>;
+    async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error>;
 }
 
 pub struct SolanaService {
@@ -133,7 +140,9 @@ impl SolanaService {
         let (_, _, _, nullifier_shard_pda) =
             transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint);
 
-        self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
+        self.client
+            .check_nullifier_exists(&nullifier_shard_pda, nullifier)
+            .await
     }
 
     /// Submit a withdraw transaction to Solana
@@ -144,16 +153,43 @@ impl SolanaService {
         );
 
         // 1. Parse outputs from JSON
-        let outputs = self.parse_outputs(&job.outputs_json)?;
+        let outputs_value = if job.outputs_json.is_object() {
+            // New format: { "outputs": [...], "swap": {...} }
+            job.outputs_json.get("outputs").unwrap_or(&job.outputs_json)
+        } else {
+            // Legacy format: [...]
+            &job.outputs_json
+        };
+        let outputs = self.parse_outputs(outputs_value)?;
 
-        // 2. Build transaction
-        let transaction = self.build_withdraw_transaction(job, &outputs).await?;
+        // 2. Check if swap is requested
+        let swap_config: Option<crate::swap::SwapConfig> =
+            if let Some(swap_value) = job.outputs_json.get("swap") {
+                match serde_json::from_value(swap_value.clone()) {
+                    Ok(config) => {
+                        info!("Swap requested in job {}: {:?}", job.request_id, config);
+                        Some(config)
+                    }
+                    Err(e) => {
+                        warn!("Invalid swap config in job {}: {}", job.request_id, e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
 
-        // 3. Submit and confirm transaction
-        let signature = self.submit_and_confirm(&transaction, job, &outputs).await?;
-
-        info!("Withdraw transaction confirmed: {}", signature);
-        Ok(signature)
+        // 3. Build and submit transaction(s)
+        if let Some(swap_config) = swap_config {
+            // Two-transaction flow: withdraw to relay temp account, then swap to final recipient
+            self.submit_withdraw_with_swap(job, &outputs, &swap_config).await
+        } else {
+            // Single-transaction flow: just withdraw
+            let transaction = self.build_withdraw_transaction(job, &outputs).await?;
+            let signature = self.submit_and_confirm(&transaction, job, &outputs).await?;
+            info!("Withdraw transaction confirmed: {}", signature);
+            Ok(signature)
+        }
     }
 
     /// Health check for Solana connection
@@ -163,6 +199,26 @@ impl SolanaService {
             Err(e) => {
                 error!("Solana health check failed: {}", e);
                 Err(e)
+            }
+        }
+    }
+
+    /// Check if a SwapState PDA exists for a given nullifier
+    /// Returns Ok(true) if exists, Ok(false) if not found
+    pub async fn check_swap_state_exists(&self, nullifier: &[u8; 32]) -> Result<bool, Error> {
+        let (swap_state_pda, _) = transaction_builder::derive_swap_state_pda(&self.program_id, nullifier);
+        
+        match self.client.get_account(&swap_state_pda).await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                // Check if it's "account not found" error
+                let error_str = e.to_string();
+                if error_str.contains("AccountNotFound") || error_str.contains("could not find account") {
+                    Ok(false)
+                } else {
+                    // Some other error occurred
+                    Err(e)
+                }
             }
         }
     }
@@ -197,6 +253,182 @@ impl SolanaService {
         }
 
         Ok(outputs)
+    }
+
+    /// Submit a two-transaction swap flow (PDA-guarded):
+    /// 1) WithdrawSwap locks user's SOL in a SwapState PDA (no relay custody)
+    /// 2) Relay executes Jupiter swap using its own SOL to the recipient ATA, then calls ExecuteSwap
+    ///    to verify min output and reimburse the relay by closing the PDA
+    async fn submit_withdraw_with_swap(
+        &self,
+        job: &Job,
+        outputs: &[Output],
+        swap_config: &crate::swap::SwapConfig,
+    ) -> Result<Signature, Error> {
+        info!("Starting PDA-based withdraw+swap flow for job {}", job.request_id);
+
+        // Relay fee payer is required (pays PDA rent and signs Jupiter swap; reimbursed via ExecuteSwap)
+        let relay_keypair = self.fee_payer.as_ref().ok_or_else(|| {
+            Error::ValidationError("Relay fee payer keypair required for swap withdrawals".into())
+        })?;
+        let relay_pubkey = relay_keypair.pubkey();
+
+        // Output mint to receive (e.g., USDC)
+        let output_mint = Pubkey::from_str(&swap_config.output_mint)
+            .map_err(|e| Error::ValidationError(format!("Invalid output mint: {}", e)))?;
+
+        // Parse public inputs -> nullifier and public_amount
+        if job.public_inputs.len() != 104 {
+            return Err(Error::ValidationError("public inputs must be 104 bytes".into()));
+        }
+        let mut public_104 = [0u8; 104];
+        public_104.copy_from_slice(&job.public_inputs);
+        let mut nullifier = [0u8; 32];
+        nullifier.copy_from_slice(&public_104[32..64]);
+        let public_amount = u64::from_le_bytes(public_104[96..104].try_into().unwrap());
+
+        // Recipient wallet -> recipient ATA for output mint
+        if outputs.is_empty() {
+            return Err(Error::ValidationError("At least one output is required".into()));
+        }
+        let recipient_wallet = outputs[0].to_pubkey()?;
+        let recipient_ata = get_associated_token_address(&recipient_wallet, &output_mint);
+
+        // Parse mint address (use configured mint or default to native SOL)
+        let input_mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default()
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default()
+        };
+
+        // Derive PDAs using the input mint (the pool's token)
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &input_mint);
+        let (swap_state_pda, _bump) =
+            transaction_builder::derive_swap_state_pda(&self.program_id, &nullifier);
+
+        // Use min_output_amount from client (baked into proof)
+        // The client already got a quote and generated the proof with that value
+        let min_output_amount = swap_config.min_output_amount;
+        info!(
+            "Using client-provided min_output_amount: {} (from proof)",
+            min_output_amount
+        );
+        info!("🌊 Using Orca Whirlpool CPI for atomic on-chain swap");
+
+        // Check if TX1 (WithdrawSwap) was already completed
+        // If SwapState PDA exists, TX1 is done and we can skip to TX2
+        let tx1_already_done = match self.check_swap_state_exists(&nullifier).await {
+            Ok(exists) => {
+                if exists {
+                    info!("✓ SwapState PDA already exists - TX1 (WithdrawSwap) was previously completed");
+                    info!("  Skipping TX1, proceeding directly to TX2 (swap + close)");
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(e) => {
+                warn!("⚠️  Could not check SwapState PDA existence: {}, assuming TX1 not done", e);
+                false
+            }
+        };
+
+        // TX1: WithdrawSwap — lock SOL in SwapState PDA (skip if already done)
+        if !tx1_already_done {
+            let recent = self.client.get_latest_blockhash().await?;
+            let withdraw_swap_tx = transaction_builder::build_withdraw_swap_transaction(
+                job.proof_bytes.clone(),
+                public_104,
+                output_mint,
+                recipient_ata,
+                min_output_amount,
+                self.program_id,
+                pool_pda,
+                roots_ring_pda,
+                nullifier_shard_pda,
+                treasury_pda,
+                swap_state_pda,
+                relay_pubkey,
+                recent,
+                self.config.priority_micro_lamports,
+            )?;
+            info!("Submitting WithdrawSwap (1/2)...");
+            let mut signed_withdraw = withdraw_swap_tx.clone();
+            let bh1 = signed_withdraw.message.recent_blockhash;
+            signed_withdraw.sign(&[relay_keypair], bh1);
+            let withdraw_sig = self
+                .client
+                .send_and_confirm_transaction(&signed_withdraw)
+                .await?;
+            info!("✓ WithdrawSwap confirmed: {}", withdraw_sig);
+        }
+
+        // TX2: ReleaseSwapFunds - get SOL from SwapState PDA
+        info!("Releasing swap funds from SwapState PDA...");
+        let release_ix = transaction_builder::build_release_swap_funds_instruction(
+            self.program_id,
+            swap_state_pda,
+            relay_pubkey,
+        );
+        let release_blockhash = self.client.get_latest_blockhash().await?;
+        let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
+        release_msg.recent_blockhash = release_blockhash;
+        let mut release_tx = Transaction::new_unsigned(release_msg);
+        release_tx.sign(&[relay_keypair], release_blockhash);
+        let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
+        info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
+
+        // TX3: Relay performs OFF-CHAIN swap using Jupiter/Orca SDK
+        info!("🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → {} {}", 
+            public_amount, min_output_amount, output_mint);
+        
+        // Ensure relay has an ATA for the output token
+        swap::ensure_ata_exists(self.client.as_ref(), &relay_pubkey, &output_mint, relay_keypair)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))?;
+        
+        // Ensure recipient has an ATA for the output token (relay pays for creation)
+        swap::ensure_ata_exists(self.client.as_ref(), &recipient_wallet, &output_mint, relay_keypair)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))?;
+        
+        // Perform the swap (tries Jupiter first, falls back to Orca)
+        let swap_signature = swap::perform_swap(
+            self.client.as_ref(),
+            relay_keypair,
+            public_amount,
+            output_mint,
+            min_output_amount,
+            recipient_ata,
+        ).await
+        .map_err(|e| Error::InternalServerError(e.to_string()))?;
+        
+        info!("✓ Token swap completed: {}", swap_signature);
+
+        // TX4: ExecuteSwap — verify min output and close SwapState PDA
+        let exec_ix = transaction_builder::build_execute_swap_instruction(
+            self.program_id,
+            nullifier,
+            swap_state_pda,
+            recipient_ata,
+            relay_pubkey,
+        );
+        let recent2 = self.client.get_latest_blockhash().await?;
+        let mut msg2 = Message::new(&[exec_ix], Some(&relay_pubkey));
+        msg2.recent_blockhash = recent2;
+        let mut exec_tx = Transaction::new_unsigned(msg2);
+        let bh2 = exec_tx.message.recent_blockhash;
+        exec_tx.sign(&[relay_keypair], bh2);
+        let exec_sig = self.client.send_and_confirm_transaction(&exec_tx).await?;
+        info!("✓ ExecuteSwap confirmed: {}", exec_sig);
+
+        Ok(exec_sig)
     }
 
     /// Build withdraw transaction using the canonical shield-pool layout and PDAs
@@ -409,15 +641,19 @@ impl SolanaService {
                         miner_token_account,
                     )?;
 
-                    // Check if transaction size exceeds Solana's limit (1644 bytes encoded)
-                    let serialized_size = bincode::serialize(&pow_tx)
-                        .map(|bytes| bytes.len())
-                        .unwrap_or(0);
+                    // Check if transaction size exceeds Solana's limit (1644 bytes base64-encoded)
+                    // We need to check the base64-encoded size since that's what RPC receives
+                    let serialized_bytes = bincode::serialize(&pow_tx).unwrap_or_default();
+                    let base64_encoded = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &serialized_bytes,
+                    );
+                    let encoded_size = base64_encoded.len();
 
-                    if serialized_size > 1644 {
+                    if encoded_size > 1644 {
                         warn!(
-                            "⚠️  PoW transaction too large ({} bytes > 1644 limit), falling back to non-PoW transaction",
-                            serialized_size
+                            "⚠️  PoW transaction too large ({} bytes base64 > 1644 limit), falling back to non-PoW transaction",
+                            encoded_size
                         );
 
                         // Fallback to non-PoW transaction
@@ -440,7 +676,11 @@ impl SolanaService {
                             treasury_token_account,
                         )?
                     } else {
-                        info!("✓ PoW transaction size: {} bytes", serialized_size);
+                        info!(
+                            "✓ PoW transaction size: {} bytes (base64: {})",
+                            serialized_bytes.len(),
+                            encoded_size
+                        );
                         pow_tx
                     }
                 }
@@ -541,8 +781,9 @@ impl SolanaService {
                     if mint_str.is_empty() {
                         Pubkey::default() // Native SOL
                     } else {
-                        Pubkey::from_str(mint_str)
-                            .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+                        Pubkey::from_str(mint_str).map_err(|e| {
+                            Error::ValidationError(format!("Invalid mint address: {}", e))
+                        })?
                     }
                 } else {
                     Pubkey::default() // Default to native SOL
@@ -718,7 +959,7 @@ mod tests {
             max_retries: 3,
             retry_delay_ms: 1000,
             scramble_registry_program_id: Some(
-                "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
+                "scb1q9pSBXbmAj2rc58wqKKsvuf4t4z9CKx6Xk79Js4".to_string(),
             ),
             mint_address: None, // Default to native SOL
             pool_address: Some("11111111111111111111111111111111".to_string()),

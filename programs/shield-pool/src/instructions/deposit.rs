@@ -1,4 +1,7 @@
-use crate::{error::ShieldPoolError, state::{CommitmentQueue, Pool}};
+use crate::{
+    error::ShieldPoolError,
+    state::{CommitmentQueue, Pool},
+};
 use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
 use pinocchio_system::instructions::Transfer;
 use pinocchio_token::instructions::Transfer as TokenTransfer;
@@ -26,7 +29,14 @@ pub fn process_deposit_instruction(
         let [user, pool, _system_program, commitments_info] =
             unsafe { *(accounts.as_ptr() as *const [AccountInfo; 4]) };
 
-        process_native_deposit(&user, &pool, &commitments_info, amount, &commit_bytes, &program_id)
+        process_native_deposit(
+            &user,
+            &pool,
+            &commitments_info,
+            amount,
+            &commit_bytes,
+            &program_id,
+        )
     } else if accounts.len() >= 7 {
         // SPL token deposit
         let [user, user_token_account, pool, pool_token_account, _token_program, _system_program, commitments_info] =

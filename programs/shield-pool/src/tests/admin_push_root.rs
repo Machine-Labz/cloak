@@ -17,7 +17,8 @@ fn test_admin_push_root_instruction() {
     let mint = Pubkey::default(); // Native SOL
 
     // Create a roots ring PDA with mint
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
+    let (roots_ring_pda, _) =
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
 
     // Create test root to push
     let new_root = [0x42u8; 32]; // Test root
@@ -107,7 +108,8 @@ fn test_admin_push_root_unauthorized() {
     let unauthorized_admin = Pubkey::new_from_array([0x99u8; 32]);
     let mint = Pubkey::default(); // Native SOL
 
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
+    let (roots_ring_pda, _) =
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
     let new_root = [0x42u8; 32];
 
     let instruction_data = [
@@ -168,7 +170,8 @@ fn test_admin_push_root_multiple_roots() {
     ));
     let mint = Pubkey::default(); // Native SOL
 
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
+    let (roots_ring_pda, _) =
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
 
     // Push first root
     let root1 = [0x42u8; 32];

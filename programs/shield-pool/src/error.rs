@@ -17,6 +17,8 @@ pub enum ShieldPoolError {
     DoubleSpend = 0x1020,
     NullifierShardFull = 0x1021,
     InvalidNullifier = 0x1022,
+    NullifierAlreadyUsed = 0x1023,
+    NullifierMismatch = 0x1024,
 
     // Transaction validation errors
     OutputsMismatch = 0x1030,
@@ -45,6 +47,7 @@ pub enum ShieldPoolError {
     InvalidAccountSize = 0x105A,
     CommitmentsNotWritable = 0x105B,
     InvalidAdminAuthority = 0x105C,
+    InvalidAccountAddress = 0x105D,
 
     // Instruction errors
     BadIxLength = 0x1060,

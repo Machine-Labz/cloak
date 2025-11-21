@@ -18,9 +18,12 @@ fn test_withdraw_instruction() {
 
     // Create PDAs with mint
     let (pool_pda, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
-    let (treasury_pda, _) = Pubkey::find_program_address(&[b"treasury", mint.as_ref()], &program_id);
-    let (roots_ring_pda, _) = Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
-    let (nullifier_shard_pda, _) = Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], &program_id);
+    let (treasury_pda, _) =
+        Pubkey::find_program_address(&[b"treasury", mint.as_ref()], &program_id);
+    let (roots_ring_pda, _) =
+        Pubkey::find_program_address(&[b"roots_ring", mint.as_ref()], &program_id);
+    let (nullifier_shard_pda, _) =
+        Pubkey::find_program_address(&[b"nullifier_shard", mint.as_ref()], &program_id);
 
     // Test data
     let withdraw_amount = 3_000_000_000u64; // 3 SOL

@@ -443,15 +443,22 @@ fn process_withdraw_unified<'a>(
         return Err(ShieldPoolError::InvalidAmount.into());
     }
 
-    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
+    let pool_state = crate::state::Pool::from_account_info(pool_info)?;
+    let mint = pool_state.mint();
+    let is_native_asset = mint == Pubkey::default();
+
+    // Fee validation:
+    // - For native SOL: fixed fee (0.0025 SOL) + variable fee (0.5%) both from withdrawal amount
+    // - For SPL tokens: only variable fee (0.5%) from withdrawal amount, fixed fee paid in SOL separately
+    let expected_fee = if is_native_asset {
+        2_500_000u64 + (parsed.public_amount * 5) / 1_000
+    } else {
+        (parsed.public_amount * 5) / 1_000
+    };
     let total_fee = parsed.public_amount - total_recipient_amount;
     if total_fee != expected_fee {
         return Err(ShieldPoolError::Conservation.into());
     }
-
-    let pool_state = crate::state::Pool::from_account_info(pool_info)?;
-    let mint = pool_state.mint();
-    let is_native_asset = mint == Pubkey::default();
 
     let spl_context = if is_native_asset {
         if !spl_accounts.is_empty() {
