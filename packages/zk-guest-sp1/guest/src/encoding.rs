@@ -118,9 +118,13 @@ pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -
 }
 
 pub fn calculate_fee(amount: u64) -> u64 {
-    // For SPL tokens: Only variable fee (0.5%) from withdrawal, fixed fee paid in SOL separately
+    // Fee structure:
+    // - For SOL withdrawals: Fixed (0.0025 SOL) + Variable (0.5%)
+    // - For SPL swaps: Variable fee (0.5%) is deducted from withdrawn SOL, fixed fee paid separately
+    // Since the circuit doesn't distinguish, we use the full fee (fixed + variable) for all cases
+    let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (amount * 5) / 1_000; // 0.5% = 5/1000
-    variable_fee
+    fixed_fee + variable_fee
 }
 
 /// Merkle path verification using BLAKE3
@@ -346,7 +350,10 @@ mod tests {
 
         // Test different public_amount produces different hash
         let hash4 = compute_swap_outputs_hash(&swap_params, 5_000_000_000u64);
-        assert_ne!(hash1, hash4, "Different public_amount should produce different hash");
+        assert_ne!(
+            hash1, hash4,
+            "Different public_amount should produce different hash"
+        );
     }
 
     #[test]
