@@ -6,9 +6,7 @@ use rand;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::system_instruction;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
@@ -20,13 +18,50 @@ use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, S
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
-    check_cluster_health, create_withdraw_instruction, ensure_user_funding, load_keypair,
-    print_config, MerkleProof, TestConfig, SOL_TO_LAMPORTS,
+    check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
+    SOL_TO_LAMPORTS,
 };
 use tokio::time::timeout;
 use zk_guest_sp1_host::{
     generate_proof as generate_proof_local, ProofResult as LocalProofResult, ELF,
 };
+
+// Relay API structures
+#[derive(Debug, Serialize, Deserialize)]
+struct WithdrawRequest {
+    outputs: Vec<RelayOutput>,
+    swap: Option<SwapConfig>,
+    policy: Policy,
+    public_inputs: PublicInputs,
+    proof_bytes: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RelayOutput {
+    recipient: String,
+    amount: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SwapConfig {
+    output_mint: String,
+    slippage_bps: u16,
+    min_output_amount: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Policy {
+    fee_bps: u16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PublicInputs {
+    root: String,
+    nf: String, // nullifier
+    amount: u64,
+    fee_bps: u16,
+    outputs_hash: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DepositRequest {
@@ -62,7 +97,7 @@ async fn main() -> Result<()> {
     println!("🔐 CLOAK PRIVACY PROTOCOL - COMPLETE FLOW WITH /PROVE ENDPOINT TEST");
     println!("====================================================================\n");
 
-    let config = TestConfig::testnet();
+    let config = TestConfig::devnet();
     print_config(&config);
 
     // Check cluster health
@@ -119,10 +154,10 @@ async fn main() -> Result<()> {
     println!("\n⛏️  Verifying Miner Status...");
     verify_miner_status(&client, &miner_keypair).await?;
 
-    // Deploy program only on localnet; on testnet, use existing deployed program
-    let program_id = if config.is_testnet() {
+    // Deploy program only on localnet; on devnet, use existing deployed program
+    let program_id = if config.is_devnet() {
         println!(
-            "\n✅ Using existing program on testnet: {}",
+            "\n✅ Using existing program on devnet: {}",
             config.program_id
         );
         Pubkey::from_str(&config.program_id)?
@@ -131,9 +166,9 @@ async fn main() -> Result<()> {
         deploy_program(&client)?
     };
 
-    // Create program accounts only on localnet; on testnet, they should already exist
-    let accounts = if config.is_testnet() {
-        println!("\n✅ Using existing program accounts on testnet...");
+    // Create program accounts only on localnet; on devnet, they should already exist
+    let accounts = if config.is_devnet() {
+        println!("\n✅ Using existing program accounts on devnet...");
         use test_complete_flow_rust::shared::get_pda_addresses;
         let (pool, commitments, roots_ring, nullifier_shard, treasury) =
             get_pda_addresses(&program_id, &Pubkey::default());
@@ -209,18 +244,23 @@ async fn main() -> Result<()> {
     println!("\n✅ Step 10: Validating Proof Artifacts...");
     validate_proof_artifacts(&prove_result)?;
 
-    // Execute withdraw directly on Solana
-    println!("\n💸 Step 11: Executing Withdraw Transaction On-Chain...");
-    let withdraw_signature = execute_withdraw_direct(
-        &client,
-        &program_id,
-        &accounts,
+    // Submit withdraw request to relay
+    println!("\n💸 Step 11: Submitting Withdraw Request to Relay...");
+    let (withdraw_signature, request_id) = execute_withdraw_via_relay(
+        &config.relay_url,
         &prove_result,
         &output_details,
-        &user_keypair,
-    )?;
+        &merkle_root,
+        &test_data.nullifier,
+        test_data.amount,
+    )
+    .await?;
 
-    println!("   ✅ Withdraw transaction submitted: {}", withdraw_signature);
+    println!(
+        "   ✅ Withdraw transaction completed: {}",
+        withdraw_signature
+    );
+    println!("   Request ID: {}", request_id);
 
     // Verify recipient balances
     let recipient_balance_after = client.get_balance(&recipient_keypair.pubkey())?;
@@ -249,8 +289,7 @@ async fn main() -> Result<()> {
     );
     println!(
         "   📊 Recipient delta: {} lamports (expected {})",
-        recipient_delta,
-        recipient_expected
+        recipient_delta, recipient_expected
     );
 
     println!(
@@ -263,8 +302,7 @@ async fn main() -> Result<()> {
     );
     println!(
         "   📊 Second recipient delta: {} lamports (expected {})",
-        miner_delta,
-        miner_expected
+        miner_delta, miner_expected
     );
 
     if recipient_delta != recipient_expected {
@@ -329,10 +367,7 @@ async fn main() -> Result<()> {
         };
         println!(
             "   - Output #{} -> {}: {} lamports (delta {})",
-            index,
-            pk,
-            amount, 
-            delta
+            index, pk, amount, delta
         );
     }
 
@@ -597,7 +632,7 @@ fn prepare_proof_inputs(
         }
     });
 
-    // Calculate fee
+    // Calculate fee (must match zk-guest-sp1/guest/src/encoding.rs::calculate_fee)
     let fee = {
         let fixed_fee = 2_500_000; // 0.0025 SOL
         let variable_fee = (test_data.amount * 5) / 1_000; // 0.5%
@@ -607,7 +642,10 @@ fn prepare_proof_inputs(
 
     println!("   - Amount: {} lamports", test_data.amount);
     println!("   - Fee: {} lamports", fee);
-    println!("   - Distributable amount: {} lamports", distributable_amount);
+    println!(
+        "   - Distributable amount: {} lamports",
+        distributable_amount
+    );
 
     // Use actual recipient keypairs
     let primary_pubkey = recipient_keypair.pubkey();
@@ -617,10 +655,19 @@ fn prepare_proof_inputs(
     let primary_amount = distributable_amount * 2 / 3;
     let secondary_amount = distributable_amount - primary_amount;
 
-    println!("   - Primary recipient: {} ({} lamports)", primary_pubkey, primary_amount);
-    println!("   - Secondary recipient: {} ({} lamports)", secondary_pubkey, secondary_amount);
+    println!(
+        "   - Primary recipient: {} ({} lamports)",
+        primary_pubkey, primary_amount
+    );
+    println!(
+        "   - Secondary recipient: {} ({} lamports)",
+        secondary_pubkey, secondary_amount
+    );
 
-    let outputs_details = vec![(primary_pubkey, primary_amount), (secondary_pubkey, secondary_amount)];
+    let outputs_details = vec![
+        (primary_pubkey, primary_amount),
+        (secondary_pubkey, secondary_amount),
+    ];
 
     // Create outputs JSON structure
     let outputs = serde_json::json!([
@@ -722,13 +769,19 @@ fn validate_circuit_constraints_local(
     let mut current_hash = commitment.as_bytes().to_vec();
     let root_hex = public_inputs["root"].as_str().unwrap();
 
-    println!("         Starting hash (commitment): {}", hex::encode(&current_hash));
+    println!(
+        "         Starting hash (commitment): {}",
+        hex::encode(&current_hash)
+    );
     println!("         Expected root: {}", root_hex);
     println!("         Number of path elements: {}", path_elements.len());
 
     for (i, (sibling_hex, &is_left)) in path_elements.iter().zip(path_indices.iter()).enumerate() {
         let sibling = hex::decode(sibling_hex)?;
-        println!("         Level {}: is_left={}, sibling={}", i, is_left, sibling_hex);
+        println!(
+            "         Level {}: is_left={}, sibling={}",
+            i, is_left, sibling_hex
+        );
         let mut hasher = Hasher::new();
         if is_left == 0 {
             // Current is left, sibling is right
@@ -781,10 +834,10 @@ fn validate_circuit_constraints_local(
         .map(|o| o["amount"].as_u64().unwrap())
         .sum();
 
-    // Fee calculation must mirror on-chain logic: 0.0025 SOL + 0.5%
+    // Fee calculation must match zk-guest-sp1/guest/src/encoding.rs::calculate_fee
     let fee = {
-        let fixed_fee = 2_500_000;
-        let variable_fee = (amount * 5) / 1_000;
+        let fixed_fee = 2_500_000; // 0.0025 SOL
+        let variable_fee = (amount * 5) / 1_000; // 0.5%
         fixed_fee + variable_fee
     };
     let total_spent = outputs_sum + fee;
@@ -1238,7 +1291,9 @@ fn create_program_accounts(
 
     println!("   Deriving PDA addresses...");
     // Use the exact same program ID as the program expects
-    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp"
+        .parse::<Pubkey>()
+        .unwrap();
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
         get_pda_addresses(&program_id_bytes, &mint);
 
@@ -1288,15 +1343,10 @@ fn create_program_accounts(
     println!("     Data length: {}", initialize_pool_ix.data.len());
 
     // Use only the initialize instruction - the program will create the accounts
-    let mut create_accounts_tx = Transaction::new_with_payer(
-        &[initialize_pool_ix],
-        Some(&admin_keypair.pubkey()),
-    );
+    let mut create_accounts_tx =
+        Transaction::new_with_payer(&[initialize_pool_ix], Some(&admin_keypair.pubkey()));
 
-    create_accounts_tx.sign(
-        &[&admin_keypair],
-        client.get_latest_blockhash()?,
-    );
+    create_accounts_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
 
     client.send_and_confirm_transaction(&create_accounts_tx)?;
 
@@ -1426,21 +1476,36 @@ fn push_root_to_program(
     }
 }
 
-fn execute_withdraw_direct(
-    client: &RpcClient,
-    program_id: &Pubkey,
-    accounts: &ProgramAccounts,
+async fn execute_withdraw_via_relay(
+    relay_url: &str,
     prove_result: &ProofArtifacts,
     outputs: &[(Pubkey, u64)],
-    fee_payer: &Keypair,
-) -> Result<String> {
+    merkle_root: &str,
+    nullifier: &str,
+    total_amount: u64,
+) -> Result<(String, String)> {
+    use base64::Engine as _;
+
     println!(
-        "   🔧 Building withdraw instruction with {} outputs",
+        "   🔧 Preparing withdraw request with {} outputs for relay",
         outputs.len()
     );
 
-    let proof_bytes = hex::decode(&prove_result.proof_hex)
-        .map_err(|e| anyhow::anyhow!("Failed to decode proof hex: {}", e))?;
+    // Calculate fee_bps based on the circuit's fee calculation
+    let fee = {
+        let fixed_fee = 2_500_000; // 0.0025 SOL
+        let variable_fee = (total_amount * 5) / 1_000; // 0.5%
+        fixed_fee + variable_fee
+    };
+
+    let effective_fee_bps = if total_amount == 0 {
+        0u16
+    } else {
+        let bps = ((fee.saturating_mul(10_000)) + total_amount - 1) / total_amount;
+        bps.min(u16::MAX as u64) as u16
+    };
+
+    // Extract outputs_hash from the public inputs
     let public_inputs_bytes = hex::decode(&prove_result.public_inputs_hex)
         .map_err(|e| anyhow::anyhow!("Failed to decode public_inputs hex: {}", e))?;
 
@@ -1451,58 +1516,127 @@ fn execute_withdraw_direct(
         ));
     }
 
-    let mut public_inputs_array = [0u8; 104];
-    public_inputs_array.copy_from_slice(&public_inputs_bytes);
+    let mut outputs_hash_bytes = [0u8; 32];
+    outputs_hash_bytes.copy_from_slice(&public_inputs_bytes[64..96]);
+    let outputs_hash = hex::encode(outputs_hash_bytes);
 
-    let mut nullifier = [0u8; 32];
-    nullifier.copy_from_slice(&public_inputs_array[32..64]);
+    // Convert proof from hex to base64 (relay expects base64)
+    let proof_bytes_vec = hex::decode(&prove_result.proof_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode proof hex: {}", e))?;
+    let proof_base64 = base64::engine::general_purpose::STANDARD.encode(&proof_bytes_vec);
 
-    for (index, (pk, amount)) in outputs.iter().enumerate() {
-        println!(
-            "   - Output #{} -> {} ({} lamports)", 
-            index, pk, amount
-        );
+    // Build relay withdraw request
+    let relay_outputs: Vec<RelayOutput> = outputs
+        .iter()
+        .enumerate()
+        .map(|(index, (pk, amount))| {
+            println!("   - Output #{} -> {} ({} lamports)", index, pk, amount);
+            RelayOutput {
+                recipient: pk.to_string(),
+                amount: *amount,
+            }
+        })
+        .collect();
+
+    let withdraw_request = WithdrawRequest {
+        outputs: relay_outputs,
+        swap: None, // No swap for multiple outputs test
+        policy: Policy {
+            fee_bps: effective_fee_bps,
+        },
+        public_inputs: PublicInputs {
+            root: merkle_root.to_string(),
+            nf: nullifier.to_string(),
+            amount: total_amount,
+            fee_bps: effective_fee_bps,
+            outputs_hash,
+        },
+        proof_bytes: proof_base64,
+    };
+
+    println!("\n  Request payload:");
+    println!("  {}", serde_json::to_string_pretty(&withdraw_request)?);
+
+    // Submit to relay
+    let client = reqwest::Client::new();
+    let withdraw_response = client
+        .post(format!("{}/withdraw", relay_url))
+        .json(&withdraw_request)
+        .send()
+        .await?;
+
+    println!("\n  Relay response status: {}", withdraw_response.status());
+    let response_text = withdraw_response.text().await?;
+    println!("  Response: {}", response_text);
+
+    if !response_text.contains("request_id") {
+        return Err(anyhow::anyhow!(
+            "Failed to submit withdraw request: {}",
+            response_text
+        ));
     }
 
-    let recipient_accounts: Vec<Pubkey> = outputs.iter().map(|(pk, _)| *pk).collect();
+    // Parse request_id from API response payload
+    let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+    let job_id = response_json
+        .get("data")
+        .and_then(|d| d.get("request_id"))
+        .and_then(|v| v.as_str())
+        .or_else(|| response_json.get("request_id").and_then(|v| v.as_str()))
+        .ok_or_else(|| anyhow::anyhow!("Missing request_id in response"))?;
 
-    let withdraw_ix = create_withdraw_instruction(
-        &accounts.pool,
-        &accounts.treasury,
-        &accounts.roots_ring,
-        &accounts.nullifier_shard,
-        &recipient_accounts,
-        program_id,
-        &proof_bytes,
-        &public_inputs_array,
-        &nullifier,
-        outputs,
-    );
+    println!("\n  ✅ Withdraw request submitted successfully!");
+    println!("  Request ID: {}", job_id);
 
-    let compute_unit_limit_ix =
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    let compute_unit_price_ix =
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1_000);
+    // Monitor job status
+    println!("\n📊 Monitoring withdrawal status...");
 
-    println!("   🔍 Getting latest blockhash for withdraw...");
-    let blockhash = client.get_latest_blockhash()?;
+    let mut attempts = 0;
+    let max_attempts = 30;
 
-    let mut withdraw_tx = Transaction::new_with_payer(
-        &[compute_unit_price_ix, compute_unit_limit_ix, withdraw_ix],
-        Some(&fee_payer.pubkey()),
-    );
-    withdraw_tx.sign(&[fee_payer], blockhash);
+    while attempts < max_attempts {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        attempts += 1;
 
-    match client.send_and_confirm_transaction(&withdraw_tx) {
-        Ok(signature) => {
-            println!("   ✅ Withdraw transaction confirmed");
-            Ok(signature.to_string())
-        }
-        Err(e) => {
-            println!("   ❌ Withdraw transaction failed: {}", e);
-            Err(anyhow::anyhow!("Withdraw transaction failed: {}", e))
+        let status_response = client
+            .get(format!("{}/status/{}", relay_url, job_id))
+            .send()
+            .await?;
+
+        if status_response.status().is_success() {
+            let status_json: serde_json::Value = status_response.json().await?;
+            let status = status_json
+                .get("data")
+                .and_then(|d| d.get("status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            println!("  [{}s] Status: {}", attempts * 2, status);
+
+            if status == "completed" {
+                let tx_sig = status_json
+                    .get("data")
+                    .and_then(|d| d.get("tx_id"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing tx_id in completed response"))?;
+
+                println!("\n  🎉 Withdrawal completed!");
+                println!("  Transaction: {}", tx_sig);
+
+                return Ok((tx_sig.to_string(), job_id.to_string()));
+            } else if status == "failed" {
+                let error = status_json
+                    .get("data")
+                    .and_then(|d| d.get("error"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error");
+
+                return Err(anyhow::anyhow!("Withdrawal failed: {}", error));
+            }
         }
     }
+
+    Err(anyhow::anyhow!("Timeout waiting for withdrawal completion"))
 }
 
 async fn verify_miner_status(client: &RpcClient, miner_keypair: &Keypair) -> Result<()> {

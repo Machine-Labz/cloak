@@ -11,6 +11,10 @@ path = "src/prove_test_spl.rs"
 name = "prove-test-multiple-outputs"
 path = "src/prove_test_multiple_outputs.rs"
 
+[[bin]]
+name = "prove-test-swap"
+path = "src/prove_test_swap.rs"
+
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
@@ -31,7 +35,8 @@ shield-pool= { path = "../../programs/shield-pool" }
 dotenvy = "0.15"
 cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = ["sp1"] }
 bincode = "1"
-zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host" }
+zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host", features = ["build-guest"] }
 solana-system-interface = "2.0.0"
 spl-token = "4.0"
+spl-associated-token-account = "4.0"
 num_cpus = "1.0"
