@@ -165,7 +165,7 @@ pub async fn generate_proof(
     };
 
     tracing::info!("🔐 Using TEE proof generation");
-    tracing::info!("   Wallet: {}", tee_client.wallet_address());
+    // Note: Wallet address not logged for security
     tracing::info!(
         "   Timeout: {} seconds",
         state.config.sp1_tee.timeout_seconds
@@ -187,7 +187,7 @@ pub async fn generate_proof(
                 generation_time_ms = tee_result.generation_time_ms,
                 total_cycles = tee_result.total_cycles,
                 total_syscalls = tee_result.total_syscalls,
-                wallet_address = tee_client.wallet_address(),
+                // Note: wallet_address not logged for security
                 "TEE proof generation completed successfully"
             );
 
@@ -205,15 +205,15 @@ pub async fn generate_proof(
                             proof: None,
                             public_inputs: None,
                             generation_time_ms: tee_result.generation_time_ms,
-                            total_cycles: Some(tee_result.total_cycles),
-                            total_syscalls: Some(tee_result.total_syscalls),
-                            execution_report: Some(tee_result.execution_report),
-                            proof_method: Some("tee".to_string()),
-                            wallet_address: Some(tee_client.wallet_address().to_string()),
-                            error: Some(
-                                "Failed to extract canonical Groth16 proof from SP1 bundle"
-                                    .to_string(),
-                            ),
+                total_cycles: Some(tee_result.total_cycles),
+                total_syscalls: Some(tee_result.total_syscalls),
+                execution_report: Some(tee_result.execution_report),
+                proof_method: Some("tee".to_string()),
+                wallet_address: Some(tee_client.wallet_address().to_string()), // Only in response, not in logs
+                error: Some(
+                    "Failed to extract canonical Groth16 proof from SP1 bundle"
+                        .to_string(),
+                ),
                         }),
                     )
                         .into_response();
@@ -222,10 +222,14 @@ pub async fn generate_proof(
 
             // Convert to hex for API response
             let proof_hex = hex::encode(canonical_proof);
-            let proof_prefix = hex::encode(&canonical_proof[..4]);
+            // Note: proof_prefix not logged for security (contains sensitive proof data)
             let public_inputs_hex = hex::encode(&tee_result.public_inputs);
 
-            tracing::info!(canonical_proof_bytes = proof_hex.len() / 2, proof_prefix);
+            tracing::info!(
+                canonical_proof_bytes = proof_hex.len() / 2,
+                // Note: proof_prefix removed from logs for security
+                "Proof generated successfully"
+            );
             tracing::info!("🎉 TEE proof generation request completed successfully");
 
             let mut response = (
@@ -264,7 +268,7 @@ pub async fn generate_proof(
                     total_syscalls: None,
                     execution_report: None,
                     proof_method: Some("tee".to_string()),
-                    wallet_address: Some(tee_client.wallet_address().to_string()),
+                    wallet_address: Some(tee_client.wallet_address().to_string()), // Only in response, not in logs
                     error: Some(format!("TEE proof generation failed: {}", e)),
                 }),
             )

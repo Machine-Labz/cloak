@@ -5,7 +5,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use super::SolanaClient;
 use crate::config::SolanaConfig;
@@ -84,11 +84,17 @@ impl SolanaClient for RpcSolanaClient {
         const CONFIRMATION_DELAY: Duration = Duration::from_secs(2);
 
         while retries < MAX_CONFIRMATION_RETRIES {
+            let blockhash = self
+                .client
+                .get_latest_blockhash()
+                .await
+                .map_err(|e| Error::InternalServerError(format!("Failed to get latest blockhash: {}", e)))?;
+            
             match self
                 .client
                 .confirm_transaction_with_spinner(
                     &signature,
-                    &self.client.get_latest_blockhash().await.unwrap(),
+                    &blockhash,
                     self.commitment,
                 )
                 .await

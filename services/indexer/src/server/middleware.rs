@@ -1,9 +1,13 @@
 use axum::{
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
+use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::time::Instant;
+use tower::ServiceBuilder;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware
@@ -110,16 +114,30 @@ pub fn cors_layer(cors_origins: &[String]) -> CorsLayer {
 }
 
 /// Request timeout middleware
+/// Uses different timeouts based on endpoint:
+/// - /api/v1/prove: 600 seconds (10 minutes) - proof generation is slow
+/// - Other endpoints: 10 seconds - faster timeout for regular requests
 pub async fn timeout_middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let timeout_duration = std::time::Duration::from_secs(30); // Default 30 seconds
+    let path = request.uri().path().to_string();
+    
+    // Use longer timeout for proof generation endpoint
+    let timeout_duration = if path == "/api/v1/prove" {
+        std::time::Duration::from_secs(600) // 10 minutes for proof generation
+    } else {
+        std::time::Duration::from_secs(10) // 10 seconds for other endpoints
+    };
 
     match tokio::time::timeout(timeout_duration, next.run(request)).await {
         Ok(response) => Ok(response),
         Err(_) => {
-            tracing::warn!("Request timed out after {:?}", timeout_duration);
+            tracing::warn!(
+                path = %path,
+                timeout_seconds = timeout_duration.as_secs(),
+                "Request timed out"
+            );
             Err(StatusCode::REQUEST_TIMEOUT)
         }
     }
@@ -129,6 +147,34 @@ pub async fn timeout_middleware(
 pub fn request_size_limit() -> axum::extract::DefaultBodyLimit {
     // Limit request body to 1MB
     axum::extract::DefaultBodyLimit::max(1024 * 1024)
+}
+
+/// Rate limiting middleware for general endpoints
+/// 100 requests per minute per IP
+pub fn rate_limit_general() -> GovernorLayer {
+    use std::time::Duration;
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(NonZeroU32::new(600).unwrap()) // 100 per minute = 1 per 600ms
+            .burst_size(NonZeroU32::new(200).unwrap())
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer::new(governor_conf)
+}
+
+/// Rate limiting middleware for proof generation endpoint
+/// 10 requests per minute per IP (proof generation is expensive)
+pub fn rate_limit_prove() -> GovernorLayer {
+    use std::time::Duration;
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(NonZeroU32::new(6000).unwrap()) // 10 per minute = 1 per 6000ms
+            .burst_size(NonZeroU32::new(10).unwrap())
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer::new(governor_conf)
 }
 
 // Tests can be added here when needed

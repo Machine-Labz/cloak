@@ -78,10 +78,14 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                     }
 
                     // conservation preflight
-                    let amt = u64::from_le_bytes(job.public_inputs[96..104].try_into().unwrap());
-                    let fee = crate::planner::calculate_fee(amt);
-                    if amount + fee != amt {
-                        warn!("Job {} conservation failed preflight; continuing but likely to fail on-chain", job_id);
+                    if let Ok(amt_bytes) = job.public_inputs[96..104].try_into::<[u8; 8]>() {
+                        let amt = u64::from_le_bytes(amt_bytes);
+                        let fee = crate::planner::calculate_fee(amt);
+                        if amount + fee != amt {
+                            warn!("Job {} conservation failed preflight; continuing but likely to fail on-chain", job_id);
+                        }
+                    } else {
+                        warn!("Job {} invalid public inputs length for amount extraction", job_id);
                     }
                 }
             }

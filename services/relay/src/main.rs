@@ -11,13 +11,23 @@ mod worker;
 use planner::orchestrator;
 
 use axum::{
-    response::Json,
+    extract::State,
+    http::{header, Request, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use std::num::NonZeroU32;
+use tower::ServiceBuilder;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    set_header::SetResponseHeaderLayer,
+    trace::TraceLayer,
+};
 use tracing::info;
 
 use crate::claim_manager::ClaimFinder;
@@ -136,17 +146,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Cloak Relay Service");
 
+    // Load config for CORS settings
+    let relay_config = RelayConfig::load()?;
+
     // Create application state with real connections
     let app_state = AppState::new().await?;
 
-    // Configure CORS to allow requests from the frontend
-    let cors = CorsLayer::permissive();
+    // Configure CORS based on environment
+    let cors = create_cors_layer(&relay_config.server.cors_origins);
 
     // Build our application with routes
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
-        .route("/withdraw", post(api::withdraw::handle_withdraw))
+        // Withdraw endpoint with stricter rate limiting
+        .route("/withdraw", post(api::withdraw::handle_withdraw).layer(rate_limit_withdraw()))
         .route("/status/:id", get(api::status::get_status))
         // Miners API - backlog status
         .route("/backlog", get(api::backlog::get_backlog_status))
@@ -162,7 +176,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/orchestrate/withdraw",
             post(orchestrator::orchestrate_withdraw),
         )
+        // Apply general rate limiting to all routes
+        .layer(rate_limit_general())
         .layer(cors)
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_XSS_PROTECTION,
+            axum::http::HeaderValue::from_static("1; mode=block"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(app_state.clone());
 
@@ -194,6 +226,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Rate limiting middleware for withdraw endpoint
+/// 10 requests per minute per IP (withdraw is critical)
+fn rate_limit_withdraw() -> GovernorLayer {
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(NonZeroU32::new(6000).unwrap()) // 10 per minute = 1 per 6000ms
+            .burst_size(NonZeroU32::new(20).unwrap())
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer::new(governor_conf)
+}
+
+/// Rate limiting middleware for general endpoints
+/// 100 requests per minute per IP
+fn rate_limit_general() -> GovernorLayer {
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(NonZeroU32::new(600).unwrap()) // 100 per minute = 1 per 600ms
+            .burst_size(NonZeroU32::new(200).unwrap())
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer::new(governor_conf)
+}
+
+/// Create CORS layer based on configured origins
+fn create_cors_layer(cors_origins: &[String]) -> CorsLayer {
+    let mut cors = CorsLayer::new()
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ])
+        .max_age(std::time::Duration::from_secs(86400)); // 24 hours
+
+    // Configure origins
+    if cors_origins.len() == 1 && cors_origins[0] == "*" {
+        // Allow all origins in development (without credentials)
+        cors = cors.allow_origin(Any);
+    } else {
+        // Specific origins for production (with credentials)
+        cors = cors.allow_credentials(true);
+        for origin in cors_origins {
+            if let Ok(origin_header) = origin.parse::<axum::http::HeaderValue>() {
+                cors = cors.allow_origin(origin_header);
+            }
+        }
+    }
+
+    cors
 }
 
 async fn root() -> Json<Value> {

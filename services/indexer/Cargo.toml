@@ -24,7 +24,9 @@ tower-http = { version = "0.5", features = [
     "cors",
     "trace",
     "compression-gzip",
+    "set-header",
 ] }
+tower-governor = { version = "0.5", features = ["ip"] }
 
 # Database
 sqlx = { version = "0.7", features = [

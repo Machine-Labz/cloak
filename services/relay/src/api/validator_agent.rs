@@ -118,7 +118,11 @@ pub async fn create_withdraw_job(
     let root = &public[0..32];
     let nf = &public[32..64];
     let outputs_hash_pub = &public[64..96];
-    let amount = u64::from_le_bytes(public[96..104].try_into().unwrap());
+    let amount = u64::from_le_bytes(
+        public[96..104]
+            .try_into()
+            .map_err(|_| Error::ValidationError("Invalid public inputs length for amount extraction".to_string()))?,
+    );
 
     // Validate outputs (MVP: single output)
     if req.outputs.is_empty() {
