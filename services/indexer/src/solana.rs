@@ -6,6 +6,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use shield_pool::instructions::ShieldPoolInstruction;
 use std::str::FromStr;
 
 use crate::config::SolanaConfig;
@@ -48,7 +49,7 @@ pub async fn push_root_to_chain(root_hash: &str, config: &SolanaConfig) -> Resul
         .map_err(|_| anyhow::anyhow!("Root hash must be exactly 32 bytes"))?;
 
     // Create instruction data: [discriminator: 1 byte][root: 32 bytes]
-    let mut instruction_data = vec![1u8]; // AdminPushRoot discriminator
+    let mut instruction_data = vec![ShieldPoolInstruction::AdminPushRoot as u8];
     instruction_data.extend_from_slice(&root_bytes);
 
     // Parse mint address (empty = native SOL)
