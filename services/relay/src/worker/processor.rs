@@ -168,9 +168,9 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
             let error_str = e.to_string();
 
             // Check if the error indicates nullifier already used (0x1023)
-            let nullifier_already_used = error_str.contains("0x1023") ||
-                error_str.contains("NullifierAlreadyUsed") ||
-                error_str.contains("custom program error: 0x1023");
+            let nullifier_already_used = error_str.contains("0x1023")
+                || error_str.contains("NullifierAlreadyUsed")
+                || error_str.contains("custom program error: 0x1023");
 
             // Check if this is a swap job
             let is_swap_job = job.outputs_json.get("swap").is_some();
@@ -222,10 +222,7 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                                 // Fall through to mark as completed
                             }
                             Err(e) => {
-                                warn!(
-                                    "⚠️  Job {} - Failed to check SwapState PDA: {}",
-                                    job_id, e
-                                );
+                                warn!("⚠️  Job {} - Failed to check SwapState PDA: {}", job_id, e);
                                 // Can't determine status, mark as failed to avoid incorrect completion
                                 if let Err(e) = state
                                     .job_repo
@@ -269,10 +266,10 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
             }
 
             // Check for double-spend errors (0x1020) - these are always completed
-            let double_spend = error_str.contains("already been processed") ||
-                error_str.contains("0x1020") ||
-                error_str.contains("DoubleSpend") ||
-                error_str.contains("custom program error: 0x1020");
+            let double_spend = error_str.contains("already been processed")
+                || error_str.contains("0x1020")
+                || error_str.contains("DoubleSpend")
+                || error_str.contains("custom program error: 0x1020");
 
             if double_spend {
                 info!(

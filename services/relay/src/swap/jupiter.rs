@@ -15,9 +15,9 @@ pub struct JupiterClient {
     http_client: Client,
 }
 
-    impl JupiterClient {
-        /// Create a new Jupiter client
-        pub fn new() -> Self {
+impl JupiterClient {
+    /// Create a new Jupiter client
+    pub fn new() -> Self {
         // Allow DNS override for quote-api host if container DNS is blocked
         let mut builder = Client::builder();
         if let Ok(override_ip) = std::env::var("JUPITER_DNS_OVERRIDE_IP") {
@@ -32,7 +32,7 @@ pub struct JupiterClient {
         Self {
             http_client: builder.build().unwrap_or_else(|_| Client::new()),
         }
-        }
+    }
 
     /// Get a quote for swapping tokens
     ///

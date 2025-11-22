@@ -163,8 +163,7 @@ impl JupiterService {
                     }
                     Err(e) => warn!(
                         "Invalid JUPITER_API_URL '{}': {} (skipping DNS override)",
-                        config.api_url,
-                        e
+                        config.api_url, e
                     ),
                 }
             }
@@ -226,7 +225,9 @@ impl JupiterService {
             .query(&request)
             .send()
             .await
-            .map_err(|e| Error::InternalServerError(format!("Jupiter quote request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::InternalServerError(format!("Jupiter quote request failed: {}", e))
+            })?;
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let retry_ms = response
                 .headers()
@@ -235,7 +236,10 @@ impl JupiterService {
                 .and_then(|s| s.parse::<u64>().ok())
                 .map(|s| s * 1000)
                 .unwrap_or(400);
-            warn!("Jupiter quote rate limited (429), retrying in {}ms", retry_ms);
+            warn!(
+                "Jupiter quote rate limited (429), retrying in {}ms",
+                retry_ms
+            );
             tokio::time::sleep(std::time::Duration::from_millis(retry_ms)).await;
             response = self
                 .client
@@ -243,7 +247,9 @@ impl JupiterService {
                 .query(&request)
                 .send()
                 .await
-                .map_err(|e| Error::InternalServerError(format!("Jupiter quote request failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::InternalServerError(format!("Jupiter quote request failed: {}", e))
+                })?;
         }
 
         if !response.status().is_success() {
@@ -309,7 +315,9 @@ impl JupiterService {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::InternalServerError(format!("Jupiter swap request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::InternalServerError(format!("Jupiter swap request failed: {}", e))
+            })?;
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let retry_ms = response
                 .headers()
@@ -318,7 +326,10 @@ impl JupiterService {
                 .and_then(|s| s.parse::<u64>().ok())
                 .map(|s| s * 1000)
                 .unwrap_or(500);
-            warn!("Jupiter swap rate limited (429), retrying in {}ms", retry_ms);
+            warn!(
+                "Jupiter swap rate limited (429), retrying in {}ms",
+                retry_ms
+            );
             tokio::time::sleep(std::time::Duration::from_millis(retry_ms)).await;
             response = self
                 .client
@@ -326,7 +337,9 @@ impl JupiterService {
                 .json(&request)
                 .send()
                 .await
-                .map_err(|e| Error::InternalServerError(format!("Jupiter swap request failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::InternalServerError(format!("Jupiter swap request failed: {}", e))
+                })?;
         }
 
         if !response.status().is_success() {

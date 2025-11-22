@@ -160,7 +160,11 @@ pub fn build_withdraw_swap_ix_body(
 
     debug_assert_eq!(data.len(), expected_len);
 
-    tracing::info!("WithdrawSwap instruction data: proof_len={}, total_len={}, expected=468", proof.len(), data.len());
+    tracing::info!(
+        "WithdrawSwap instruction data: proof_len={}, total_len={}, expected=468",
+        proof.len(),
+        data.len()
+    );
 
     Ok(data)
 }
@@ -263,13 +267,13 @@ pub fn build_withdraw_swap_instruction(
     data.extend_from_slice(body);
 
     let accounts = vec![
-        AccountMeta::new(pool_pda, false),           // 0
-        AccountMeta::new(treasury, false),           // 1
-        AccountMeta::new_readonly(roots_ring_pda, false), // 2
-        AccountMeta::new(nullifier_shard_pda, false),     // 3
-        AccountMeta::new(swap_state_pda, false),     // 4
+        AccountMeta::new(pool_pda, false),                      // 0
+        AccountMeta::new(treasury, false),                      // 1
+        AccountMeta::new_readonly(roots_ring_pda, false),       // 2
+        AccountMeta::new(nullifier_shard_pda, false),           // 3
+        AccountMeta::new(swap_state_pda, false),                // 4
         AccountMeta::new_readonly(system_program::id(), false), // 5
-        AccountMeta::new(payer, true),               // 6 (signer)
+        AccountMeta::new(payer, true),                          // 6 (signer)
     ];
 
     Instruction {
@@ -563,7 +567,7 @@ pub fn build_release_swap_funds_instruction(
     relay: Pubkey,
 ) -> Instruction {
     let mut data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
-    
+
     Instruction {
         program_id,
         accounts: vec![
@@ -1125,20 +1129,14 @@ pub fn build_orca_swap_instruction(
 
     // Note: In production, vault addresses should be queried from the whirlpool account
     // For now, we use the standard PDA derivation
-    let (vault_a, _) = Pubkey::find_program_address(
-        &[b"vault", whirlpool_pda.as_ref()],
-        &whirlpool_program_id,
-    );
+    let (vault_a, _) =
+        Pubkey::find_program_address(&[b"vault", whirlpool_pda.as_ref()], &whirlpool_program_id);
 
-    let (vault_b, _) = Pubkey::find_program_address(
-        &[b"vault", whirlpool_pda.as_ref()],
-        &whirlpool_program_id,
-    );
+    let (vault_b, _) =
+        Pubkey::find_program_address(&[b"vault", whirlpool_pda.as_ref()], &whirlpool_program_id);
 
-    let (oracle, _) = Pubkey::find_program_address(
-        &[b"oracle", whirlpool_pda.as_ref()],
-        &whirlpool_program_id,
-    );
+    let (oracle, _) =
+        Pubkey::find_program_address(&[b"oracle", whirlpool_pda.as_ref()], &whirlpool_program_id);
 
     // Build instruction data
     let mut data = Vec::with_capacity(33);
@@ -1242,19 +1240,19 @@ pub fn build_execute_swap_via_orca_instruction(
 
     // Build accounts (order must match program's expected account order)
     let accounts = vec![
-        AccountMeta::new(swap_state_pda, false),       // 0. swap_state_pda (writable)
-        AccountMeta::new(swap_wsol_ata, false),        // 1. swap_wsol_ata (writable)
-        AccountMeta::new(recipient_ata, false),        // 2. recipient_ata (writable)
-        AccountMeta::new(whirlpool, false),            // 3. whirlpool (writable)
-        AccountMeta::new(token_vault_a, false),        // 4. token_vault_a (writable)
-        AccountMeta::new(token_vault_b, false),        // 5. token_vault_b (writable)
-        AccountMeta::new(tick_array_0, false),         // 6. tick_array_0 (writable)
-        AccountMeta::new(tick_array_1, false),         // 7. tick_array_1 (writable)
-        AccountMeta::new(tick_array_2, false),         // 8. tick_array_2 (writable)
-        AccountMeta::new_readonly(oracle, false),      // 9. oracle (readonly)
+        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable)
+        AccountMeta::new(swap_wsol_ata, false),  // 1. swap_wsol_ata (writable)
+        AccountMeta::new(recipient_ata, false),  // 2. recipient_ata (writable)
+        AccountMeta::new(whirlpool, false),      // 3. whirlpool (writable)
+        AccountMeta::new(token_vault_a, false),  // 4. token_vault_a (writable)
+        AccountMeta::new(token_vault_b, false),  // 5. token_vault_b (writable)
+        AccountMeta::new(tick_array_0, false),   // 6. tick_array_0 (writable)
+        AccountMeta::new(tick_array_1, false),   // 7. tick_array_1 (writable)
+        AccountMeta::new(tick_array_2, false),   // 8. tick_array_2 (writable)
+        AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
         AccountMeta::new_readonly(token_program_id, false), // 10. token_program
         AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program
-        AccountMeta::new(payer, true),                 // 12. payer (signer, writable)
+        AccountMeta::new(payer, true),           // 12. payer (signer, writable)
     ];
 
     Ok(Instruction {

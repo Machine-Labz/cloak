@@ -1,4 +1,4 @@
-use crate::solana::{SolanaClient, Error};
+use crate::solana::{Error, SolanaClient};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address;
 use spl_token;
 use std::str::FromStr;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 const JUPITER_QUOTE_API_V1: &str = "https://lite-api.jup.ag/swap/v1/quote";
 const JUPITER_SWAP_API_V1: &str = "https://lite-api.jup.ag/swap/v1/swap";
@@ -103,7 +103,7 @@ struct JupiterSwapResponse {
 }
 
 /// Perform a token swap using Jupiter or Orca
-/// 
+///
 /// # Arguments
 /// * `client` - Solana client trait object
 /// * `relay_keypair` - The relay's keypair (has the SOL to swap)
@@ -154,7 +154,9 @@ pub async fn perform_swap(
         output_mint,
         min_output_amount,
         recipient_ata,
-    ).await {
+    )
+    .await
+    {
         Ok(signature) => {
             info!("✅ Orca swap successful: {}", signature);
             return Ok(signature);
@@ -165,9 +167,7 @@ pub async fn perform_swap(
     }
 
     error!("❌ Swap failed");
-    Err(Error::InternalServerError(
-        "Swap failed".to_string()
-    ))
+    Err(Error::InternalServerError("Swap failed".to_string()))
 }
 
 async fn perform_jupiter_swap(
@@ -179,9 +179,9 @@ async fn perform_jupiter_swap(
     recipient_ata: Pubkey,
 ) -> Result<String, Error> {
     info!("Attempting Jupiter swap...");
-    
+
     let http_client = reqwest::Client::new();
-    
+
     // Step 1: Get quote
     let quote_params = JupiterQuoteRequest {
         input_mint: WRAPPED_SOL.to_string(),
@@ -216,14 +216,15 @@ async fn perform_jupiter_swap(
     );
 
     // Check if output meets minimum requirement
-    let out_amount = quote_response.out_amount.parse::<u64>()
+    let out_amount = quote_response
+        .out_amount
+        .parse::<u64>()
         .map_err(|e| Error::ValidationError(format!("Failed to parse output amount: {}", e)))?;
-    
+
     if out_amount < min_output_amount {
         return Err(Error::ValidationError(format!(
             "Output amount {} is less than minimum required {}",
-            out_amount,
-            min_output_amount
+            out_amount, min_output_amount
         )));
     }
 
@@ -246,14 +247,18 @@ async fn perform_jupiter_swap(
         .map_err(|e| Error::NetworkError(format!("Failed to send swap request: {}", e)))?
         .json::<JupiterSwapResponse>()
         .await
-        .map_err(|e| Error::NetworkError(format!("Failed to parse Jupiter swap response: {}", e)))?;
+        .map_err(|e| {
+            Error::NetworkError(format!("Failed to parse Jupiter swap response: {}", e))
+        })?;
 
     // Step 3: Sign and send the swap transaction
-    let tx_bytes = BASE64.decode(&swap_response.swap_transaction)
+    let tx_bytes = BASE64
+        .decode(&swap_response.swap_transaction)
         .map_err(|e| Error::SerializationError(format!("Failed to decode transaction: {}", e)))?;
-    
-    let mut transaction: Transaction = bincode::deserialize(&tx_bytes)
-        .map_err(|e| Error::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
+
+    let mut transaction: Transaction = bincode::deserialize(&tx_bytes).map_err(|e| {
+        Error::SerializationError(format!("Failed to deserialize transaction: {}", e))
+    })?;
 
     let recent_blockhash = client.get_latest_blockhash().await?;
     transaction.sign(&[relay_keypair], recent_blockhash);
@@ -263,23 +268,29 @@ async fn perform_jupiter_swap(
     info!("  Swap transaction confirmed: {}", signature);
 
     // Step 4: Transfer output tokens to recipient
-    // The swap sends tokens to relay's ATA, we need to transfer to recipient's ATA  
+    // The swap sends tokens to relay's ATA, we need to transfer to recipient's ATA
     let relay_ata = get_associated_token_address(&relay_keypair.pubkey(), &output_mint);
-    
+
     // Fetch the actual balance received
     let relay_ata_account = client.get_account(&relay_ata).await?;
-    
+
     // Parse token account data to get balance
     // Token account data layout: [mint(32), owner(32), amount(8), ...]
     if relay_ata_account.data.len() < 72 {
-        return Err(Error::InternalServerError("Invalid token account data".to_string()));
+        return Err(Error::InternalServerError(
+            "Invalid token account data".to_string(),
+        ));
     }
-    let amount_bytes: [u8; 8] = relay_ata_account.data[64..72].try_into()
+    let amount_bytes: [u8; 8] = relay_ata_account.data[64..72]
+        .try_into()
         .map_err(|_| Error::InternalServerError("Failed to parse amount".to_string()))?;
     let actual_output_amount = u64::from_le_bytes(amount_bytes);
-    
-    info!("  Received {} tokens from Jupiter swap (expected: {})", actual_output_amount, out_amount);
-    
+
+    info!(
+        "  Received {} tokens from Jupiter swap (expected: {})",
+        actual_output_amount, out_amount
+    );
+
     // Transfer ALL tokens to recipient
     let transfer_ix = spl_token::instruction::transfer(
         &spl_token::id(),
@@ -288,14 +299,18 @@ async fn perform_jupiter_swap(
         &relay_keypair.pubkey(),
         &[&relay_keypair.pubkey()],
         actual_output_amount, // Transfer exact amount received
-    ).map_err(|e| Error::InternalServerError(format!("Failed to create transfer instruction: {}", e)))?;
+    )
+    .map_err(|e| {
+        Error::InternalServerError(format!("Failed to create transfer instruction: {}", e))
+    })?;
 
     let recent_blockhash2 = client.get_latest_blockhash().await?;
-    let mut transfer_tx = Transaction::new_with_payer(&[transfer_ix], Some(&relay_keypair.pubkey()));
+    let mut transfer_tx =
+        Transaction::new_with_payer(&[transfer_ix], Some(&relay_keypair.pubkey()));
     transfer_tx.sign(&[relay_keypair], recent_blockhash2);
-    
+
     let transfer_sig = client.send_and_confirm_transaction(&transfer_tx).await?;
-    
+
     info!("  Token transfer confirmed: {}", transfer_sig);
 
     Ok(signature.to_string())
@@ -310,34 +325,34 @@ async fn perform_orca_swap(
     recipient_ata: Pubkey,
 ) -> Result<String, Error> {
     info!("Attempting Orca swap...");
-    
+
     use orca_whirlpools_client::{get_whirlpool_address, Whirlpool};
     use std::str::FromStr;
-    
+
     // Orca Whirlpool config on devnet
     let whirlpool_config = Pubkey::from_str("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR")
         .map_err(|e| Error::InternalServerError(format!("Invalid whirlpool config: {}", e)))?;
-    
+
     let wsol_mint = Pubkey::from_str(WRAPPED_SOL)
         .map_err(|e| Error::InternalServerError(format!("Invalid wSOL mint: {}", e)))?;
-    
+
     // Try multiple tick spacings until we find an existing pool
     let tick_spacings = vec![64, 8, 128, 1];
-    
+
     for tick_spacing in tick_spacings {
         info!("  Trying tick spacing {}...", tick_spacing);
-        
+
         // Get whirlpool address for this tick spacing
-        let (whirlpool_address, _) = get_whirlpool_address(
-            &whirlpool_config,
-            &wsol_mint,
-            &output_mint,
-            tick_spacing,
-        ).map_err(|e| {
-            warn!("  Failed to derive whirlpool address: {:?}", e);
-            Error::InternalServerError(format!("Failed to derive whirlpool address: {:?}", e))
-        })?;
-        
+        let (whirlpool_address, _) =
+            get_whirlpool_address(&whirlpool_config, &wsol_mint, &output_mint, tick_spacing)
+                .map_err(|e| {
+                    warn!("  Failed to derive whirlpool address: {:?}", e);
+                    Error::InternalServerError(format!(
+                        "Failed to derive whirlpool address: {:?}",
+                        e
+                    ))
+                })?;
+
         // Check if pool exists by fetching it
         let whirlpool_account = match client.get_account(&whirlpool_address).await {
             Ok(acc) => acc,
@@ -346,7 +361,7 @@ async fn perform_orca_swap(
                 continue; // Try next tick spacing
             }
         };
-        
+
         // Deserialize to get the actual tick_spacing from the pool
         let whirlpool_data = match Whirlpool::from_bytes(&whirlpool_account.data) {
             Ok(data) => data,
@@ -355,11 +370,14 @@ async fn perform_orca_swap(
                 continue;
             }
         };
-        
+
         // Use the pool's actual tick spacing (not our guess)
         let actual_tick_spacing = whirlpool_data.tick_spacing;
-        info!("  Found pool with actual tick spacing: {}", actual_tick_spacing);
-        
+        info!(
+            "  Found pool with actual tick spacing: {}",
+            actual_tick_spacing
+        );
+
         match perform_orca_swap_with_pool(
             client,
             relay_keypair,
@@ -370,7 +388,9 @@ async fn perform_orca_swap(
             recipient_ata,
             whirlpool_address,
             whirlpool_data,
-        ).await {
+        )
+        .await
+        {
             Ok(signature) => {
                 info!("  ✅ Success with tick spacing {}", actual_tick_spacing);
                 return Ok(signature);
@@ -381,9 +401,9 @@ async fn perform_orca_swap(
             }
         }
     }
-    
+
     Err(Error::InternalServerError(
-        "All Orca pools failed. Devnet pools may be too imbalanced.".to_string()
+        "All Orca pools failed. Devnet pools may be too imbalanced.".to_string(),
     ))
 }
 
@@ -398,45 +418,45 @@ async fn perform_orca_swap_with_pool(
     whirlpool_address: Pubkey,
     whirlpool_data: orca_whirlpools_client::Whirlpool,
 ) -> Result<String, Error> {
-    use orca_whirlpools_client::{
-        get_oracle_address, get_tick_array_address,
-        SwapV2Builder,
-    };
-    
+    use orca_whirlpools_client::{get_oracle_address, get_tick_array_address, SwapV2Builder};
+
     // Create relay's wSOL ATA
     let relay_wsol_ata = get_associated_token_address(&relay_keypair.pubkey(), wsol_mint);
-    
+
     // Ensure relay has wSOL ATA
     ensure_ata_exists(client, &relay_keypair.pubkey(), wsol_mint, relay_keypair).await?;
-    
+
     // Wrap SOL to wSOL
     wrap_sol_to_wsol(client, relay_keypair, input_amount_lamports).await?;
-    
+
     // Determine swap direction
     let a_to_b = whirlpool_data.token_mint_a.to_bytes() == wsol_mint.to_bytes();
-    
+
     // Calculate swap limit
     let sqrt_price_limit = if a_to_b { 4295048016 } else { u128::MAX }; // Min/max sqrt price
-    
-    info!("  Swapping {} lamports, direction: a_to_b={}", input_amount_lamports, a_to_b);
-    
+
+    info!(
+        "  Swapping {} lamports, direction: a_to_b={}",
+        input_amount_lamports, a_to_b
+    );
+
     // Get oracle address
     let (oracle_address, _) = get_oracle_address(&whirlpool_address)
         .map_err(|e| Error::InternalServerError(format!("Failed to derive oracle: {:?}", e)))?;
-    
+
     // Get tick_spacing from the actual pool
     let tick_spacing = whirlpool_data.tick_spacing;
     let tick_current = whirlpool_data.tick_current_index;
-    
+
     // Use orca_whirlpools_core to calculate the correct tick array start indices
     use orca_whirlpools_core::get_tick_array_start_tick_index;
-    
+
     const TICK_ARRAY_SIZE: i32 = 88;
     let tick_array_spacing = TICK_ARRAY_SIZE * (tick_spacing as i32);
-    
+
     // Get start tick index for the current tick array (containing tick_current)
     let start_tick_index_0 = get_tick_array_start_tick_index(tick_current, tick_spacing);
-    
+
     // For swaps, we need 3 sequential tick arrays based on direction
     // If a_to_b (swap A for B, price going down), we traverse arrays in descending order
     // If b_to_a (swap B for A, price going up), we traverse arrays in ascending order
@@ -445,49 +465,76 @@ async fn perform_orca_swap_with_pool(
     } else {
         start_tick_index_0 + tick_array_spacing
     };
-    
+
     let start_tick_index_2 = if a_to_b {
         start_tick_index_0 - tick_array_spacing * 2
     } else {
         start_tick_index_0 + tick_array_spacing * 2
     };
-    
-    info!("  Tick current: {}, spacing: {}, a_to_b: {}", tick_current, tick_spacing, a_to_b);
-    info!("  Tick array indices: [{}, {}, {}]", start_tick_index_0, start_tick_index_1, start_tick_index_2);
-    
+
+    info!(
+        "  Tick current: {}, spacing: {}, a_to_b: {}",
+        tick_current, tick_spacing, a_to_b
+    );
+    info!(
+        "  Tick array indices: [{}, {}, {}]",
+        start_tick_index_0, start_tick_index_1, start_tick_index_2
+    );
+
     // Get tick array addresses
     let (tick_array_0, _) = get_tick_array_address(&whirlpool_address, start_tick_index_0)
-        .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e)))?;
-    
+        .map_err(|e| {
+            Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e))
+        })?;
+
     let (tick_array_1, _) = get_tick_array_address(&whirlpool_address, start_tick_index_1)
-        .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e)))?;
-    
+        .map_err(|e| {
+            Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e))
+        })?;
+
     let (tick_array_2, _) = get_tick_array_address(&whirlpool_address, start_tick_index_2)
-        .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e)))?;
-    
+        .map_err(|e| {
+            Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e))
+        })?;
+
     let token_program = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
         .map_err(|e| Error::InternalServerError(format!("Invalid token program: {}", e)))?;
-    
+
     let relay_output_ata = get_associated_token_address(&relay_keypair.pubkey(), output_mint);
-    
-    
+
     // Build swap instruction
     // Use a permissive threshold (1) since ExecuteSwap will verify the actual minimum
     // Orca pricing might differ from Jupiter quotes, especially on devnet
     let permissive_threshold = 1u64; // Accept any reasonable output
-    
+
     let swap_ix = SwapV2Builder::new()
         .whirlpool(whirlpool_address)
         .token_program_a(token_program)
         .token_program_b(token_program)
         .memo_program(spl_memo::ID)
         .token_authority(relay_keypair.pubkey())
-        .token_mint_a(Pubkey::new_from_array(whirlpool_data.token_mint_a.to_bytes()))
-        .token_mint_b(Pubkey::new_from_array(whirlpool_data.token_mint_b.to_bytes()))
-        .token_owner_account_a(if a_to_b { relay_wsol_ata } else { relay_output_ata })
-        .token_vault_a(Pubkey::new_from_array(whirlpool_data.token_vault_a.to_bytes()))
-        .token_owner_account_b(if a_to_b { relay_output_ata } else { relay_wsol_ata })
-        .token_vault_b(Pubkey::new_from_array(whirlpool_data.token_vault_b.to_bytes()))
+        .token_mint_a(Pubkey::new_from_array(
+            whirlpool_data.token_mint_a.to_bytes(),
+        ))
+        .token_mint_b(Pubkey::new_from_array(
+            whirlpool_data.token_mint_b.to_bytes(),
+        ))
+        .token_owner_account_a(if a_to_b {
+            relay_wsol_ata
+        } else {
+            relay_output_ata
+        })
+        .token_vault_a(Pubkey::new_from_array(
+            whirlpool_data.token_vault_a.to_bytes(),
+        ))
+        .token_owner_account_b(if a_to_b {
+            relay_output_ata
+        } else {
+            relay_wsol_ata
+        })
+        .token_vault_b(Pubkey::new_from_array(
+            whirlpool_data.token_vault_b.to_bytes(),
+        ))
         .tick_array0(tick_array_0)
         .tick_array1(tick_array_1)
         .tick_array2(tick_array_2)
@@ -498,31 +545,37 @@ async fn perform_orca_swap_with_pool(
         .amount_specified_is_input(true)
         .a_to_b(a_to_b)
         .instruction();
-    
+
     // Build and sign transaction
     let recent_blockhash = client.get_latest_blockhash().await?;
     let mut transaction = Transaction::new_with_payer(&[swap_ix], Some(&relay_keypair.pubkey()));
     transaction.sign(&[relay_keypair], recent_blockhash);
-    
+
     // Send transaction
     let signature = client.send_and_confirm_transaction(&transaction).await?;
-    
+
     info!("  Orca swap confirmed: {}", signature);
-    
+
     // Fetch the relay's output ATA to get the actual balance
     let relay_ata_account = client.get_account(&relay_output_ata).await?;
-    
+
     // Parse token account data to get balance
     // Token account data layout: [mint(32), owner(32), amount(8), ...]
     if relay_ata_account.data.len() < 72 {
-        return Err(Error::InternalServerError("Invalid token account data".to_string()));
+        return Err(Error::InternalServerError(
+            "Invalid token account data".to_string(),
+        ));
     }
-    let amount_bytes: [u8; 8] = relay_ata_account.data[64..72].try_into()
+    let amount_bytes: [u8; 8] = relay_ata_account.data[64..72]
+        .try_into()
         .map_err(|_| Error::InternalServerError("Failed to parse amount".to_string()))?;
     let actual_output_amount = u64::from_le_bytes(amount_bytes);
-    
-    info!("  Received {} tokens from Orca swap (min required: {})", actual_output_amount, min_output_amount);
-    
+
+    info!(
+        "  Received {} tokens from Orca swap (min required: {})",
+        actual_output_amount, min_output_amount
+    );
+
     // Transfer ALL tokens from relay's output ATA to recipient's ATA
     let transfer_ix = spl_token::instruction::transfer(
         &spl_token::id(),
@@ -531,16 +584,20 @@ async fn perform_orca_swap_with_pool(
         &relay_keypair.pubkey(),
         &[&relay_keypair.pubkey()],
         actual_output_amount, // Transfer all tokens received
-    ).map_err(|e| Error::InternalServerError(format!("Failed to create transfer instruction: {}", e)))?;
+    )
+    .map_err(|e| {
+        Error::InternalServerError(format!("Failed to create transfer instruction: {}", e))
+    })?;
 
     let recent_blockhash2 = client.get_latest_blockhash().await?;
-    let mut transfer_tx = Transaction::new_with_payer(&[transfer_ix], Some(&relay_keypair.pubkey()));
+    let mut transfer_tx =
+        Transaction::new_with_payer(&[transfer_ix], Some(&relay_keypair.pubkey()));
     transfer_tx.sign(&[relay_keypair], recent_blockhash2);
-    
+
     let transfer_sig = client.send_and_confirm_transaction(&transfer_tx).await?;
-    
+
     info!("  Token transfer to recipient confirmed: {}", transfer_sig);
-    
+
     Ok(signature.to_string())
 }
 
@@ -552,33 +609,35 @@ async fn wrap_sol_to_wsol(
 ) -> Result<(), Error> {
     let wsol_mint = Pubkey::from_str(WRAPPED_SOL)
         .map_err(|e| Error::InternalServerError(format!("Invalid wSOL mint: {}", e)))?;
-    
+
     let relay_wsol_ata = get_associated_token_address(&relay_keypair.pubkey(), &wsol_mint);
-    
+
     // Create wSOL ATA if needed
     ensure_ata_exists(client, &relay_keypair.pubkey(), &wsol_mint, relay_keypair).await?;
-    
+
     // Transfer SOL to wSOL ATA and sync native
     let transfer_ix = solana_sdk::system_instruction::transfer(
         &relay_keypair.pubkey(),
         &relay_wsol_ata,
         amount_lamports,
     );
-    
+
     let sync_native_ix = spl_token::instruction::sync_native(&spl_token::id(), &relay_wsol_ata)
-        .map_err(|e| Error::InternalServerError(format!("Failed to create sync_native instruction: {}", e)))?;
-    
+        .map_err(|e| {
+            Error::InternalServerError(format!("Failed to create sync_native instruction: {}", e))
+        })?;
+
     let recent_blockhash = client.get_latest_blockhash().await?;
     let mut transaction = Transaction::new_with_payer(
         &[transfer_ix, sync_native_ix],
-        Some(&relay_keypair.pubkey())
+        Some(&relay_keypair.pubkey()),
     );
     transaction.sign(&[relay_keypair], recent_blockhash);
-    
+
     client.send_and_confirm_transaction(&transaction).await?;
-    
+
     info!("  Wrapped {} lamports to wSOL", amount_lamports);
-    
+
     Ok(())
 }
 
@@ -590,7 +649,7 @@ pub async fn ensure_ata_exists(
     payer_keypair: &Keypair,
 ) -> Result<Pubkey, Error> {
     let ata = get_associated_token_address(owner, mint);
-    
+
     // Check if ATA exists
     match client.get_account(&ata).await {
         Ok(_) => {
@@ -599,20 +658,22 @@ pub async fn ensure_ata_exists(
         }
         Err(_) => {
             info!("Creating ATA: {}", ata);
-            
-            let create_ata_ix = spl_associated_token_account::instruction::create_associated_token_account(
-                &payer_keypair.pubkey(),
-                owner,
-                mint,
-                &spl_token::id(),
-            );
+
+            let create_ata_ix =
+                spl_associated_token_account::instruction::create_associated_token_account(
+                    &payer_keypair.pubkey(),
+                    owner,
+                    mint,
+                    &spl_token::id(),
+                );
 
             let recent_blockhash = client.get_latest_blockhash().await?;
-            let mut tx = Transaction::new_with_payer(&[create_ata_ix], Some(&payer_keypair.pubkey()));
+            let mut tx =
+                Transaction::new_with_payer(&[create_ata_ix], Some(&payer_keypair.pubkey()));
             tx.sign(&[payer_keypair], recent_blockhash);
-            
+
             client.send_and_confirm_transaction(&tx).await?;
-            
+
             Ok(ata)
         }
     }

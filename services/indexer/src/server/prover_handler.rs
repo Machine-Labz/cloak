@@ -4,9 +4,9 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
 };
+use blake3::Hasher;
 use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
-use blake3::Hasher;
 use std::{net::SocketAddr, time::Instant};
 
 /// Helper function to create deprecation headers
@@ -179,12 +179,26 @@ pub async fn generate_proof(
             let recip_ata_opt = sp_val.get("recipient_ata").and_then(|v| v.as_str());
             let min_out_opt = sp_val.get("min_output_amount").and_then(|v| v.as_u64());
 
-            if let (Some(amount), Some(outputs_hash_hex), Some(out_mint), Some(recip_ata), Some(min_out)) =
-                (amount_opt, outputs_hash_hex_opt, out_mint_opt, recip_ata_opt, min_out_opt)
-            {
+            if let (
+                Some(amount),
+                Some(outputs_hash_hex),
+                Some(out_mint),
+                Some(recip_ata),
+                Some(min_out),
+            ) = (
+                amount_opt,
+                outputs_hash_hex_opt,
+                out_mint_opt,
+                recip_ata_opt,
+                min_out_opt,
+            ) {
                 // Helper to parse base58 or 0x-hex into 32 bytes
                 let parse_addr = |s: &str| -> Option<[u8; 32]> {
-                    let raw = if let Some(hex) = s.strip_prefix("0x") { hex } else { s };
+                    let raw = if let Some(hex) = s.strip_prefix("0x") {
+                        hex
+                    } else {
+                        s
+                    };
                     if let Ok(bytes) = hex::decode(raw) {
                         if bytes.len() == 32 {
                             let mut arr = [0u8; 32];

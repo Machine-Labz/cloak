@@ -1,8 +1,8 @@
 pub mod client;
 pub mod jupiter;
 pub mod submit;
-pub mod transaction_builder;
 pub mod swap;
+pub mod transaction_builder;
 
 use async_trait::async_trait;
 use base64;
@@ -184,7 +184,8 @@ impl SolanaService {
         // 3. Build and submit transaction(s)
         if let Some(swap_config) = swap_config {
             // Two-transaction flow: withdraw to relay temp account, then swap to final recipient
-            self.submit_withdraw_with_swap(job, &outputs, &swap_config).await
+            self.submit_withdraw_with_swap(job, &outputs, &swap_config)
+                .await
         } else {
             // Single-transaction flow: just withdraw
             let transaction = self.build_withdraw_transaction(job, &outputs).await?;
@@ -208,14 +209,17 @@ impl SolanaService {
     /// Check if a SwapState PDA exists for a given nullifier
     /// Returns Ok(true) if exists, Ok(false) if not found
     pub async fn check_swap_state_exists(&self, nullifier: &[u8; 32]) -> Result<bool, Error> {
-        let (swap_state_pda, _) = transaction_builder::derive_swap_state_pda(&self.program_id, nullifier);
-        
+        let (swap_state_pda, _) =
+            transaction_builder::derive_swap_state_pda(&self.program_id, nullifier);
+
         match self.client.get_account(&swap_state_pda).await {
             Ok(_) => Ok(true),
             Err(e) => {
                 // Check if it's "account not found" error
                 let error_str = e.to_string();
-                if error_str.contains("AccountNotFound") || error_str.contains("could not find account") {
+                if error_str.contains("AccountNotFound")
+                    || error_str.contains("could not find account")
+                {
                     Ok(false)
                 } else {
                     // Some other error occurred
@@ -267,7 +271,10 @@ impl SolanaService {
         outputs: &[Output],
         swap_config: &crate::swap::SwapConfig,
     ) -> Result<Signature, Error> {
-        info!("Starting PDA-based withdraw+swap flow for job {}", job.request_id);
+        info!(
+            "Starting PDA-based withdraw+swap flow for job {}",
+            job.request_id
+        );
 
         // Relay fee payer is required (pays PDA rent and signs Jupiter swap; reimbursed via ExecuteSwap)
         let relay_keypair = self.fee_payer.as_ref().ok_or_else(|| {
@@ -281,7 +288,9 @@ impl SolanaService {
 
         // Parse public inputs -> nullifier and public_amount
         if job.public_inputs.len() != 104 {
-            return Err(Error::ValidationError("public inputs must be 104 bytes".into()));
+            return Err(Error::ValidationError(
+                "public inputs must be 104 bytes".into(),
+            ));
         }
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
@@ -291,7 +300,9 @@ impl SolanaService {
 
         // Recipient wallet -> recipient ATA for output mint
         if outputs.is_empty() {
-            return Err(Error::ValidationError("At least one output is required".into()));
+            return Err(Error::ValidationError(
+                "At least one output is required".into(),
+            ));
         }
         let recipient_wallet = outputs[0].to_pubkey()?;
         let recipient_ata = get_associated_token_address(&recipient_wallet, &output_mint);
@@ -336,7 +347,10 @@ impl SolanaService {
                 }
             }
             Err(e) => {
-                warn!("⚠️  Could not check SwapState PDA existence: {}, assuming TX1 not done", e);
+                warn!(
+                    "⚠️  Could not check SwapState PDA existence: {}, assuming TX1 not done",
+                    e
+                );
                 false
             }
         };
@@ -375,7 +389,10 @@ impl SolanaService {
         // Check if SwapState PDA still has lamports to release (idempotency check)
         match self.client.get_account(&swap_state_pda).await {
             Ok(swap_state_account) => {
-                let rent_exempt = self.client.get_minimum_balance_for_rent_exemption(SwapState::SIZE).await?;
+                let rent_exempt = self
+                    .client
+                    .get_minimum_balance_for_rent_exemption(SwapState::SIZE)
+                    .await?;
 
                 if swap_state_account.lamports > rent_exempt + 1_000_000 {
                     // SwapState has significant lamports beyond rent-exempt, proceed with release
@@ -390,7 +407,10 @@ impl SolanaService {
                     release_msg.recent_blockhash = release_blockhash;
                     let mut release_tx = Transaction::new_unsigned(release_msg);
                     release_tx.sign(&[relay_keypair], release_blockhash);
-                    let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
+                    let release_sig = self
+                        .client
+                        .send_and_confirm_transaction(&release_tx)
+                        .await?;
                     info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
                 } else {
                     info!("✓ SwapState PDA already released (lamports: {}, rent-exempt: {}), skipping TX2",
@@ -411,7 +431,10 @@ impl SolanaService {
                 release_msg.recent_blockhash = release_blockhash;
                 let mut release_tx = Transaction::new_unsigned(release_msg);
                 release_tx.sign(&[relay_keypair], release_blockhash);
-                let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
+                let release_sig = self
+                    .client
+                    .send_and_confirm_transaction(&release_tx)
+                    .await?;
                 info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
             }
         }
@@ -419,19 +442,31 @@ impl SolanaService {
         // TX3: Relay performs OFF-CHAIN swap using Jupiter/Orca SDK
         // Note: After WithdrawSwap, the swap amount is already the user's amount (public_amount)
         // which includes the protocol fee deduction
-        info!("🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → minimum {} tokens of {}",
-            public_amount, min_output_amount, output_mint);
-        
+        info!(
+            "🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → minimum {} tokens of {}",
+            public_amount, min_output_amount, output_mint
+        );
+
         // Ensure relay has an ATA for the output token
-        swap::ensure_ata_exists(self.client.as_ref(), &relay_pubkey, &output_mint, relay_keypair)
-            .await
-            .map_err(|e| Error::InternalServerError(e.to_string()))?;
-        
+        swap::ensure_ata_exists(
+            self.client.as_ref(),
+            &relay_pubkey,
+            &output_mint,
+            relay_keypair,
+        )
+        .await
+        .map_err(|e| Error::InternalServerError(e.to_string()))?;
+
         // Ensure recipient has an ATA for the output token (relay pays for creation)
-        swap::ensure_ata_exists(self.client.as_ref(), &recipient_wallet, &output_mint, relay_keypair)
-            .await
-            .map_err(|e| Error::InternalServerError(e.to_string()))?;
-        
+        swap::ensure_ata_exists(
+            self.client.as_ref(),
+            &recipient_wallet,
+            &output_mint,
+            relay_keypair,
+        )
+        .await
+        .map_err(|e| Error::InternalServerError(e.to_string()))?;
+
         // Perform the swap (tries Jupiter first, falls back to Orca)
         let swap_signature = swap::perform_swap(
             self.client.as_ref(),
@@ -440,9 +475,10 @@ impl SolanaService {
             output_mint,
             min_output_amount,
             recipient_ata,
-        ).await
+        )
+        .await
         .map_err(|e| Error::InternalServerError(e.to_string()))?;
-        
+
         info!("✓ Token swap completed: {}", swap_signature);
 
         // TX4: ExecuteSwap — verify min output and close SwapState PDA
