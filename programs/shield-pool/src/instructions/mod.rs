@@ -2,9 +2,9 @@ pub mod admin_push_root;
 pub mod deposit;
 pub mod execute_swap;
 pub mod initialize;
+pub mod release_swap_funds;
 pub mod withdraw;
 pub mod withdraw_swap;
-pub mod release_swap_funds;
 
 use crate::error::ShieldPoolError;
 use pinocchio::program_error::ProgramError;

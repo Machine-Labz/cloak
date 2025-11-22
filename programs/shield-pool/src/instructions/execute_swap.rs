@@ -17,7 +17,6 @@
 /// 1. recipient_ata (readonly) - Verify tokens received
 /// 2. payer (writable) - Receives rent refund
 /// 3. token_program (readonly) - For token account verification
-
 use crate::error::ShieldPoolError;
 use crate::state::SwapState;
 use crate::ID;
@@ -25,13 +24,9 @@ use pinocchio::{account_info::AccountInfo, program_error::ProgramError, ProgramR
 
 const NULLIFIER_LEN: usize = 32;
 
-pub fn process_execute_swap_instruction(
-    accounts: &[AccountInfo],
-    data: &[u8],
-) -> ProgramResult {
+pub fn process_execute_swap_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     // Parse accounts
-    let [swap_state_info, recipient_ata_info, payer_info, _token_program_info] = accounts
-    else {
+    let [swap_state_info, recipient_ata_info, payer_info, _token_program_info] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 

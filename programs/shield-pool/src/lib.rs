@@ -9,7 +9,7 @@ use pinocchio::{
 mod constants;
 mod error;
 pub mod instructions;
-mod state;
+pub mod state;
 
 pub use state::CommitmentQueue;
 

@@ -5,11 +5,7 @@ use pinocchio::{
     ProgramResult,
 };
 
-use crate::{
-    error::ShieldPoolError,
-    state::SwapState,
-    ID,
-};
+use crate::{error::ShieldPoolError, state::SwapState, ID};
 
 /// ReleaseSwapFunds releases the SOL from SwapState PDA to the relay
 /// so the relay can perform the swap off-chain (via Jupiter or Orca)
@@ -42,7 +38,7 @@ pub fn process_release_swap_funds(accounts: &[AccountInfo]) -> ProgramResult {
     let rent = Rent::get()?;
     let rent_exempt_minimum = rent.minimum_balance(SwapState::SIZE);
     let current_lamports = swap_state_info.lamports();
-    
+
     if current_lamports <= rent_exempt_minimum {
         return Err(ShieldPoolError::InsufficientLamports.into());
     }
@@ -52,8 +48,7 @@ pub fn process_release_swap_funds(accounts: &[AccountInfo]) -> ProgramResult {
     // Transfer lamports from SwapState PDA to relay
     unsafe {
         *swap_state_info.borrow_mut_lamports_unchecked() = rent_exempt_minimum;
-        *relay_info.borrow_mut_lamports_unchecked() = 
-            relay_info.lamports() + amount_to_transfer;
+        *relay_info.borrow_mut_lamports_unchecked() = relay_info.lamports() + amount_to_transfer;
     }
 
     Ok(())

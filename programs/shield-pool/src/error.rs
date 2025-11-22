@@ -28,6 +28,7 @@ pub enum ShieldPoolError {
     InvalidRecipient = 0x1034,
     CommitmentAlreadyExists = 0x1035,
     CommitmentLogFull = 0x1036,
+    SwapTimeoutNotExpired = 0x1037,
 
     // Math errors
     MathOverflow = 0x1040,

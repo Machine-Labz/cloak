@@ -19,17 +19,15 @@
 /// 4. swap_state_pda (writable, to be created)
 /// 5. system_program (readonly)
 /// 6. payer (signer, writable) - pays for PDA creation
-
-use crate::constants::{DUPLICATE_NULLIFIER_LEN, PROOF_LEN, PUB_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH};
+use crate::constants::{
+    DUPLICATE_NULLIFIER_LEN, PROOF_LEN, PUB_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
+};
 use crate::error::ShieldPoolError;
 use crate::state::{NullifierShard, Pool, RootsRing, SwapState};
 use crate::ID;
 use core::convert::TryInto;
 use pinocchio::{
-    account_info::AccountInfo,
-    program_error::ProgramError,
-    pubkey::Pubkey,
-    sysvars::Sysvar,
+    account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey, sysvars::Sysvar,
     ProgramResult,
 };
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
@@ -136,10 +134,7 @@ fn parse_withdraw_swap_data(data: &[u8]) -> Result<ParsedWithdrawSwap, ShieldPoo
     })
 }
 
-pub fn process_withdraw_swap_instruction(
-    accounts: &[AccountInfo],
-    data: &[u8],
-) -> ProgramResult {
+pub fn process_withdraw_swap_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     // Parse accounts
     let [pool_info, treasury_info, roots_ring_info, nullifier_shard_info, swap_state_info, _system_program_info, payer_info] =
         accounts
@@ -201,10 +196,8 @@ pub fn process_withdraw_swap_instruction(
     nullifier_shard.add_nullifier(&parsed.nullifier)?;
 
     // Derive SwapState PDA
-    let (swap_state_pubkey, bump) = pinocchio::pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &parsed.nullifier],
-        &ID,
-    );
+    let (swap_state_pubkey, bump) =
+        pinocchio::pubkey::find_program_address(&[SwapState::SEED_PREFIX, &parsed.nullifier], &ID);
 
     if swap_state_info.key() != &swap_state_pubkey {
         return Err(ShieldPoolError::InvalidAccountAddress.into());
@@ -235,6 +228,9 @@ pub fn process_withdraw_swap_instruction(
     let mut swap_state = SwapState::from_account_info_unchecked(swap_state_info);
     let current_slot = pinocchio::sysvars::clock::Clock::get()?.slot;
 
+    // Set timeout to 200 slots (~100 seconds) from now
+    let timeout_slot = current_slot + 200;
+
     swap_state.initialize(
         &parsed.nullifier,
         parsed.public_amount,
@@ -242,6 +238,7 @@ pub fn process_withdraw_swap_instruction(
         &parsed.recipient_ata,
         parsed.min_output_amount,
         current_slot,
+        timeout_slot,
         bump,
     );
 
@@ -262,7 +259,8 @@ pub fn process_withdraw_swap_instruction(
 
         // Treasury → SwapState (amount minus fee)
         // Net effect on treasury: +public_amount -amount_to_transfer = +fee
-        *treasury_info.borrow_mut_lamports_unchecked() = treasury_lamports + parsed.public_amount - amount_to_transfer;
+        *treasury_info.borrow_mut_lamports_unchecked() =
+            treasury_lamports + parsed.public_amount - amount_to_transfer;
 
         // SwapState receives amount minus fee
         *swap_state_info.borrow_mut_lamports_unchecked() = swap_state_lamports + amount_to_transfer;

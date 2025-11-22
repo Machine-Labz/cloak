@@ -300,14 +300,14 @@ impl NullifierShard {
 /// SwapState: Stores pending swap parameters for two-transaction swap flow
 /// Layout:
 /// [nullifier: 32][sol_amount: 8][output_mint: 32][recipient_ata: 32]
-/// [min_output_amount: 8][created_slot: 8][bump: 1]
-/// Total: 121 bytes
+/// [min_output_amount: 8][created_slot: 8][timeout_slot: 8][bump: 1]
+/// Total: 129 bytes
 ///
 /// PDA derivation: seeds = [b"swap_state", nullifier]
 pub struct SwapState(*mut u8);
 
 impl SwapState {
-    pub const SIZE: usize = 32 + 8 + 32 + 32 + 8 + 8 + 1; // 121 bytes
+    pub const SIZE: usize = 32 + 8 + 32 + 32 + 8 + 8 + 8 + 1; // 129 bytes
 
     pub const SEED_PREFIX: &'static [u8] = b"swap_state";
 
@@ -371,8 +371,13 @@ impl SwapState {
     }
 
     #[inline(always)]
+    pub fn timeout_slot(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(120) as *const u64)) }
+    }
+
+    #[inline(always)]
     pub fn bump(&self) -> u8 {
-        unsafe { *self.0.add(120) }
+        unsafe { *self.0.add(128) }
     }
 
     // Setters
@@ -419,9 +424,16 @@ impl SwapState {
     }
 
     #[inline(always)]
+    pub fn set_timeout_slot(&mut self, slot: u64) {
+        unsafe {
+            *(self.0.add(120) as *mut u64) = slot.to_le();
+        }
+    }
+
+    #[inline(always)]
     pub fn set_bump(&mut self, bump: u8) {
         unsafe {
-            *self.0.add(120) = bump;
+            *self.0.add(128) = bump;
         }
     }
 
@@ -435,6 +447,7 @@ impl SwapState {
         recipient_ata: &Pubkey,
         min_output_amount: u64,
         created_slot: u64,
+        timeout_slot: u64,
         bump: u8,
     ) {
         self.set_nullifier(nullifier);
@@ -443,7 +456,7 @@ impl SwapState {
         self.set_recipient_ata(recipient_ata);
         self.set_min_output_amount(min_output_amount);
         self.set_created_slot(created_slot);
+        self.set_timeout_slot(timeout_slot);
         self.set_bump(bump);
     }
-
 }

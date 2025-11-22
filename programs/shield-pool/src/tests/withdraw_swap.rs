@@ -11,10 +11,8 @@ fn test_swap_state_pda_derivation() {
     let nullifier = [0x77u8; 32];
 
     // Derive SwapState PDA
-    let (swap_state_pda, bump) = Pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier],
-        &program_id,
-    );
+    let (swap_state_pda, bump) =
+        Pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier], &program_id);
 
     println!("Program ID: {}", program_id);
     println!("Nullifier: {:?}", hex::encode(nullifier));
@@ -22,12 +20,13 @@ fn test_swap_state_pda_derivation() {
     println!("Bump: {}", bump);
 
     // Verify PDA can be derived deterministically
-    let (swap_state_pda2, bump2) = Pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier],
-        &program_id,
-    );
+    let (swap_state_pda2, bump2) =
+        Pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier], &program_id);
 
-    assert_eq!(swap_state_pda, swap_state_pda2, "PDA derivation should be deterministic");
+    assert_eq!(
+        swap_state_pda, swap_state_pda2,
+        "PDA derivation should be deterministic"
+    );
     assert_eq!(bump, bump2, "Bump should be deterministic");
 }
 
@@ -48,10 +47,17 @@ fn test_swap_outputs_hash_computation() {
     hasher.update(&public_amount.to_le_bytes());
     let outputs_hash = hasher.finalize();
 
-    println!("Swap outputs_hash: {}", hex::encode(outputs_hash.as_bytes()));
+    println!(
+        "Swap outputs_hash: {}",
+        hex::encode(outputs_hash.as_bytes())
+    );
 
     // Verify hash is 32 bytes
-    assert_eq!(outputs_hash.as_bytes().len(), 32, "outputs_hash must be 32 bytes");
+    assert_eq!(
+        outputs_hash.as_bytes().len(),
+        32,
+        "outputs_hash must be 32 bytes"
+    );
 
     // Verify deterministic computation
     let mut hasher2 = blake3::Hasher::new();
@@ -91,7 +97,10 @@ fn test_withdraw_swap_instruction_data_format() {
     instruction_data.extend_from_slice(recipient_ata.as_ref());
     instruction_data.extend_from_slice(&min_output_amount.to_le_bytes());
 
-    println!("WithdrawSwap instruction data size: {} bytes", instruction_data.len());
+    println!(
+        "WithdrawSwap instruction data size: {} bytes",
+        instruction_data.len()
+    );
 
     // Verify size
     assert_eq!(
@@ -107,9 +116,7 @@ fn test_withdraw_swap_instruction_data_format() {
     assert_eq!(&instruction_data[396..428], output_mint.as_ref());
     assert_eq!(&instruction_data[428..460], recipient_ata.as_ref());
 
-    let parsed_min_output = u64::from_le_bytes(
-        instruction_data[460..468].try_into().unwrap()
-    );
+    let parsed_min_output = u64::from_le_bytes(instruction_data[460..468].try_into().unwrap());
     assert_eq!(parsed_min_output, min_output_amount);
 }
 
@@ -121,8 +128,16 @@ fn test_swap_state_size() {
     // Total: 121 bytes
 
     let expected_size = 32 + 8 + 32 + 32 + 8 + 8 + 1;
-    assert_eq!(SwapState::SIZE, 121, "SwapState SIZE constant should be 121");
-    assert_eq!(SwapState::SIZE, expected_size, "SwapState SIZE should match layout");
+    assert_eq!(
+        SwapState::SIZE,
+        121,
+        "SwapState SIZE constant should be 121"
+    );
+    assert_eq!(
+        SwapState::SIZE,
+        expected_size,
+        "SwapState SIZE should match layout"
+    );
 }
 
 #[test]
@@ -132,7 +147,10 @@ fn test_execute_swap_instruction_data_format() {
 
     let instruction_data = nullifier.to_vec();
 
-    println!("ExecuteSwap instruction data size: {} bytes", instruction_data.len());
+    println!(
+        "ExecuteSwap instruction data size: {} bytes",
+        instruction_data.len()
+    );
 
     assert_eq!(
         instruction_data.len(),
@@ -183,29 +201,32 @@ fn test_multiple_nullifier_pda_derivations() {
     let nullifier2 = [0x22u8; 32];
     let nullifier3 = [0x33u8; 32];
 
-    let (pda1, _) = Pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier1],
-        &program_id,
-    );
+    let (pda1, _) =
+        Pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier1], &program_id);
 
-    let (pda2, _) = Pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier2],
-        &program_id,
-    );
+    let (pda2, _) =
+        Pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier2], &program_id);
 
-    let (pda3, _) = Pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier3],
-        &program_id,
-    );
+    let (pda3, _) =
+        Pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier3], &program_id);
 
     println!("PDA1: {}", pda1);
     println!("PDA2: {}", pda2);
     println!("PDA3: {}", pda3);
 
     // Verify they're all different
-    assert_ne!(pda1, pda2, "Different nullifiers should produce different PDAs");
-    assert_ne!(pda2, pda3, "Different nullifiers should produce different PDAs");
-    assert_ne!(pda1, pda3, "Different nullifiers should produce different PDAs");
+    assert_ne!(
+        pda1, pda2,
+        "Different nullifiers should produce different PDAs"
+    );
+    assert_ne!(
+        pda2, pda3,
+        "Different nullifiers should produce different PDAs"
+    );
+    assert_ne!(
+        pda1, pda3,
+        "Different nullifiers should produce different PDAs"
+    );
 }
 
 #[test]
