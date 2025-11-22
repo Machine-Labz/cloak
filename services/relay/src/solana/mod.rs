@@ -7,6 +7,7 @@ pub mod swap;
 use async_trait::async_trait;
 use base64;
 use hex;
+use shield_pool::state::SwapState;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     message::Message,
@@ -76,6 +77,7 @@ pub trait SolanaClient: Send + Sync {
         nullifier: &[u8],
     ) -> Result<bool, Error>;
     async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error>;
+    async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, Error>;
 }
 
 pub struct SolanaService {
@@ -370,22 +372,54 @@ impl SolanaService {
         }
 
         // TX2: ReleaseSwapFunds - get SOL from SwapState PDA
-        info!("Releasing swap funds from SwapState PDA...");
-        let release_ix = transaction_builder::build_release_swap_funds_instruction(
-            self.program_id,
-            swap_state_pda,
-            relay_pubkey,
-        );
-        let release_blockhash = self.client.get_latest_blockhash().await?;
-        let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
-        release_msg.recent_blockhash = release_blockhash;
-        let mut release_tx = Transaction::new_unsigned(release_msg);
-        release_tx.sign(&[relay_keypair], release_blockhash);
-        let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
-        info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
+        // Check if SwapState PDA still has lamports to release (idempotency check)
+        match self.client.get_account(&swap_state_pda).await {
+            Ok(swap_state_account) => {
+                let rent_exempt = self.client.get_minimum_balance_for_rent_exemption(SwapState::SIZE).await?;
+
+                if swap_state_account.lamports > rent_exempt + 1_000_000 {
+                    // SwapState has significant lamports beyond rent-exempt, proceed with release
+                    info!("Releasing swap funds from SwapState PDA...");
+                    let release_ix = transaction_builder::build_release_swap_funds_instruction(
+                        self.program_id,
+                        swap_state_pda,
+                        relay_pubkey,
+                    );
+                    let release_blockhash = self.client.get_latest_blockhash().await?;
+                    let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
+                    release_msg.recent_blockhash = release_blockhash;
+                    let mut release_tx = Transaction::new_unsigned(release_msg);
+                    release_tx.sign(&[relay_keypair], release_blockhash);
+                    let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
+                    info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
+                } else {
+                    info!("✓ SwapState PDA already released (lamports: {}, rent-exempt: {}), skipping TX2",
+                        swap_state_account.lamports, rent_exempt);
+                }
+            }
+            Err(e) => {
+                warn!("⚠️ Could not check SwapState PDA balance: {}, proceeding with ReleaseSwapFunds", e);
+                // If we can't check, try anyway (will fail with InsufficientLamports if already released)
+                info!("Releasing swap funds from SwapState PDA...");
+                let release_ix = transaction_builder::build_release_swap_funds_instruction(
+                    self.program_id,
+                    swap_state_pda,
+                    relay_pubkey,
+                );
+                let release_blockhash = self.client.get_latest_blockhash().await?;
+                let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
+                release_msg.recent_blockhash = release_blockhash;
+                let mut release_tx = Transaction::new_unsigned(release_msg);
+                release_tx.sign(&[relay_keypair], release_blockhash);
+                let release_sig = self.client.send_and_confirm_transaction(&release_tx).await?;
+                info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
+            }
+        }
 
         // TX3: Relay performs OFF-CHAIN swap using Jupiter/Orca SDK
-        info!("🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → {} {}", 
+        // Note: After WithdrawSwap, the swap amount is already the user's amount (public_amount)
+        // which includes the protocol fee deduction
+        info!("🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → minimum {} tokens of {}",
             public_amount, min_output_amount, output_mint);
         
         // Ensure relay has an ATA for the output token

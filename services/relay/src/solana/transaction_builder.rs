@@ -11,6 +11,8 @@ use solana_sdk::{
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use spl_token;
 
+use shield_pool::instructions::ShieldPoolInstruction;
+
 use crate::error::Error;
 use crate::planner::Output;
 
@@ -197,7 +199,7 @@ pub fn build_withdraw_instruction(
     treasury_token_account: Option<Pubkey>,
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + body.len());
-    data.push(2u8); // ShieldPoolInstruction::Withdraw
+    data.push(ShieldPoolInstruction::Withdraw as u8);
     data.extend_from_slice(body);
 
     let mut accounts = Vec::with_capacity(5 + recipients.len());
@@ -257,7 +259,7 @@ pub fn build_withdraw_swap_instruction(
     payer: Pubkey,
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + body.len());
-    data.push(4u8); // ShieldPoolInstruction::WithdrawSwap
+    data.push(ShieldPoolInstruction::WithdrawSwap as u8);
     data.extend_from_slice(body);
 
     let accounts = vec![
@@ -315,7 +317,7 @@ pub fn build_withdraw_instruction_with_pow(
     use solana_sdk::sysvar;
 
     let mut data = Vec::with_capacity(1 + body.len());
-    data.push(2u8); // ShieldPoolInstruction::Withdraw
+    data.push(ShieldPoolInstruction::Withdraw as u8);
     data.extend_from_slice(body);
 
     let mut accounts = Vec::with_capacity(12 + recipients.len());
@@ -538,7 +540,7 @@ pub fn build_execute_swap_instruction(
     payer: Pubkey,
 ) -> Instruction {
     let mut data = Vec::with_capacity(1 + 32);
-    data.push(5u8); // ShieldPoolInstruction::ExecuteSwap
+    data.push(ShieldPoolInstruction::ExecuteSwap as u8);
     data.extend_from_slice(&nullifier);
 
     let accounts = vec![
@@ -560,7 +562,7 @@ pub fn build_release_swap_funds_instruction(
     swap_state_pda: Pubkey,
     relay: Pubkey,
 ) -> Instruction {
-    let mut data = vec![6]; // ReleaseSwapFunds instruction tag
+    let mut data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
     
     Instruction {
         program_id,
@@ -1159,6 +1161,100 @@ pub fn build_orca_swap_instruction(
         AccountMeta::new_readonly(oracle, false),
         AccountMeta::new_readonly(spl_token::id(), false),
         AccountMeta::new_readonly(system_program::id(), false),
+    ];
+
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Build ExecuteSwapViaOrca instruction - Atomic on-chain swap via Orca Whirlpool CPI
+///
+/// This instruction replaces the semi-custodial flow (ReleaseSwapFunds → Jupiter → ExecuteSwap)
+/// with a single atomic on-chain swap via Orca CPI.
+///
+/// Instruction discriminator: 8
+///
+/// # Arguments
+/// * `program_id` - Shield-pool program ID
+/// * `nullifier` - Nullifier used to derive SwapState PDA
+/// * `recipient_ata` - User's output token ATA (from SwapState)
+/// * `payer` - Transaction payer (receives rent refund)
+/// * `amount` - Amount of wSOL to swap (from Orca quote)
+/// * `other_amount_threshold` - Minimum output amount (from Orca quote)
+/// * `sqrt_price_limit` - Price limit (from Orca quote)
+/// * `amount_specified_is_input` - Whether amount is input (from Orca quote)
+/// * `a_to_b` - Swap direction (from Orca quote)
+/// * `whirlpool` - Orca Whirlpool pool address
+/// * `token_vault_a` - Pool's wSOL vault
+/// * `token_vault_b` - Pool's output token vault
+/// * `tick_array_0` - First tick array
+/// * `tick_array_1` - Second tick array
+/// * `tick_array_2` - Third tick array
+/// * `oracle` - Whirlpool oracle PDA
+pub fn build_execute_swap_via_orca_instruction(
+    program_id: Pubkey,
+    nullifier: [u8; 32],
+    recipient_ata: Pubkey,
+    payer: Pubkey,
+    // Orca swap quote parameters
+    amount: u64,
+    other_amount_threshold: u64,
+    sqrt_price_limit: u128,
+    amount_specified_is_input: bool,
+    a_to_b: bool,
+    // Orca pool accounts (queried from on-chain data)
+    whirlpool: Pubkey,
+    token_vault_a: Pubkey,
+    token_vault_b: Pubkey,
+    tick_array_0: Pubkey,
+    tick_array_1: Pubkey,
+    tick_array_2: Pubkey,
+    oracle: Pubkey,
+) -> Result<Instruction, Error> {
+    // Derive SwapState PDA
+    let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
+
+    // Native SOL mint (wrapped SOL)
+    let wsol_mint = solana_sdk::pubkey!("So11111111111111111111111111111111111111112");
+
+    // Derive wSOL ATA for SwapState PDA
+    let swap_wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+
+    // Orca Whirlpool Program ID
+    let whirlpool_program_id = solana_sdk::pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+
+    // Token program
+    let token_program_id = spl_token::id();
+
+    // Build instruction data: [discriminator: 1][amount: 8][other_amount_threshold: 8]
+    //                          [sqrt_price_limit: 16][amount_specified_is_input: 1][a_to_b: 1]
+    // Total: 35 bytes
+    let mut data = Vec::with_capacity(35);
+    data.push(8u8); // ExecuteSwapViaOrca discriminator
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.extend_from_slice(&other_amount_threshold.to_le_bytes());
+    data.extend_from_slice(&sqrt_price_limit.to_le_bytes());
+    data.push(if amount_specified_is_input { 1 } else { 0 });
+    data.push(if a_to_b { 1 } else { 0 });
+
+    // Build accounts (order must match program's expected account order)
+    let accounts = vec![
+        AccountMeta::new(swap_state_pda, false),       // 0. swap_state_pda (writable)
+        AccountMeta::new(swap_wsol_ata, false),        // 1. swap_wsol_ata (writable)
+        AccountMeta::new(recipient_ata, false),        // 2. recipient_ata (writable)
+        AccountMeta::new(whirlpool, false),            // 3. whirlpool (writable)
+        AccountMeta::new(token_vault_a, false),        // 4. token_vault_a (writable)
+        AccountMeta::new(token_vault_b, false),        // 5. token_vault_b (writable)
+        AccountMeta::new(tick_array_0, false),         // 6. tick_array_0 (writable)
+        AccountMeta::new(tick_array_1, false),         // 7. tick_array_1 (writable)
+        AccountMeta::new(tick_array_2, false),         // 8. tick_array_2 (writable)
+        AccountMeta::new_readonly(oracle, false),      // 9. oracle (readonly)
+        AccountMeta::new_readonly(token_program_id, false), // 10. token_program
+        AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program
+        AccountMeta::new(payer, true),                 // 12. payer (signer, writable)
     ];
 
     Ok(Instruction {

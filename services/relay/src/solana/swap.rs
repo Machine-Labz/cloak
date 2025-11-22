@@ -160,7 +160,7 @@ pub async fn perform_swap(
             return Ok(signature);
         }
         Err(e) => {
-            warn!("⚠️ Orca swap failed: {}. Trying Orca...", e);
+            warn!("⚠️ Orca swap failed: {}", e);
         }
     }
 
@@ -470,7 +470,6 @@ async fn perform_orca_swap_with_pool(
     
     let relay_output_ata = get_associated_token_address(&relay_keypair.pubkey(), output_mint);
     
-    // Note: ATAs for both relay and recipient are ensured to exist before calling this function
     
     // Build swap instruction
     // Use a permissive threshold (1) since ExecuteSwap will verify the actual minimum

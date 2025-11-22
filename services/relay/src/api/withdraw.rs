@@ -235,7 +235,21 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
         return Err(Error::ValidationError("Amount cannot be zero".to_string()));
     }
 
-    let expected_fee = calculate_fee(request.public_inputs.amount, decimals);
+    // Calculate expected fee based on mode:
+    // - For swap requests, use variable-only fee (matches SPL swap economics)
+    // - For regular SOL withdrawals (no swap), use full fee (fixed + variable)
+    //   to stay consistent with the SP1 circuit and validator_agent API.
+    let expected_fee = if request.swap.is_some() {
+        // Swap mode: same semantics as planner::calculate_fee (variable 0.5%)
+        calculate_fee(request.public_inputs.amount, decimals)
+    } else {
+        // Non-swap withdrawals: fixed 0.0025 SOL + variable 0.5%
+        // This matches zk-guest-sp1/guest/src/encoding.rs::calculate_fee
+        // and services/relay/src/api/validator_agent.rs::calculate_fee.
+        let fixed_fee: u64 = 2_500_000; // 0.0025 SOL in lamports
+        let variable_fee = calculate_fee(request.public_inputs.amount, decimals);
+        fixed_fee.saturating_add(variable_fee)
+    };
     if expected_fee == 0 {
         return Err(Error::ValidationError(
             "Fee calculation resulted in zero; amount may be too small".to_string(),

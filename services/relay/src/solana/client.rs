@@ -49,6 +49,13 @@ impl RpcSolanaClient {
 
 #[async_trait]
 impl SolanaClient for RpcSolanaClient {
+    async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, Error> {
+        self.client
+            .get_minimum_balance_for_rent_exemption(data_len)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
     async fn get_latest_blockhash(&self) -> Result<solana_sdk::hash::Hash, Error> {
         self.client
             .get_latest_blockhash()
