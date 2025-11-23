@@ -376,15 +376,19 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Get Merkle proof using the leaf index
-    let proof_response = client
+    let merkle_response = client
         .get(format!(
             "{}/api/v1/merkle/proof/{}",
             config.indexer_url, leaf_index
         ))
         .send()
-        .await?
-        .json::<MerkleProof>()
         .await?;
+
+    let merkle_text = merkle_response.text().await?;
+    println!("  🔍 DEBUG: Raw Merkle proof response (first 500 chars):");
+    println!("     {}", &merkle_text[..std::cmp::min(500, merkle_text.len())]);
+
+    let proof_response: MerkleProof = serde_json::from_str(&merkle_text)?;
 
     println!(
         "  Merkle path length: {}",
@@ -394,10 +398,12 @@ async fn main() -> Result<()> {
     // Step 4.5: Get Jupiter quote for SOL → USDC swap
     println!("\n💱 Step 4.5: Getting Jupiter quote for SOL → USDC swap...");
     let slippage_bps: u16 = 100; // 1%
-                                 // Calculate SOL amount to swap (variable fee only; fixed fee handled outside the circuit)
+    // Calculate total fee: fixed + variable (must match circuit calculation)
+    let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (deposit_amount * 5) / 1_000; // 0.5%
+    let total_fee = fixed_fee + variable_fee;
     let sol_to_swap = deposit_amount
-        .checked_sub(variable_fee)
+        .checked_sub(total_fee)
         .ok_or_else(|| anyhow::anyhow!("Fees exceed deposit amount"))?;
 
     println!("  SOL amount to swap: {} lamports", sol_to_swap);
@@ -446,6 +452,14 @@ async fn main() -> Result<()> {
     });
 
     println!("  📡 Calling indexer /prove endpoint...");
+    println!("  🔍 DEBUG: Prove request structure:");
+    println!("     - private_inputs (first 100 chars): {}",
+        private_inputs.chars().take(100).collect::<String>());
+    println!("     - public_inputs (first 100 chars): {}",
+        public_inputs.chars().take(100).collect::<String>());
+    println!("     - outputs: {}", outputs_json);
+    println!("     - swap_params: {}", serde_json::to_string_pretty(&swap_params_json)?);
+
     let prove_response = client
         .post(format!("{}/api/v1/prove", config.indexer_url))
         .json(&prove_request)
@@ -486,15 +500,21 @@ async fn main() -> Result<()> {
         &proof_hex[..std::cmp::min(16, proof_hex.len())]
     );
 
-    // Calculate fee for conservation used by current circuit/TEE: variable fee only (0.5%)
+    // Calculate fee for conservation used by current circuit/TEE: fixed + variable fee
+    let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (deposit_amount * 5) / 1_000; // 0.5% = 5/1000
-    let withdraw_amount = deposit_amount - variable_fee;
+    let total_fee = fixed_fee + variable_fee;
+    let withdraw_amount = deposit_amount - total_fee;
 
-    // Calculate fee_bps for relay (match circuit's variable-only fee)
+    // Calculate fee_bps for relay.
+    // For swap-mode withdrawals, the relay currently models fee_bps using ONLY the variable fee
+    // (0.5% of the deposited SOL). The fixed fee is still taken from the deposited SOL but is
+    // not encoded in fee_bps. This must match services/relay/src/api/withdraw.rs::validate_request.
     let effective_fee_bps = if deposit_amount == 0 {
         0u16
     } else {
-        let bps = ((variable_fee.saturating_mul(10_000)) + deposit_amount - 1) / deposit_amount;
+        let bps =
+            ((variable_fee.saturating_mul(10_000)) + deposit_amount - 1) / deposit_amount;
         bps.min(u16::MAX as u64) as u16
     };
 
@@ -690,14 +710,18 @@ fn prepare_proof_inputs(
         }
     });
 
-    // Calculate fee for conservation used by current circuit/TEE: variable fee only (0.5%)
+    // Calculate fee for conservation used by current circuit/TEE: fixed + variable fee
+    let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (test_data.amount * 5) / 1_000; // 0.5% = 5/1000
+    let total_fee = fixed_fee + variable_fee;
 
     println!("   - Amount: {} lamports", test_data.amount);
+    println!("   - Fixed fee: {} lamports", fixed_fee);
     println!("   - Variable fee (0.5%): {} lamports", variable_fee);
+    println!("   - Total fee: {} lamports", total_fee);
 
-    // Commit to SOL recipient pubkey and lamports after variable fee
-    let recipient_amount = test_data.amount - variable_fee;
+    // Commit to SOL recipient pubkey and lamports after total fee
+    let recipient_amount = test_data.amount - total_fee;
     let recipient_pubkey = recipient_keypair.pubkey();
     println!("   - Recipient amount: {} lamports", recipient_amount);
 
@@ -890,8 +914,10 @@ fn validate_circuit_constraints_local(
         .map(|o| o["amount"].as_u64().unwrap())
         .sum();
 
-    // Circuit uses variable fee only (0.5%) for conservation
+    // Circuit uses fixed + variable fee for conservation
+    let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (amount * 5) / 1_000; // 0.5% = 5/1000
+    let total_fee = fixed_fee + variable_fee;
 
     if is_swap {
         // For swap mode: outputs should be empty (all goes to swap)
@@ -903,20 +929,22 @@ fn validate_circuit_constraints_local(
         }
         println!(
             "         ✓ Swap mode: outputs empty, fee = {}, swap amount = {}",
-            variable_fee,
-            amount - variable_fee
+            total_fee,
+            amount - total_fee
         );
     } else {
         // For regular mode: outputs + fee = amount
-        if outputs_sum + variable_fee != amount {
+        if outputs_sum + total_fee != amount {
             return Err(anyhow::anyhow!(
-                "Output sum + fee != amount!\n         Outputs: {}\n         Variable fee (0.5%): {}\n         Amount: {}",
+                "Output sum + fee != amount!\n         Outputs: {}\n         Fixed fee: {}\n         Variable fee (0.5%): {}\n         Total fee: {}\n         Amount: {}",
                 outputs_sum,
+                fixed_fee,
                 variable_fee,
+                total_fee,
                 amount
             ));
         }
-        println!("         ✓ Output sum + variable fee == amount");
+        println!("         ✓ Output sum + total fee == amount");
     }
 
     Ok(())
