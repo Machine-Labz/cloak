@@ -1,5 +1,8 @@
 use crate::{
-    constants::ADMIN_AUTHORITY, error::ShieldPoolError, state::{CommitmentQueue, NullifierShard, RootsRing}, ID
+    constants::ADMIN_AUTHORITY,
+    error::ShieldPoolError,
+    state::{CommitmentQueue, NullifierShard, Pool, RootsRing},
+    ID,
 };
 use pinocchio::sysvars::rent::Rent;
 use pinocchio::{
@@ -14,7 +17,7 @@ use pinocchio_system::instructions::CreateAccount;
 #[inline(always)]
 pub fn process_initialize_instruction(
     accounts: &[AccountInfo],
-    _instruction_data: &[u8],
+    instruction_data: &[u8],
 ) -> ProgramResult {
     if accounts.len() < 7 {
         return Err(ShieldPoolError::MissingAccounts.into());
@@ -32,15 +35,41 @@ pub fn process_initialize_instruction(
         return Err(ShieldPoolError::InvalidAdminAuthority.into());
     }
 
+    // Parse mint from instruction data (32 bytes)
+    // If empty or all zeros, defaults to native SOL
+    let mint = if instruction_data.len() >= 32 {
+        let mut mint_bytes = [0u8; 32];
+        mint_bytes.copy_from_slice(&instruction_data[0..32]);
+        Pubkey::from(mint_bytes)
+    } else {
+        Pubkey::default() // Native SOL
+    };
+
     let program_id = Pubkey::from(ID);
     let rent = Rent::get()?;
 
-    create_pda_account(&admin, &pool, &program_id, b"pool", 0, &rent)?;
+    create_pda_account(
+        &admin,
+        &pool,
+        &program_id,
+        b"pool",
+        &mint,
+        Pool::SIZE,
+        &rent,
+    )?;
+
+    // Initialize pool state with mint
+    {
+        let mut pool_state = Pool::from_account_info(&pool)?;
+        pool_state.set_mint(&mint);
+    }
+
     create_pda_account(
         &admin,
         &commitments,
         &program_id,
         b"commitments",
+        &mint,
         CommitmentQueue::SIZE,
         &rent,
     )?;
@@ -49,6 +78,7 @@ pub fn process_initialize_instruction(
         &roots_ring,
         &program_id,
         b"roots_ring",
+        &mint,
         RootsRing::SIZE,
         &rent,
     )?;
@@ -59,10 +89,11 @@ pub fn process_initialize_instruction(
         &nullifier_shard,
         &program_id,
         b"nullifier_shard",
+        &mint,
         NULLIFIER_SHARD_SPACE,
         &rent,
     )?;
-    create_pda_account(&admin, &treasury, &program_id, b"treasury", 0, &rent)?;
+    create_pda_account(&admin, &treasury, &program_id, b"treasury", &mint, 0, &rent)?;
     Ok(())
 }
 
@@ -72,10 +103,11 @@ fn create_pda_account(
     target: &AccountInfo,
     program_id: &Pubkey,
     seed: &'static [u8],
+    mint: &Pubkey,
     space: usize,
     rent: &Rent,
 ) -> ProgramResult {
-    let (expected_address, bump) = find_program_address(&[seed], &ID);
+    let (expected_address, bump) = find_program_address(&[seed, mint.as_ref()], &ID);
     if target.key() != &expected_address {
         return Err(ShieldPoolError::BadAccounts.into());
     }
@@ -94,7 +126,11 @@ fn create_pda_account(
 
     let lamports = rent.minimum_balance(space);
     let bump_seed = [bump];
-    let seeds = [Seed::from(seed), Seed::from(bump_seed.as_ref())];
+    let seeds = [
+        Seed::from(seed),
+        Seed::from(mint.as_ref()),
+        Seed::from(bump_seed.as_ref()),
+    ];
     let signer = Signer::from(&seeds);
 
     CreateAccount {

@@ -1,0 +1,63 @@
+import React from 'react';
+import Link from '@docusaurus/Link';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import Layout from '@theme/Layout';
+
+export default function Home(): JSX.Element {
+  const {siteConfig} = useDocusaurusContext();
+  
+  return (
+    <Layout
+      title={`${siteConfig.title}`}
+      description="End-to-end guide for the Cloak privacy-preserving exit router on Solana">
+      <div className="heroBanner">
+        <div className="container">
+          <h1 className="hero__title">Cloak Documentation</h1>
+          <p className="hero__subtitle">
+            End-to-end guide for the Cloak privacy-preserving exit router on Solana.
+          </p>
+          <div className="margin-top--lg">
+            <Link className="button button--secondary button--lg" to="/overview/introduction">
+              Start with the Overview
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <section className="featuresSection">
+        <div className="container">
+          <h2>Everything you need to ship private Solana exits</h2>
+          <p className="sectionSubtitle">
+            Deep-dive reference for architects, protocol engineers, relayer operators, and front-end teams working on Cloak.
+          </p>
+          <div className="featureGrid">
+            <div className="featureCard">
+              <span role="img" aria-label="architecture">🛠️</span>
+              <h3>Architecture &amp; Workflows</h3>
+              <p>Understand the system topology, visual flows, and how deposits, withdrawals, and PoW jobs move through the stack.</p>
+              <Link to="/overview/system-architecture">Explore the architecture →</Link>
+            </div>
+            <div className="featureCard">
+              <span role="img" aria-label="zk">🧠</span>
+              <h3>Zero-Knowledge Layer</h3>
+              <p>Review SP1 circuit constraints, encoding rules, Merkle construction, and on-chain Groth16 verification.</p>
+              <Link to="/zk/">Dive into ZK docs →</Link>
+            </div>
+            <div className="featureCard">
+              <span role="img" aria-label="services">⚙️</span>
+              <h3>Services &amp; Tooling</h3>
+              <p>Operate the indexer, relay, miner, and validator tooling with ready-made runbooks, metrics, and API contracts.</p>
+              <Link to="/offchain/relay">Operate the services →</Link>
+            </div>
+            <div className="featureCard">
+              <span role="img" aria-label="pow">⚡</span>
+              <h3>Wildcard PoW</h3>
+              <p>Mine claims, wire ClaimFinder, and monitor performance with the latest wildcard implementation guides.</p>
+              <Link to="/pow/overview">Master wildcard PoW →</Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    </Layout>
+  );
+}

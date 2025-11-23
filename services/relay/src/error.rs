@@ -23,6 +23,12 @@ pub enum Error {
 
     #[error("Base64 decode error: {0}")]
     Base64Error(#[from] base64::DecodeError),
+
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
 }
 
 impl axum::response::IntoResponse for Error {

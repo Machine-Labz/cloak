@@ -79,12 +79,53 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
 
                     // conservation preflight
                     let amt = u64::from_le_bytes(job.public_inputs[96..104].try_into().unwrap());
-                    let fee = crate::planner::calculate_fee(amt);
+                    let fee = crate::planner::calculate_fee_legacy(amt);
                     if amount + fee != amt {
                         warn!("Job {} conservation failed preflight; continuing but likely to fail on-chain", job_id);
                     }
                 }
             }
+        }
+    }
+
+    // Check if nullifier already exists on-chain before attempting withdraw
+    tracing::info!("🔍 Checking if nullifier already exists on-chain");
+    match state.solana.check_nullifier_exists(&job.nullifier).await {
+        Ok(true) => {
+            tracing::info!(
+                "✅ Nullifier already exists on-chain - transaction was already processed"
+            );
+            // Mark job as completed since the transaction was already successfully processed
+            if let Err(e) = state
+                .job_repo
+                .update_job_status(job_id, JobStatus::Completed)
+                .await
+            {
+                error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                return Err(e);
+            }
+
+            // Store nullifier to prevent double-spending (if not already in local DB)
+            if let Err(e) = state
+                .nullifier_repo
+                .create_nullifier(job.nullifier.clone(), job_id)
+                .await
+            {
+                // Ignore duplicate key errors - nullifier might already be in our DB
+                tracing::debug!("Nullifier storage: {}", e);
+            }
+
+            return Ok(());
+        }
+        Ok(false) => {
+            tracing::info!("✓ Nullifier not found on-chain, proceeding with withdraw");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "⚠️ Failed to check nullifier on-chain: {}, proceeding anyway",
+                e
+            );
+            // Continue with transaction - the on-chain program will reject if duplicate
         }
     }
 
@@ -124,10 +165,140 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
         Err(e) => {
             error!("❌ Job {} failed: {}", job_id, e);
 
+            let error_str = e.to_string();
+
+            // Check if the error indicates nullifier already used (0x1023)
+            let nullifier_already_used = error_str.contains("0x1023")
+                || error_str.contains("NullifierAlreadyUsed")
+                || error_str.contains("custom program error: 0x1023");
+
+            // Check if this is a swap job
+            let is_swap_job = job.outputs_json.get("swap").is_some();
+
+            if nullifier_already_used {
+                // For swap jobs, error 0x1023 means TX1 (WithdrawSwap) succeeded
+                // but we need to check if the full swap flow is complete
+                if is_swap_job {
+                    warn!(
+                        "⚠️  Job {} - Nullifier already used (0x1023) on swap job",
+                        job_id
+                    );
+                    warn!("   This means WithdrawSwap (TX1) succeeded but ExecuteSwap (TX2) may be pending");
+                    warn!("   Checking if SwapState PDA exists...");
+
+                    // Check if SwapState PDA exists
+                    // Parse nullifier from public_inputs
+                    if job.public_inputs.len() >= 64 {
+                        let mut nullifier = [0u8; 32];
+                        nullifier.copy_from_slice(&job.public_inputs[32..64]);
+
+                        // Check if PDA exists
+                        match state.solana.check_swap_state_exists(&nullifier).await {
+                            Ok(true) => {
+                                info!(
+                                    "✓ Job {} - SwapState PDA exists! TX1 (WithdrawSwap) succeeded",
+                                    job_id
+                                );
+                                info!("   TX2 (Jupiter swap + ExecuteSwap) still needs to be executed");
+                                info!("   Requeueing job to resume from TX2...");
+
+                                // Requeue the job - submit_withdraw_with_swap will now skip TX1 and do TX2 only
+                                if let Err(e) = state
+                                    .job_repo
+                                    .update_job_status(job_id, JobStatus::Queued)
+                                    .await
+                                {
+                                    error!("❌ Failed to requeue job {} for TX2: {}", job_id, e);
+                                }
+
+                                return Ok(());
+                            }
+                            Ok(false) => {
+                                info!(
+                                    "✅ Job {} - SwapState PDA doesn't exist, swap fully completed",
+                                    job_id
+                                );
+                                // PDA doesn't exist = swap completed successfully
+                                // Fall through to mark as completed
+                            }
+                            Err(e) => {
+                                warn!("⚠️  Job {} - Failed to check SwapState PDA: {}", job_id, e);
+                                // Can't determine status, mark as failed to avoid incorrect completion
+                                if let Err(e) = state
+                                    .job_repo
+                                    .update_job_status(job_id, JobStatus::Failed)
+                                    .await
+                                {
+                                    error!("❌ Failed to mark job {} as failed: {}", job_id, e);
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
+                // For non-swap jobs or completed swaps, mark as completed
+                info!(
+                    "✅ Job {} - Transaction already processed, marking as completed",
+                    job_id
+                );
+
+                // Mark job as completed since transaction was successful (just duplicate attempt)
+                if let Err(e) = state
+                    .job_repo
+                    .update_job_status(job_id, JobStatus::Completed)
+                    .await
+                {
+                    error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                }
+
+                // Store nullifier to prevent double-spending (if not already in local DB)
+                if let Err(e) = state
+                    .nullifier_repo
+                    .create_nullifier(job.nullifier.clone(), job_id)
+                    .await
+                {
+                    // Ignore duplicate key errors
+                    tracing::debug!("Nullifier storage: {}", e);
+                }
+
+                return Ok(());
+            }
+
+            // Check for double-spend errors (0x1020) - these are always completed
+            let double_spend = error_str.contains("already been processed")
+                || error_str.contains("0x1020")
+                || error_str.contains("DoubleSpend")
+                || error_str.contains("custom program error: 0x1020");
+
+            if double_spend {
+                info!(
+                    "✅ Job {} - Double spend detected, transaction was already processed",
+                    job_id
+                );
+
+                if let Err(e) = state
+                    .job_repo
+                    .update_job_status(job_id, JobStatus::Completed)
+                    .await
+                {
+                    error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                }
+
+                if let Err(e) = state
+                    .nullifier_repo
+                    .create_nullifier(job.nullifier.clone(), job_id)
+                    .await
+                {
+                    tracing::debug!("Nullifier storage: {}", e);
+                }
+
+                return Ok(());
+            }
+
             // Check if we should retry based on error type
-            let should_retry = !e.to_string().contains("MissingAccounts") && // Don't retry account errors
-                !e.to_string().contains("ProofInvalid") && // Don't retry proof errors
-                !e.to_string().contains("DoubleSpend"); // Don't retry double spend errors
+            let should_retry = !error_str.contains("MissingAccounts") && // Don't retry account errors
+                !error_str.contains("ProofInvalid"); // Don't retry proof errors
 
             if should_retry {
                 warn!("🔄 Retrying job {} - Error: {}", job_id, e);

@@ -68,7 +68,7 @@ pinocchio-system = "0.3.0"
 five8_const = "0.1.4"
 
 # SP1 Solana verifier dependencies
-sp1-solana = { git = "https://github.com/succinctlabs/sp1-solana" }
+sp1-solana = { git = "https://github.com/succinctlabs/sp1-solana", branch = "master" }
 groth16-solana = "0.2.0"
 num-bigint = "0.4.6"
 sha2 = "0.10.9"

@@ -24,7 +24,7 @@ pub struct SolanaConfig {
     pub rpc_url: String,
     pub shield_pool_program_id: String,
     pub admin_keypair: Option<Vec<u8>>,
-    pub roots_ring_address: String,
+    pub mint_address: String, // Token mint address (empty = native SOL)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +81,7 @@ impl Config {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://127.0.0.1:8899"),
                 shield_pool_program_id: get_env_var("CLOAK_PROGRAM_ID", ""),
                 admin_keypair: get_admin_keypair_from_env(),
-                roots_ring_address: get_env_var("ROOTS_RING_ADDRESS", "GNVDHdhhr9qgqtispqVXU2CWFAXkp9Wo7cE7adYTdcs5"),
+                mint_address: get_env_var("MINT_ADDRESS", ""), // Empty = native SOL
             },
             server: ServerConfig {
                 port: get_env_var_as_number("PORT", 3001)?,
@@ -219,15 +219,24 @@ fn get_admin_keypair_from_env() -> Option<Vec<u8>> {
     // Try to get admin keypair from environment variable as JSON array
     if let Ok(mut keypair_json) = std::env::var("ADMIN_KEYPAIR") {
         // Strip surrounding single or double quotes if present
-        keypair_json = keypair_json.trim().trim_matches('\'').trim_matches('"').to_string();
+        keypair_json = keypair_json
+            .trim()
+            .trim_matches('\'')
+            .trim_matches('"')
+            .to_string();
 
         match serde_json::from_str::<Vec<u8>>(&keypair_json) {
             Ok(keypair_bytes) => {
                 if keypair_bytes.len() == 64 {
-                    tracing::info!("✅ Loaded admin keypair from ADMIN_KEYPAIR environment variable");
+                    tracing::info!(
+                        "✅ Loaded admin keypair from ADMIN_KEYPAIR environment variable"
+                    );
                     return Some(keypair_bytes);
                 } else {
-                    tracing::warn!("⚠️ ADMIN_KEYPAIR has invalid length: {} (expected 64)", keypair_bytes.len());
+                    tracing::warn!(
+                        "⚠️ ADMIN_KEYPAIR has invalid length: {} (expected 64)",
+                        keypair_bytes.len()
+                    );
                 }
             }
             Err(e) => {
@@ -239,23 +248,28 @@ fn get_admin_keypair_from_env() -> Option<Vec<u8>> {
     // Try to get from file path
     if let Ok(keypair_path) = std::env::var("ADMIN_KEYPAIR_PATH") {
         match std::fs::read_to_string(&keypair_path) {
-            Ok(keypair_data) => {
-                match serde_json::from_str::<Vec<u8>>(&keypair_data) {
-                    Ok(keypair_bytes) => {
-                        if keypair_bytes.len() == 64 {
-                            tracing::info!("✅ Loaded admin keypair from file: {}", keypair_path);
-                            return Some(keypair_bytes);
-                        } else {
-                            tracing::warn!("⚠️ Admin keypair file has invalid length: {} (expected 64)", keypair_bytes.len());
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("⚠️ Failed to parse admin keypair file as JSON: {}", e);
+            Ok(keypair_data) => match serde_json::from_str::<Vec<u8>>(&keypair_data) {
+                Ok(keypair_bytes) => {
+                    if keypair_bytes.len() == 64 {
+                        tracing::info!("✅ Loaded admin keypair from file: {}", keypair_path);
+                        return Some(keypair_bytes);
+                    } else {
+                        tracing::warn!(
+                            "⚠️ Admin keypair file has invalid length: {} (expected 64)",
+                            keypair_bytes.len()
+                        );
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("⚠️ Failed to parse admin keypair file as JSON: {}", e);
+                }
+            },
             Err(e) => {
-                tracing::warn!("⚠️ Failed to read admin keypair file {}: {}", keypair_path, e);
+                tracing::warn!(
+                    "⚠️ Failed to read admin keypair file {}: {}",
+                    keypair_path,
+                    e
+                );
             }
         }
     }

@@ -70,14 +70,18 @@ impl Network {
 const MAINNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 
 /// Devnet scramble registry program ID
-/// TODO: Replace with actual program ID after devnet deployment
-const DEVNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
+const DEVNET_SCRAMBLE_PROGRAM_ID: &str = "scb1q9pSBXbmAj2rc58wqKKsvuf4t4z9CKx6Xk79Js4";
 
 /// Testnet scramble registry program ID (deployed 2025-10-19)
-const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6";
+const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "scb1q9pSBXbmAj2rc58wqKKsvuf4t4z9CKx6Xk79Js4";
 
 /// Localnet scramble registry program ID (from build-sbf)
-const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111";
+const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "scb1q9pSBXbmAj2rc58wqKKsvuf4t4z9CKx6Xk79Js4";
+
+// API endpoints
+
+/// Production API URL for relay service
+pub const API_URL: &str = "https://api.cloaklabz.xyz";
 
 #[cfg(test)]
 mod tests {

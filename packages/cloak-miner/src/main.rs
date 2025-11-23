@@ -20,8 +20,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cloak_miner::{
-    build_register_miner_ix, constants::Network, derive_miner_pda, derive_registry_pda,
-    fetch_registry, ClaimManager,
+    build_register_miner_ix,
+    constants::{Network, API_URL},
+    derive_miner_pda, derive_registry_pda, fetch_registry, ClaimManager,
 };
 use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
@@ -36,8 +37,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
-
-const DEFAULT_RELAY_URL: &str = "http://localhost:3002";
 
 #[derive(Deserialize)]
 struct BacklogResponse {
@@ -267,19 +266,38 @@ async fn check_relay_demand(relay_url: &str) -> Result<(bool, usize)> {
     let url = format!("{}/backlog", relay_url);
     match reqwest::get(&url).await {
         Ok(response) => {
-            match response.json::<BacklogResponse>().await {
+            let status = response.status();
+            let response_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::from("<failed to read response>"));
+
+            if !status.is_success() {
+                warn!(
+                    "Relay returned non-success status {}: {}",
+                    status, response_text
+                );
+                return Ok((true, 0)); // Assume demand to avoid blocking mining
+            }
+
+            match serde_json::from_str::<BacklogResponse>(&response_text) {
                 Ok(backlog) => {
                     let has_demand = backlog.pending_count > 0;
                     Ok((has_demand, backlog.pending_count))
                 }
                 Err(e) => {
-                    warn!("Failed to parse backlog response: {}", e);
+                    warn!("Failed to parse backlog response from {}: {}", url, e);
+                    warn!(
+                        "Response body (first 200 chars): {}",
+                        &response_text.chars().take(200).collect::<String>()
+                    );
                     Ok((true, 0)) // Assume demand to avoid blocking mining
                 }
             }
         }
         Err(e) => {
-            warn!("Failed to check relay backlog at {}: {}", url, e);
+            warn!("Failed to connect to relay at {}: {}", url, e);
+            warn!("Continuing with mining (assuming demand)...");
             Ok((true, 0)) // Assume demand if relay unreachable
         }
     }
@@ -295,13 +313,14 @@ async fn mine_continuously(
     target_claims: usize,
 ) -> Result<()> {
     let miner_pubkey = keypair.pubkey();
-    
-    // Get relay URL from env or use default
-    let relay_url = std::env::var("RELAY_URL")
-        .unwrap_or_else(|_| DEFAULT_RELAY_URL.to_string());
+
+    // Use production API URL
+    let relay_url = API_URL;
 
     println!("Cloak Miner Starting");
     println!("Miner: {}", miner_pubkey);
+    println!("Network: {}", rpc_url);
+    println!("Relay: {}", relay_url);
     println!("Timeout: {}s per attempt", timeout_secs);
     println!("Interval: {}s between attempts", interval_secs);
     println!("Target claims: {}", target_claims);
@@ -348,14 +367,17 @@ async fn mine_continuously(
 
     // Check initial miner balance
     let min_sol_required = 0.01; // Minimum SOL needed for transactions
-    
+
     match client.get_balance(&miner_pubkey) {
         Ok(balance) => {
             let sol_balance = balance as f64 / LAMPORTS_PER_SOL as f64;
             println!("Initial SOL balance: {:.4} SOL", sol_balance);
-            
+
             if sol_balance < min_sol_required {
-                error!("Insufficient SOL balance: {:.4} SOL (minimum required: {:.4} SOL)", sol_balance, min_sol_required);
+                error!(
+                    "Insufficient SOL balance: {:.4} SOL (minimum required: {:.4} SOL)",
+                    sol_balance, min_sol_required
+                );
                 error!("Miner needs funding before it can submit transactions.");
                 error!("Exiting to avoid transaction failures.");
                 return Ok(());
@@ -390,17 +412,24 @@ async fn mine_continuously(
 
         // Check for relay demand
         let min_buffer = 2; // Always keep at least 2 claims ready for incoming requests
-        let (has_demand, pending_count) = match check_relay_demand(&relay_url).await.unwrap_or((true, 0)) {
-            (demand, count) => {
-                info!("📊 Relay check: {} pending jobs, has_demand={}", count, demand);
-                (demand, count)
-            }
-        };
+        let (has_demand, pending_count) =
+            match check_relay_demand(&relay_url).await.unwrap_or((true, 0)) {
+                (demand, count) => {
+                    info!(
+                        "📊 Relay check: {} pending jobs, has_demand={}",
+                        count, demand
+                    );
+                    (demand, count)
+                }
+            };
 
         // If we have enough claims, wait before checking again
         if current_claims >= target_claims {
             if has_demand {
-                println!("📦 {} pending withdrawals, but sufficient claims available", pending_count);
+                println!(
+                    "📦 {} pending withdrawals, but sufficient claims available",
+                    pending_count
+                );
             }
             println!("Waiting {}s before next check...\n", interval_secs);
             if running.load(Ordering::SeqCst) {
@@ -408,17 +437,29 @@ async fn mine_continuously(
             }
             continue;
         }
-        
+
         // Decision logic with clear reasoning
         if !has_demand && current_claims >= min_buffer {
-            println!("⚡ No demand detected ({} pending) and buffer sufficient ({} claims)", pending_count, current_claims);
-            println!("Skipping mining to avoid waste. Waiting {}s...\n", interval_secs);
+            println!(
+                "⚡ No demand detected ({} pending) and buffer sufficient ({} claims)",
+                pending_count, current_claims
+            );
+            println!(
+                "Skipping mining to avoid waste. Waiting {}s...\n",
+                interval_secs
+            );
             tokio::time::sleep(Duration::from_secs(interval_secs)).await;
             continue;
         } else if has_demand {
-            println!("📦 Mining triggered by demand: {} pending withdrawals", pending_count);
+            println!(
+                "📦 Mining triggered by demand: {} pending withdrawals",
+                pending_count
+            );
         } else {
-            println!("🔄 Mining to maintain minimum buffer: {} claims < {} buffer", current_claims, min_buffer);
+            println!(
+                "🔄 Mining to maintain minimum buffer: {} claims < {} buffer",
+                current_claims, min_buffer
+            );
         }
 
         // Mine new claims to reach target

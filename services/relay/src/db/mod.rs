@@ -4,7 +4,7 @@ pub mod repository;
 use crate::error::Error;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use tracing::{debug, info};
+use tracing::info;
 
 pub type DatabasePool = PgPool;
 
@@ -40,7 +40,7 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
 
     // Split migration into statements that can be executed individually
     // This approach works around sqlx's limitation with multiple statements
-    
+
     // First statement: Create enum type
     sqlx::query(
         r#"
@@ -78,8 +78,10 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
             started_at TIMESTAMPTZ,
             completed_at TIMESTAMPTZ
         )
-        "#
-    ).execute(pool).await
+        "#,
+    )
+    .execute(pool)
+    .await
     .map_err(|e| Error::DatabaseError(format!("Failed to create jobs table: {}", e)))?;
 
     // Third statement: Create nullifiers table
@@ -92,8 +94,10 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
             tx_signature TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-        "#
-    ).execute(pool).await
+        "#,
+    )
+    .execute(pool)
+    .await
     .map_err(|e| Error::DatabaseError(format!("Failed to create nullifiers table: {}", e)))?;
 
     // Create indexes
@@ -103,7 +107,9 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), Error> {
         "CREATE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id)",
         "CREATE INDEX IF NOT EXISTS idx_nullifiers_created_at ON nullifiers(created_at)",
     ] {
-        sqlx::query(index_sql).execute(pool).await
+        sqlx::query(index_sql)
+            .execute(pool)
+            .await
             .map_err(|e| Error::DatabaseError(format!("Failed to create index: {}", e)))?;
     }
 

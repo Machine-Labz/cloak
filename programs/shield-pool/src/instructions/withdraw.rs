@@ -7,8 +7,12 @@ use crate::ID;
 use core::convert::TryInto;
 use pinocchio::cpi::invoke_signed;
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, pubkey::Pubkey, ProgramResult,
+    account_info::AccountInfo,
+    instruction::{AccountMeta, Seed, Signer},
+    pubkey::Pubkey,
+    ProgramResult,
 };
+use pinocchio_token::instructions::Transfer as TokenTransfer;
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 const MIN_TAIL_LEN: usize = PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN;
@@ -38,7 +42,15 @@ fn parse_withdraw_data<'a>(
     }
 
     // Parse public_inputs to get it out of the way, it's right after proof
-    let (_public_inputs_slice, _remainder) = data.split_at(data.len() - MIN_TAIL_LEN - if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 });
+    let (_public_inputs_slice, _remainder) = data.split_at(
+        data.len()
+            - MIN_TAIL_LEN
+            - if expect_batch_hash {
+                POW_BATCH_HASH_LEN
+            } else {
+                0
+            },
+    );
 
     // Actually, we need to be smarter. Let's parse from the end backwards.
     // Format: [proof][public_inputs=104][duplicate_nullifier=32][num_outputs=1][recipients...][batch_hash=32?]
@@ -57,8 +69,15 @@ fn parse_withdraw_data<'a>(
 
     // Let's parse forward instead
     // Skip proof first - we'll calculate its length later
-    let after_proof_idx = data.len() - PUB_LEN - DUPLICATE_NULLIFIER_LEN - NUM_OUTPUTS_LEN
-        - if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let after_proof_idx = data.len()
+        - PUB_LEN
+        - DUPLICATE_NULLIFIER_LEN
+        - NUM_OUTPUTS_LEN
+        - if expect_batch_hash {
+            POW_BATCH_HASH_LEN
+        } else {
+            0
+        };
 
     if data.len() < after_proof_idx {
         return Err(ShieldPoolError::InvalidInstructionData.into());
@@ -70,7 +89,12 @@ fn parse_withdraw_data<'a>(
 
     // To find where proof ends, we need to know num_outputs first
     // Let's peek at num_outputs position
-    let min_tail_with_batch = MIN_TAIL_LEN + if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let min_tail_with_batch = MIN_TAIL_LEN
+        + if expect_batch_hash {
+            POW_BATCH_HASH_LEN
+        } else {
+            0
+        };
     if data.len() < min_tail_with_batch + PROOF_LEN {
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
@@ -86,7 +110,11 @@ fn parse_withdraw_data<'a>(
     let _num_outputs_offset = PUB_LEN + DUPLICATE_NULLIFIER_LEN;
 
     // Read num_outputs by looking backwards from end
-    let batch_offset = if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let batch_offset = if expect_batch_hash {
+        POW_BATCH_HASH_LEN
+    } else {
+        0
+    };
 
     // We need to iterate to find the right position
     // Let's try all possible num_outputs values (1-10) and see which one gives us a valid proof length
@@ -94,7 +122,11 @@ fn parse_withdraw_data<'a>(
     let mut found_parse: Option<(u8, usize)> = None;
     for test_num_outputs in 1..=MAX_OUTPUTS {
         let test_recipients_len = test_num_outputs * PER_OUTPUT_LEN;
-        let test_tail_len = PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN + test_recipients_len + batch_offset;
+        let test_tail_len = PUB_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + test_recipients_len
+            + batch_offset;
 
         if data.len() <= test_tail_len {
             continue;
@@ -215,8 +247,9 @@ fn parse_withdraw_data<'a>(
 
 pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     // accounts layout:
-    // Legacy mode (6+): [pool, treasury, roots_ring, nullifier_shard, recipient_accounts..., system_program]
-    // PoW mode (12+): [pool, treasury, roots_ring, nullifier_shard, recipient_accounts..., system_program, scramble_program, claim_pda, miner_pda, registry_pda, clock_sysvar, miner_authority, shield_pool_program]
+    // Legacy native: [pool, treasury, roots_ring, nullifier_shard, recipients..., system_program]
+    // Legacy SPL:    adds [token_program, pool_token, recipient_token..., treasury_token]
+    // PoW modes append [scramble_program, claim_pda, miner_pda, registry_pda, clock_sysvar, miner_authority, shield_pool_program]
 
     if accounts.len() < 6 {
         return Err(ShieldPoolError::MissingAccounts.into());
@@ -249,35 +282,49 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         if accounts.len() < expected_accounts {
             return Err(ShieldPoolError::MissingAccounts.into());
         }
-        }
+    }
 
-    // Extract recipient accounts (positions 4 to 4+num_recipients-1)
-        let recipient_accounts = &accounts[4..4 + num_recipients];
+    let recipients_start = 4;
+    let recipients_end = recipients_start + num_recipients;
+    let recipient_accounts = &accounts[recipients_start..recipients_end];
 
-    // Extract PoW accounts if in PoW mode
+    // Ensure the system program position exists even if we do not use it directly
+    if accounts.len() <= recipients_end {
+        return Err(ShieldPoolError::MissingAccounts.into());
+    }
+
+    let mut cursor = recipients_end + 1;
+
     let pow_context = if is_pow_mode {
-        let pow_accounts_start = 4 + num_recipients;
-        Some(PowContext {
-            scramble_program_info: &accounts[pow_accounts_start + 1],
-            claim_pda_info: &accounts[pow_accounts_start + 2],
-            miner_pda_info: &accounts[pow_accounts_start + 3],
-            registry_pda_info: &accounts[pow_accounts_start + 4],
-            clock_sysvar_info: &accounts[pow_accounts_start + 5],
-            miner_authority_account: &accounts[pow_accounts_start + 6],
-            shield_pool_program_info: &accounts[pow_accounts_start + 7],
-        })
+        if accounts.len() < cursor + 7 {
+            return Err(ShieldPoolError::MissingAccounts.into());
+        }
+        let ctx = PowContext {
+            scramble_program_info: &accounts[cursor],
+            claim_pda_info: &accounts[cursor + 1],
+            miner_pda_info: &accounts[cursor + 2],
+            registry_pda_info: &accounts[cursor + 3],
+            clock_sysvar_info: &accounts[cursor + 4],
+            miner_authority_account: &accounts[cursor + 5],
+            shield_pool_program_info: &accounts[cursor + 6],
+        };
+        cursor += 7;
+        Some(ctx)
     } else {
         None
     };
 
+    let spl_accounts = &accounts[cursor..];
+
     process_withdraw_unified(
-            pool_info,
-            treasury_info,
-            roots_ring_info,
-            nullifier_shard_info,
-            recipient_accounts,
+        pool_info,
+        treasury_info,
+        roots_ring_info,
+        nullifier_shard_info,
+        recipient_accounts,
         &parsed,
         pow_context,
+        spl_accounts,
     )
 }
 
@@ -291,6 +338,13 @@ struct PowContext<'a> {
     shield_pool_program_info: &'a AccountInfo,
 }
 
+struct SplContext<'a> {
+    pool_token_account: &'a AccountInfo,
+    recipient_token_accounts: &'a [AccountInfo],
+    treasury_token_account: &'a AccountInfo,
+    miner_token_account: Option<&'a AccountInfo>,
+}
+
 fn process_withdraw_unified<'a>(
     pool_info: &AccountInfo,
     treasury_info: &AccountInfo,
@@ -299,9 +353,9 @@ fn process_withdraw_unified<'a>(
     recipient_accounts: &[AccountInfo],
     parsed: &'a ParsedWithdraw<'a>,
     pow_context: Option<PowContext<'a>>,
+    spl_accounts: &'a [AccountInfo],
 ) -> ProgramResult {
     let program_id = Pubkey::from(ID);
-    
     // Common validations
     if pool_info.owner() != &program_id {
         return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
@@ -335,8 +389,8 @@ fn process_withdraw_unified<'a>(
         }
     }
 
-    // Validate all recipient accounts are writable and match parsed data
-    if recipient_accounts.len() != parsed.num_outputs as usize {
+    let num_recipients = parsed.num_outputs as usize;
+    if recipient_accounts.len() != num_recipients {
         return Err(ShieldPoolError::MissingAccounts.into());
     }
     for recipient_account in recipient_accounts {
@@ -372,7 +426,7 @@ fn process_withdraw_unified<'a>(
     // Validate outputs hash by hashing all recipients
     let mut hasher = blake3::Hasher::new();
     let mut total_recipient_amount = 0u64;
-    for i in 0..parsed.num_outputs as usize {
+    for i in 0..num_recipients {
         let (address, amount) = parsed.recipients[i];
         hasher.update(&address);
         hasher.update(&amount.to_le_bytes());
@@ -385,28 +439,96 @@ fn process_withdraw_unified<'a>(
         return Err(ShieldPoolError::InvalidOutputsHash.into());
     }
 
-    // Validate amount conservation
     if total_recipient_amount > parsed.public_amount {
         return Err(ShieldPoolError::InvalidAmount.into());
     }
 
-    let expected_fee = 2_500_000u64 + (parsed.public_amount * 5) / 1_000;
+    let pool_state = crate::state::Pool::from_account_info(pool_info)?;
+    let mint = pool_state.mint();
+    let is_native_asset = mint == Pubkey::default();
+
+    // Fee validation:
+    // - For native SOL: fixed fee (0.0025 SOL) + variable fee (0.5%) both from withdrawal amount
+    // - For SPL tokens: only variable fee (0.5%) from withdrawal amount, fixed fee paid in SOL separately
+    let expected_fee = if is_native_asset {
+        2_500_000u64 + (parsed.public_amount * 5) / 1_000
+    } else {
+        (parsed.public_amount * 5) / 1_000
+    };
     let total_fee = parsed.public_amount - total_recipient_amount;
     if total_fee != expected_fee {
         return Err(ShieldPoolError::Conservation.into());
     }
 
-    if pool_info.lamports() < parsed.public_amount {
-        return Err(ShieldPoolError::InsufficientLamports.into());
-    }
+    let spl_context = if is_native_asset {
+        if !spl_accounts.is_empty() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+        None
+    } else {
+        let mut idx = 0usize;
+        let expected_len = 2 + num_recipients + 1 + if pow_context.is_some() { 1 } else { 0 };
+        if spl_accounts.len() != expected_len {
+            return Err(ShieldPoolError::MissingAccounts.into());
+        }
 
-    // PoW-specific: Consume claim via CPI if in PoW mode
+        let token_program_info = &spl_accounts[idx];
+        idx += 1;
+        if !token_program_info.executable() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+
+        let pool_token_account = &spl_accounts[idx];
+        idx += 1;
+        let recipient_token_accounts = &spl_accounts[idx..idx + num_recipients];
+        idx += num_recipients;
+        let treasury_token_account = &spl_accounts[idx];
+        idx += 1;
+        let miner_token_account = if pow_context.is_some() {
+            let account = &spl_accounts[idx];
+            idx += 1;
+            Some(account)
+        } else {
+            None
+        };
+
+        if idx != spl_accounts.len() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+
+        if !pool_token_account.is_writable() {
+            return Err(ShieldPoolError::PoolNotWritable.into());
+        }
+        if !treasury_token_account.is_writable() {
+            return Err(ShieldPoolError::TreasuryNotWritable.into());
+        }
+        for token_account in recipient_token_accounts.iter() {
+            if !token_account.is_writable() {
+                return Err(ShieldPoolError::RecipientNotWritable.into());
+            }
+        }
+        if let Some(miner_token_account) = miner_token_account {
+            if !miner_token_account.is_writable() {
+                return Err(ShieldPoolError::InvalidMinerAccount.into());
+            }
+        }
+
+        Some(SplContext {
+            pool_token_account,
+            recipient_token_accounts,
+            treasury_token_account,
+            miner_token_account,
+        })
+    };
+
+    let mut protocol_share = total_fee;
+    let mut scrambler_share: Option<u64> = None;
+
     if let Some(ctx) = &pow_context {
         let batch_hash = parsed
             .batch_hash
             .ok_or(ShieldPoolError::InvalidInstructionData)?;
 
-        // Read miner authority and drop borrow before CPI
         let miner_authority: [u8; 32] = {
             let miner_data = ctx.miner_pda_info.try_borrow_data()?;
             if miner_data.len() < 32 {
@@ -418,7 +540,7 @@ fn process_withdraw_unified<'a>(
         };
 
         let mut consume_ix_data = [0u8; 65];
-        consume_ix_data[0] = 4; // consume_claim discriminant
+        consume_ix_data[0] = 4;
         consume_ix_data[1..33].copy_from_slice(&miner_authority);
         consume_ix_data[33..65].copy_from_slice(&batch_hash);
 
@@ -447,23 +569,95 @@ fn process_withdraw_unified<'a>(
             ],
             &[],
         )?;
+
+        let registry_data = ctx.registry_pda_info.try_borrow_data()?;
+        if registry_data.len() < 90 {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+        let fee_share_bps = u16::from_le_bytes(
+            registry_data[88..90]
+                .try_into()
+                .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+        );
+        let scrambler = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
+        scrambler_share = Some(scrambler);
+        protocol_share = total_fee - scrambler;
     }
 
-    // Transfer lamports
+    if !is_native_asset {
+        let spl_context = spl_context.expect("spl context must exist for non-native asset");
+
+        let (pool_pda, pool_bump) =
+            pinocchio::pubkey::find_program_address(&[b"pool", mint.as_ref()], &ID);
+        if pool_info.key() != &pool_pda {
+            return Err(ShieldPoolError::BadAccounts.into());
+        }
+
+        let pool_bump_seed = [pool_bump];
+        let pool_seeds = [
+            Seed::from(b"pool".as_ref()),
+            Seed::from(mint.as_ref()),
+            Seed::from(pool_bump_seed.as_ref()),
+        ];
+        let signer = [Signer::from(&pool_seeds)];
+
+        for (i, recipient_account) in recipient_accounts.iter().enumerate() {
+            let (recipient_address, amount) = parsed.recipients[i];
+            if recipient_account.key().as_ref() != &recipient_address {
+                return Err(ShieldPoolError::InvalidRecipient.into());
+            }
+
+            TokenTransfer {
+                from: spl_context.pool_token_account,
+                to: &spl_context.recipient_token_accounts[i],
+                authority: pool_info,
+                amount,
+            }
+            .invoke_signed(&signer)?;
+        }
+
+        TokenTransfer {
+            from: spl_context.pool_token_account,
+            to: spl_context.treasury_token_account,
+            authority: pool_info,
+            amount: protocol_share,
+        }
+        .invoke_signed(&signer)?;
+
+        if let Some(_ctx) = &pow_context {
+            let scrambler_amount =
+                scrambler_share.ok_or(ShieldPoolError::InvalidInstructionData)?;
+            let miner_token_account = spl_context
+                .miner_token_account
+                .ok_or(ShieldPoolError::MissingAccounts)?;
+            if scrambler_amount > 0 {
+                TokenTransfer {
+                    from: spl_context.pool_token_account,
+                    to: miner_token_account,
+                    authority: pool_info,
+                    amount: scrambler_amount,
+                }
+                .invoke_signed(&signer)?;
+            }
+        } else if scrambler_share.is_some() {
+            return Err(ShieldPoolError::InvalidInstructionData.into());
+        }
+
+        return Ok(());
+    }
+
+    if pool_info.lamports() < parsed.public_amount {
+        return Err(ShieldPoolError::InsufficientLamports.into());
+    }
+
     let pool_lamports = pool_info.lamports();
     let treasury_lamports = treasury_info.lamports();
 
     unsafe {
-        // Deduct from pool
-        *pool_info.borrow_mut_lamports_unchecked() =
-            pool_lamports - parsed.public_amount;
+        *pool_info.borrow_mut_lamports_unchecked() = pool_lamports - parsed.public_amount;
 
-        // Transfer to all recipients
-        for i in 0..parsed.num_outputs as usize {
+        for (i, recipient_account) in recipient_accounts.iter().enumerate() {
             let (recipient_address, recipient_amount) = parsed.recipients[i];
-            let recipient_account = &recipient_accounts[i];
-
-            // Verify recipient account matches parsed address
             if recipient_account.key().as_ref() != &recipient_address {
                 return Err(ShieldPoolError::InvalidRecipient.into());
             }
@@ -473,31 +667,17 @@ fn process_withdraw_unified<'a>(
                 recipient_lamports + recipient_amount;
         }
 
-        // Calculate and transfer fees based on mode
         if let Some(ctx) = &pow_context {
-            // PoW mode: split fees between treasury and miner
-            let registry_data = ctx.registry_pda_info.try_borrow_data()?;
-            let fee_share_bps = u16::from_le_bytes(
-                registry_data[88..90]
-                    .try_into()
-                    .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
-            );
-            
-            let scrambler_share = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
-            let protocol_share = total_fee - scrambler_share;
-            
+            let scrambler_amount =
+                scrambler_share.ok_or(ShieldPoolError::InvalidInstructionData)?;
             let miner_lamports = ctx.miner_authority_account.lamports();
-            *treasury_info.borrow_mut_lamports_unchecked() =
-                treasury_lamports + protocol_share;
+            *treasury_info.borrow_mut_lamports_unchecked() = treasury_lamports + protocol_share;
             *ctx.miner_authority_account.borrow_mut_lamports_unchecked() =
-                miner_lamports + scrambler_share;
+                miner_lamports + scrambler_amount;
         } else {
-            // Non-PoW mode: all fees to treasury
-            *treasury_info.borrow_mut_lamports_unchecked() =
-                treasury_lamports + total_fee;
+            *treasury_info.borrow_mut_lamports_unchecked() = treasury_lamports + protocol_share;
         }
     }
 
     Ok(())
 }
-

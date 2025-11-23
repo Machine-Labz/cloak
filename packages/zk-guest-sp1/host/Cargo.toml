@@ -31,4 +31,8 @@ anyhow = { workspace = true }
 bincode = { workspace = true }
 
 [build-dependencies]
-sp1-build = { workspace = true }
+sp1-build = { workspace = true, optional = true }
+
+[features]
+default = ["build-guest"]
+build-guest = ["sp1-build"]

@@ -1,0 +1,5 @@
+# Gitleaks ignore file for false positives
+# Format: fingerprint from gitleaks output
+
+# Solana program ID (public key, not a secret) in test file
+tooling/test/src/prove_test_multiple_outputs.rs:generic-api-key:1260
