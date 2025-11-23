@@ -26,7 +26,6 @@
 ///
 /// Instruction data: [amount: 8][other_amount_threshold: 8][sqrt_price_limit: 16][amount_specified_is_input: 1][a_to_b: 1]
 /// Total: 34 bytes
-
 use crate::error::ShieldPoolError;
 use crate::state::SwapState;
 use crate::ID;
@@ -49,10 +48,7 @@ const ORCA_WHIRLPOOL_PROGRAM: [u8; 32] =
 const TOKEN_PROGRAM: [u8; 32] =
     five8_const::decode_32_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
-pub fn process_execute_swap_via_orca(
-    accounts: &[AccountInfo],
-    data: &[u8],
-) -> ProgramResult {
+pub fn process_execute_swap_via_orca(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     // Validate instruction data length
     if data.len() != SWAP_PARAMS_LEN {
         return Err(ShieldPoolError::InvalidInstructionData.into());

@@ -78,7 +78,10 @@ pub async fn generate_proof(
 
     // Log swap_params presence
     if let Some(ref sp) = request.swap_params {
-        tracing::info!("✅ swap_params is present: {}", serde_json::to_string(sp).unwrap_or_else(|_| "error".to_string()));
+        tracing::info!(
+            "✅ swap_params is present: {}",
+            serde_json::to_string(sp).unwrap_or_else(|_| "error".to_string())
+        );
     } else {
         tracing::info!("⚠️  swap_params is MISSING/None");
     }

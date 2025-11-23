@@ -181,7 +181,7 @@ mod tests {
     fn test_conservation_fee_and_outputs_hash() {
         // amount is note amount; recipient gets amount - fee
         let amount: u64 = 1_000_000_000; // 1 SOL
-        let fee = calculate_fee(amount);
+        let fee = calculate_fee(amount, 9); // SOL has 9 decimals
         let recipient_amount = amount - fee;
         let addr = [0x11u8; 32];
         let (outs, hash) = compute_outputs_single(addr, recipient_amount);
@@ -212,7 +212,7 @@ mod tests {
         let outputs_hash = [0xCCu8; 32];
         let amount = 2_000_000_000u64;
         let (fee, recipient_amount) = compute_fee_and_recipient_amount(amount);
-        assert_eq!(fee, calculate_fee(amount));
+        assert_eq!(fee, calculate_fee(amount, 9)); // SOL has 9 decimals
         assert_eq!(recipient_amount + fee, amount);
 
         let buf = build_public_inputs_104(&root, &nf, &outputs_hash, amount);

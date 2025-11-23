@@ -191,7 +191,7 @@ pub async fn deposit(
     };
 
     let mut tree = state.merkle_tree.lock().await;
-    
+
     if is_existing {
         // Note already exists - just get the current root and return it
         tracing::info!("🌳 Note already in Merkle tree, retrieving current root");

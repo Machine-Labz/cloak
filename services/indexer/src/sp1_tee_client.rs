@@ -105,8 +105,10 @@ impl Sp1TeeClient {
                 }}"#,
                 private_inputs, public_inputs, outputs, sp
             );
-            info!("📋 Combined input WITH swap_params (first 400 chars): {}",
-                  &formatted[..std::cmp::min(400, formatted.len())]);
+            info!(
+                "📋 Combined input WITH swap_params (first 400 chars): {}",
+                &formatted[..std::cmp::min(400, formatted.len())]
+            );
             formatted
         } else {
             let formatted = format!(
@@ -117,8 +119,10 @@ impl Sp1TeeClient {
                 }}"#,
                 private_inputs, public_inputs, outputs
             );
-            info!("📋 Combined input WITHOUT swap_params (first 400 chars): {}",
-                  &formatted[..std::cmp::min(400, formatted.len())]);
+            info!(
+                "📋 Combined input WITHOUT swap_params (first 400 chars): {}",
+                &formatted[..std::cmp::min(400, formatted.len())]
+            );
             formatted
         };
 

@@ -386,7 +386,10 @@ async fn main() -> Result<()> {
 
     let merkle_text = merkle_response.text().await?;
     println!("  🔍 DEBUG: Raw Merkle proof response (first 500 chars):");
-    println!("     {}", &merkle_text[..std::cmp::min(500, merkle_text.len())]);
+    println!(
+        "     {}",
+        &merkle_text[..std::cmp::min(500, merkle_text.len())]
+    );
 
     let proof_response: MerkleProof = serde_json::from_str(&merkle_text)?;
 
@@ -398,7 +401,7 @@ async fn main() -> Result<()> {
     // Step 4.5: Get Jupiter quote for SOL → USDC swap
     println!("\n💱 Step 4.5: Getting Jupiter quote for SOL → USDC swap...");
     let slippage_bps: u16 = 100; // 1%
-    // Calculate total fee: fixed + variable (must match circuit calculation)
+                                 // Calculate total fee: fixed + variable (must match circuit calculation)
     let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (deposit_amount * 5) / 1_000; // 0.5%
     let total_fee = fixed_fee + variable_fee;
@@ -453,12 +456,19 @@ async fn main() -> Result<()> {
 
     println!("  📡 Calling indexer /prove endpoint...");
     println!("  🔍 DEBUG: Prove request structure:");
-    println!("     - private_inputs (first 100 chars): {}",
-        private_inputs.chars().take(100).collect::<String>());
-    println!("     - public_inputs (first 100 chars): {}",
-        public_inputs.chars().take(100).collect::<String>());
+    println!(
+        "     - private_inputs (first 100 chars): {}",
+        private_inputs.chars().take(100).collect::<String>()
+    );
+    println!(
+        "     - public_inputs (first 100 chars): {}",
+        public_inputs.chars().take(100).collect::<String>()
+    );
     println!("     - outputs: {}", outputs_json);
-    println!("     - swap_params: {}", serde_json::to_string_pretty(&swap_params_json)?);
+    println!(
+        "     - swap_params: {}",
+        serde_json::to_string_pretty(&swap_params_json)?
+    );
 
     let prove_response = client
         .post(format!("{}/api/v1/prove", config.indexer_url))
@@ -513,8 +523,7 @@ async fn main() -> Result<()> {
     let effective_fee_bps = if deposit_amount == 0 {
         0u16
     } else {
-        let bps =
-            ((variable_fee.saturating_mul(10_000)) + deposit_amount - 1) / deposit_amount;
+        let bps = ((variable_fee.saturating_mul(10_000)) + deposit_amount - 1) / deposit_amount;
         bps.min(u16::MAX as u64) as u16
     };
 

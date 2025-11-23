@@ -11,15 +11,18 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::program_pack::Pack;
 use solana_sdk::system_instruction;
 use solana_sdk::{
-    pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction,
     instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+    signature::Keypair,
+    signer::Signer,
+    transaction::Transaction,
 };
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
-    check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
-    SOL_TO_LAMPORTS, get_pda_addresses,
+    check_cluster_health, ensure_user_funding, get_pda_addresses, load_keypair, print_config,
+    MerkleProof, TestConfig, SOL_TO_LAMPORTS,
 };
 use tokio::time::timeout;
 use zk_guest_sp1_host::{
@@ -141,9 +144,18 @@ async fn main() -> Result<()> {
             get_pda_addresses(&program_id, &mint);
 
         println!("   - Pool (derived PDA with USDC mint): {}", pool);
-        println!("   - Commitments log (derived PDA with USDC mint): {}", commitments);
-        println!("   - Roots ring (derived PDA with USDC mint): {}", roots_ring);
-        println!("   - Nullifier shard (derived PDA with USDC mint): {}", nullifier_shard);
+        println!(
+            "   - Commitments log (derived PDA with USDC mint): {}",
+            commitments
+        );
+        println!(
+            "   - Roots ring (derived PDA with USDC mint): {}",
+            roots_ring
+        );
+        println!(
+            "   - Nullifier shard (derived PDA with USDC mint): {}",
+            nullifier_shard
+        );
         println!("   - Treasury (derived PDA with USDC mint): {}", treasury);
 
         ProgramAccounts {
@@ -160,7 +172,14 @@ async fn main() -> Result<()> {
 
     // Create token accounts for SPL token
     println!("\n🪙 Step 2: Creating SPL Token Accounts...");
-    let token_accounts = create_token_accounts(&client, &mint, &user_keypair, &recipient_keypair, &admin_keypair).await?;
+    let token_accounts = create_token_accounts(
+        &client,
+        &mint,
+        &user_keypair,
+        &recipient_keypair,
+        &admin_keypair,
+    )
+    .await?;
 
     // Reset indexer and relay databases
     println!("\n🔄 Step 3: Resetting Indexer and Relay Databases...");
@@ -224,12 +243,9 @@ async fn main() -> Result<()> {
 
     // Execute withdraw via relay (with SPL token support)
     println!("\n💸 Step 12: Executing SPL Token Withdraw Transaction via Relay...");
-    let withdraw_signature = execute_spl_withdraw_via_relay(
-        &prove_result,
-        &test_data,
-        &recipient_keypair,
-        &mint,
-    ).await?;
+    let withdraw_signature =
+        execute_spl_withdraw_via_relay(&prove_result, &test_data, &recipient_keypair, &mint)
+            .await?;
 
     // Verify miner reward
     println!("\n⛏️  Verifying Miner Reward...");
@@ -442,7 +458,14 @@ async fn create_token_accounts(
     );
 
     create_accounts_tx.sign(
-        &[&admin_keypair, &user_token_account, &recipient_token_account, &pool_token_account, &treasury_token_account, &miner_token_account],
+        &[
+            &admin_keypair,
+            &user_token_account,
+            &recipient_token_account,
+            &pool_token_account,
+            &treasury_token_account,
+            &miner_token_account,
+        ],
         client.get_latest_blockhash()?,
     );
 
@@ -450,9 +473,15 @@ async fn create_token_accounts(
 
     println!("   ✅ SPL token accounts created successfully");
     println!("   - User token account: {}", user_token_account.pubkey());
-    println!("   - Recipient token account: {}", recipient_token_account.pubkey());
+    println!(
+        "   - Recipient token account: {}",
+        recipient_token_account.pubkey()
+    );
     println!("   - Pool token account: {}", pool_token_account.pubkey());
-    println!("   - Treasury token account: {}", treasury_token_account.pubkey());
+    println!(
+        "   - Treasury token account: {}",
+        treasury_token_account.pubkey()
+    );
     println!("   - Miner token account: {}", miner_token_account.pubkey());
 
     Ok(TokenAccounts {
@@ -521,7 +550,10 @@ fn create_spl_deposit_transaction(
         }
         Err(e) => {
             println!("   ❌ SPL token deposit transaction failed: {}", e);
-            Err(anyhow::anyhow!("SPL token deposit transaction failed: {}", e))
+            Err(anyhow::anyhow!(
+                "SPL token deposit transaction failed: {}",
+                e
+            ))
         }
     }
 }
@@ -535,7 +567,7 @@ fn push_root_to_program_spl(
     admin_keypair: &Keypair,
 ) -> Result<()> {
     let merkle_root_array: [u8; 32] = hex::decode(merkle_root).unwrap().try_into().unwrap();
-    
+
     // Create admin push root instruction with mint
     let admin_push_root_ix = Instruction {
         program_id: *program_id,
@@ -1525,10 +1557,7 @@ fn create_program_accounts_spl(
         Some(&admin_keypair.pubkey()),
     );
 
-    create_accounts_tx.sign(
-        &[&admin_keypair],
-        client.get_latest_blockhash()?,
-    );
+    create_accounts_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
 
     client.send_and_confirm_transaction(&create_accounts_tx)?;
 

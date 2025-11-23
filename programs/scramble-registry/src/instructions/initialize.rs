@@ -121,7 +121,6 @@ pub fn process_initialize_registry_instruction(
         max_k,
     );
 
-
     Ok(())
 }
 
@@ -165,7 +164,6 @@ pub fn process_register_miner_instruction(
 
     // Create PDA account if it doesn't exist
     if miner_account.data_is_empty() {
-
         // Create PDA account via system program CPI
         let bump_ref = &[bump];
         let miner_seeds = seeds!(b"miner", miner_authority.key().as_ref(), bump_ref);
