@@ -58,5 +58,8 @@ pub fn process_instruction(
         ShieldPoolInstruction::ReleaseSwapFunds => {
             release_swap_funds::process_release_swap_funds(accounts)
         }
+        ShieldPoolInstruction::ExecuteSwapViaOrca => {
+            execute_swap_via_orca::process_execute_swap_via_orca(accounts, instruction_data)
+        }
     }
 }
