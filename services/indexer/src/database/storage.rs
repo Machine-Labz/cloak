@@ -46,6 +46,7 @@ impl PostgresTreeStorage {
 
     /// Atomically allocate the next leaf index and store the note
     /// This prevents race conditions when multiple deposits arrive concurrently
+    /// Returns (leaf_index, is_existing) where is_existing is true if the commitment already existed
     pub async fn allocate_and_store_note(
         &self,
         leaf_commit: &str,
@@ -53,11 +54,21 @@ impl PostgresTreeStorage {
         tx_signature: &str,
         slot: i64,
         block_time: Option<DateTime<Utc>>,
-    ) -> Result<i64> {
+    ) -> Result<(i64, bool)> {
         let clean_commit = leaf_commit
             .strip_prefix("0x")
             .unwrap_or(leaf_commit)
             .to_lowercase();
+
+        // Check if commitment already exists (idempotency)
+        if let Some(existing_note) = self.get_note_by_commitment(&clean_commit).await? {
+            tracing::info!(
+                leaf_commit = %clean_commit,
+                leaf_index = existing_note.leaf_index,
+                "Note with this commitment already exists, returning existing leaf_index"
+            );
+            return Ok((existing_note.leaf_index, true));
+        }
 
         let start = std::time::Instant::now();
 
@@ -155,7 +166,7 @@ impl PostgresTreeStorage {
             "Stored note with atomically allocated index"
         );
 
-        Ok(next_index)
+        Ok((next_index, false))
     }
 
     /// Reset the database by clearing all data
@@ -282,6 +293,32 @@ impl PostgresTreeStorage {
             "#
         )
         .bind(leaf_index)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(IndexerError::Database)?;
+
+        let duration = start.elapsed();
+        crate::log_database_operation!("SELECT", "notes", duration.as_millis() as u64);
+
+        Ok(note)
+    }
+
+    /// Get a note by commitment (for idempotency checks)
+    pub async fn get_note_by_commitment(&self, leaf_commit: &str) -> Result<Option<StoredNote>> {
+        let start = std::time::Instant::now();
+        let clean_commit = leaf_commit
+            .strip_prefix("0x")
+            .unwrap_or(leaf_commit)
+            .to_lowercase();
+
+        let note = sqlx::query_as::<_, StoredNote>(
+            r#"
+            SELECT id, leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time, created_at 
+            FROM notes 
+            WHERE leaf_commit = $1
+            "#
+        )
+        .bind(&clean_commit)
         .fetch_optional(&self.pool)
         .await
         .map_err(IndexerError::Database)?;

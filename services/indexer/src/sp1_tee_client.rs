@@ -96,7 +96,7 @@ impl Sp1TeeClient {
 
         // Prepare the combined input, optionally including swap_params
         let combined_input = if let Some(sp) = swap_params {
-            format!(
+            let formatted = format!(
                 r#"{{
                     "private": {},
                     "public": {},
@@ -104,16 +104,22 @@ impl Sp1TeeClient {
                     "swap_params": {}
                 }}"#,
                 private_inputs, public_inputs, outputs, sp
-            )
+            );
+            info!("📋 Combined input WITH swap_params (first 400 chars): {}",
+                  &formatted[..std::cmp::min(400, formatted.len())]);
+            formatted
         } else {
-            format!(
+            let formatted = format!(
                 r#"{{
                     "private": {},
                     "public": {},
                     "outputs": {}
                 }}"#,
                 private_inputs, public_inputs, outputs
-            )
+            );
+            info!("📋 Combined input WITHOUT swap_params (first 400 chars): {}",
+                  &formatted[..std::cmp::min(400, formatted.len())]);
+            formatted
         };
 
         let mut stdin = SP1Stdin::new();

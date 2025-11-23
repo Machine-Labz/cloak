@@ -76,6 +76,13 @@ pub async fn generate_proof(
         "Processing proof generation request"
     );
 
+    // Log swap_params presence
+    if let Some(ref sp) = request.swap_params {
+        tracing::info!("✅ swap_params is present: {}", serde_json::to_string(sp).unwrap_or_else(|_| "error".to_string()));
+    } else {
+        tracing::info!("⚠️  swap_params is MISSING/None");
+    }
+
     let start_time = Instant::now();
 
     // Get client IP for rate limiting (use "unknown" if not available)
