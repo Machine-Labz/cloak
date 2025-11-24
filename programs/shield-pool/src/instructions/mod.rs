@@ -3,6 +3,7 @@ pub mod deposit;
 pub mod execute_swap;
 pub mod execute_swap_via_orca;
 pub mod initialize;
+pub mod prepare_swap_sol;
 pub mod release_swap_funds;
 pub mod withdraw;
 pub mod withdraw_swap;
@@ -19,6 +20,7 @@ pub enum ShieldPoolInstruction {
     ExecuteSwap = 5,
     ReleaseSwapFunds = 6,
     ExecuteSwapViaOrca = 7,
+    PrepareSwapSol = 8,
 }
 
 impl TryFrom<&u8> for ShieldPoolInstruction {
@@ -34,6 +36,7 @@ impl TryFrom<&u8> for ShieldPoolInstruction {
             5 => Ok(Self::ExecuteSwap),
             6 => Ok(Self::ReleaseSwapFunds),
             7 => Ok(Self::ExecuteSwapViaOrca),
+            8 => Ok(Self::PrepareSwapSol),
             _ => Err(ShieldPoolError::InvalidTag.into()),
         }
     }

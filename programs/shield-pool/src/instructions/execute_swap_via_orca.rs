@@ -1,17 +1,13 @@
 /// ExecuteSwapViaOrca instruction - Atomic on-chain swap via Orca Whirlpool CPI
 ///
-/// This instruction:
-/// 1. Loads SwapState PDA (holds SOL to swap)
-/// 2. Wraps SOL → wSOL via Token Program
-/// 3. Performs atomic Orca Whirlpool swap CPI
-/// 4. Output goes directly to user's recipient_ata
-/// 5. Closes SwapState PDA and returns rent
+/// **Prerequisites**: wSOL must already be in swap_wsol_ata (call PrepareSwapSol first).
 ///
-/// NO CUSTODIAL WINDOW - Everything is atomic!
+/// This instruction only performs the Orca swap CPI. It does NOT transfer SOL or wrap it.
+/// The PrepareSwapSol instruction must be called first to wrap SOL → wSOL.
 ///
 /// Account layout:
-/// 0. swap_state_pda (writable) - Holds SOL, signs for swap
-/// 1. swap_wsol_ata (writable) - wSOL ATA owned by swap_state_pda
+/// 0. swap_state_pda (writable, signer) - PDA that signs for the swap (closed after swap)
+/// 1. swap_wsol_ata (writable) - wSOL ATA (must have wSOL tokens already)
 /// 2. recipient_ata (writable) - Output token ATA (from SwapState)
 /// 3. whirlpool (writable) - Orca Whirlpool pool
 /// 4. token_vault_a (writable) - Pool's wSOL vault
@@ -22,7 +18,7 @@
 /// 9. oracle (readonly) - Whirlpool oracle PDA
 /// 10. token_program (readonly) - SPL Token program
 /// 11. whirlpool_program (readonly) - Orca Whirlpool program
-/// 12. payer (signer, writable) - Receives rent refund from closing SwapState
+/// 12. payer (writable, signer) - Receives rent from closing SwapState
 ///
 /// Instruction data: [amount: 8][other_amount_threshold: 8][sqrt_price_limit: 16][amount_specified_is_input: 1][a_to_b: 1]
 /// Total: 34 bytes
@@ -48,61 +44,88 @@ const ORCA_WHIRLPOOL_PROGRAM: [u8; 32] =
 const TOKEN_PROGRAM: [u8; 32] =
     five8_const::decode_32_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
-pub fn process_execute_swap_via_orca(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    // Validate instruction data length
-    if data.len() != SWAP_PARAMS_LEN {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+pub fn process_execute_swap_via_orca(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    // Parse swap parameters
+    if data.len() < SWAP_PARAMS_LEN {
+        return Err(ProgramError::InvalidInstructionData);
     }
 
-    // Parse swap parameters from instruction data
     let amount = u64::from_le_bytes(
-        data[0..8]
+        data.get(0..8)
+            .ok_or(ProgramError::InvalidInstructionData)?
             .try_into()
-            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+            .unwrap(),
     );
     let other_amount_threshold = u64::from_le_bytes(
-        data[8..16]
+        data.get(8..16)
+            .ok_or(ProgramError::InvalidInstructionData)?
             .try_into()
-            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+            .unwrap(),
     );
     let sqrt_price_limit = u128::from_le_bytes(
-        data[16..32]
+        data.get(16..32)
+            .ok_or(ProgramError::InvalidInstructionData)?
             .try_into()
-            .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
+            .unwrap(),
     );
-    let amount_specified_is_input = data[32] == 1;
-    let a_to_b = data[33] == 1;
+    let amount_specified_is_input = *data
+        .get(32)
+        .ok_or(ProgramError::InvalidInstructionData)?
+        == 1;
+    let a_to_b = *data
+        .get(33)
+        .ok_or(ProgramError::InvalidInstructionData)?
+        == 1;
 
-    // Parse accounts
+    // Parse accounts (12 accounts now, removed system_program and payer)
     let [swap_state_info, swap_wsol_ata_info, recipient_ata_info, whirlpool_info, token_vault_a_info, token_vault_b_info, tick_array_0_info, tick_array_1_info, tick_array_2_info, oracle_info, token_program_info, whirlpool_program_info, payer_info] =
         accounts
     else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
-    // Verify SwapState PDA ownership
-    let swap_state = SwapState::from_account_info(swap_state_info)?;
-
-    // Derive SwapState PDA to verify and get seeds
-    let nullifier = swap_state.nullifier();
-    let bump = swap_state.bump();
-    let (expected_swap_state, _) =
-        pinocchio::pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier], &ID);
-
-    if swap_state_info.key() != &expected_swap_state {
-        return Err(ShieldPoolError::InvalidAccountAddress.into());
-    }
-
-    // Verify token programs
+    // Verify Token Program
     if token_program_info.key() != &Pubkey::from(TOKEN_PROGRAM) {
         return Err(ShieldPoolError::InvalidAccountAddress.into());
     }
 
+    // Verify Orca Whirlpool Program
     if whirlpool_program_info.key() != &Pubkey::from(ORCA_WHIRLPOOL_PROGRAM) {
         return Err(ShieldPoolError::InvalidAccountAddress.into());
     }
 
-    // Prepare PDA signer seeds for all CPIs
+    // Verify writable accounts
+    if !swap_wsol_ata_info.is_writable()
+        || !recipient_ata_info.is_writable()
+        || !whirlpool_info.is_writable()
+        || !token_vault_a_info.is_writable()
+        || !token_vault_b_info.is_writable()
+        || !tick_array_0_info.is_writable()
+        || !tick_array_1_info.is_writable()
+        || !tick_array_2_info.is_writable()
+    {
+        return Err(ShieldPoolError::BadAccounts.into());
+    }
+
+    // Read SwapState to get nullifier for PDA derivation
+    let swap_state = SwapState::from_account_info(swap_state_info)?;
+    let nullifier = swap_state.nullifier();
+
+    // Derive and verify SwapState PDA
+    let (expected_swap_state_pda, bump) = pinocchio::pubkey::find_program_address(
+        &[SwapState::SEED_PREFIX, &nullifier],
+        &ID,
+    );
+
+    if swap_state_info.key() != &expected_swap_state_pda {
+        return Err(ShieldPoolError::InvalidAccountAddress.into());
+    }
+
+    // Prepare signer seeds for CPI
     let bump_bytes = [bump];
     let seeds = [
         Seed::from(SwapState::SEED_PREFIX),
@@ -110,38 +133,7 @@ pub fn process_execute_swap_via_orca(accounts: &[AccountInfo], data: &[u8]) -> P
         Seed::from(bump_bytes.as_ref()),
     ];
 
-    // Step 1: Transfer SOL from SwapState PDA to wSOL ATA
-    // This prepares the lamports for wrapping to wSOL
-    let sol_amount = swap_state.sol_amount();
-
-    unsafe {
-        let swap_state_lamports = swap_state_info.lamports();
-        let wsol_ata_lamports = swap_wsol_ata_info.lamports();
-        let rent_to_keep = swap_state_lamports - sol_amount;
-
-        *swap_state_info.borrow_mut_lamports_unchecked() = rent_to_keep;
-        *swap_wsol_ata_info.borrow_mut_lamports_unchecked() = wsol_ata_lamports + sol_amount;
-    }
-
-    // Step 2: Sync native - Convert lamports to wSOL tokens
-    let sync_native_data = [17u8]; // SyncNative instruction discriminator
-    let sync_native_accounts = [AccountMeta {
-        pubkey: swap_wsol_ata_info.key(),
-        is_signer: false,
-        is_writable: true,
-    }];
-
-    invoke_signed(
-        &Instruction {
-            program_id: token_program_info.key(),
-            accounts: &sync_native_accounts,
-            data: &sync_native_data,
-        },
-        &[swap_wsol_ata_info, token_program_info],
-        &[Signer::from(&seeds)],
-    )?;
-
-    // Step 3: Build Orca Whirlpool swap instruction
+    // Build Orca Whirlpool swap instruction
     // Discriminator for Orca swap instruction (Anchor)
     let swap_discriminator = [0xf8, 0xc6, 0x9e, 0x91, 0xe1, 0x75, 0x87, 0xc8];
 
@@ -228,7 +220,7 @@ pub fn process_execute_swap_via_orca(accounts: &[AccountInfo], data: &[u8]) -> P
         whirlpool_program_info, // Orca program for CPI
     ];
 
-    // Step 4: Execute Orca swap CPI - Output goes directly to user!
+    // Execute Orca swap CPI - Output goes directly to user!
     invoke_signed(
         &Instruction {
             program_id: whirlpool_program_info.key(),
@@ -239,20 +231,20 @@ pub fn process_execute_swap_via_orca(accounts: &[AccountInfo], data: &[u8]) -> P
         &[Signer::from(&seeds)],
     )?;
 
-    // Step 5: Close SwapState PDA and return rent to payer
+    // Step 2: Close SwapState PDA and return rent to payer
+    // This prevents retries and recovers the rent-exempt lamports
     let swap_state_lamports = swap_state_info.lamports();
     let payer_lamports = payer_info.lamports();
-
+    
+    // Transfer all lamports from SwapState to payer (closing the account)
     unsafe {
         *swap_state_info.borrow_mut_lamports_unchecked() = 0;
         *payer_info.borrow_mut_lamports_unchecked() = payer_lamports + swap_state_lamports;
     }
-
-    // Zero out SwapState data to mark as closed
-    unsafe {
-        let data = swap_state_info.borrow_mut_data_unchecked();
-        data.fill(0);
-    }
+    
+    // Clear the SwapState data to mark it as closed
+    let mut swap_state_data = swap_state_info.try_borrow_mut_data()?;
+    swap_state_data.fill(0);
 
     Ok(())
 }
