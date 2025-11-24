@@ -7,10 +7,8 @@ pub mod transaction_builder;
 use async_trait::async_trait;
 use base64;
 use hex;
-use shield_pool::state::SwapState;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
-    message::Message,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
     transaction::Transaction,
@@ -334,6 +332,18 @@ impl SolanaService {
         );
         info!("🌊 Using Orca Whirlpool CPI for atomic on-chain swap");
 
+        // Check swap state:
+        // 1. If nullifier is already used on-chain → swap fully completed, return success
+        // 2. If SwapState PDA exists → TX1 done, proceed to TX2
+        // 3. If neither → start from TX1
+        
+        // First check if nullifier is already used (swap fully completed)
+        if self.check_nullifier_exists(&nullifier).await? {
+            info!("✅ Nullifier already used on-chain - swap fully completed");
+            // Return a dummy signature since we can't retrieve the original
+            return Ok(Signature::default());
+        }
+
         // Check if TX1 (WithdrawSwap) was already completed
         // If SwapState PDA exists, TX1 is done and we can skip to TX2
         let tx1_already_done = match self.check_swap_state_exists(&nullifier).await {
@@ -385,77 +395,17 @@ impl SolanaService {
             info!("✓ WithdrawSwap confirmed: {}", withdraw_sig);
         }
 
-        // TX2: ReleaseSwapFunds - get SOL from SwapState PDA
-        // Check if SwapState PDA still has lamports to release (idempotency check)
-        match self.client.get_account(&swap_state_pda).await {
-            Ok(swap_state_account) => {
-                let rent_exempt = self
-                    .client
-                    .get_minimum_balance_for_rent_exemption(SwapState::SIZE)
-                    .await?;
-
-                if swap_state_account.lamports > rent_exempt + 1_000_000 {
-                    // SwapState has significant lamports beyond rent-exempt, proceed with release
-                    info!("Releasing swap funds from SwapState PDA...");
-                    let release_ix = transaction_builder::build_release_swap_funds_instruction(
-                        self.program_id,
-                        swap_state_pda,
-                        relay_pubkey,
-                    );
-                    let release_blockhash = self.client.get_latest_blockhash().await?;
-                    let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
-                    release_msg.recent_blockhash = release_blockhash;
-                    let mut release_tx = Transaction::new_unsigned(release_msg);
-                    release_tx.sign(&[relay_keypair], release_blockhash);
-                    let release_sig = self
-                        .client
-                        .send_and_confirm_transaction(&release_tx)
-                        .await?;
-                    info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
-                } else {
-                    info!("✓ SwapState PDA already released (lamports: {}, rent-exempt: {}), skipping TX2",
-                        swap_state_account.lamports, rent_exempt);
-                }
-            }
-            Err(e) => {
-                warn!("⚠️ Could not check SwapState PDA balance: {}, proceeding with ReleaseSwapFunds", e);
-                // If we can't check, try anyway (will fail with InsufficientLamports if already released)
-                info!("Releasing swap funds from SwapState PDA...");
-                let release_ix = transaction_builder::build_release_swap_funds_instruction(
-                    self.program_id,
-                    swap_state_pda,
-                    relay_pubkey,
-                );
-                let release_blockhash = self.client.get_latest_blockhash().await?;
-                let mut release_msg = Message::new(&[release_ix], Some(&relay_pubkey));
-                release_msg.recent_blockhash = release_blockhash;
-                let mut release_tx = Transaction::new_unsigned(release_msg);
-                release_tx.sign(&[relay_keypair], release_blockhash);
-                let release_sig = self
-                    .client
-                    .send_and_confirm_transaction(&release_tx)
-                    .await?;
-                info!("✓ ReleaseSwapFunds confirmed: {}", release_sig);
-            }
-        }
-
-        // TX3: Relay performs OFF-CHAIN swap using Jupiter/Orca SDK
-        // Note: After WithdrawSwap, the swap amount is already the user's amount (public_amount)
-        // which includes the protocol fee deduction
+        // TX2: ExecuteSwapViaOrca - Atomic on-chain CPI swap directly to recipient
+        // This replaces the old flow: ReleaseSwapFunds → off-chain swap → ExecuteSwap
+        // The swap happens atomically via CPI, and the program handles everything
+        // Apply additional slippage tolerance for devnet pools (they have poor liquidity)
+        // Use 50% of the expected output as minimum to account for devnet pool imbalances
+        let adjusted_min_output = min_output_amount / 2;
+        
         info!(
-            "🔄 Relay executing OFF-CHAIN swap: {} lamports SOL → minimum {} tokens of {}",
-            public_amount, min_output_amount, output_mint
+            "🔄 Executing ON-CHAIN CPI swap: {} lamports SOL → minimum {} tokens of {} (adjusted from {} for devnet)",
+            public_amount, adjusted_min_output, output_mint, min_output_amount
         );
-
-        // Ensure relay has an ATA for the output token
-        swap::ensure_ata_exists(
-            self.client.as_ref(),
-            &relay_pubkey,
-            &output_mint,
-            relay_keypair,
-        )
-        .await
-        .map_err(|e| Error::InternalServerError(e.to_string()))?;
 
         // Ensure recipient has an ATA for the output token (relay pays for creation)
         swap::ensure_ata_exists(
@@ -467,38 +417,203 @@ impl SolanaService {
         .await
         .map_err(|e| Error::InternalServerError(e.to_string()))?;
 
-        // Perform the swap (tries Jupiter first, falls back to Orca)
-        let swap_signature = swap::perform_swap(
+        // Get Orca pool information and build ExecuteSwapViaOrca instruction
+        let wsol_mint = Pubkey::from_str("So11111111111111111111111111111111111111112")
+            .map_err(|e| Error::InternalServerError(format!("Invalid wSOL mint: {}", e)))?;
+        
+        use orca_whirlpools_client::{get_whirlpool_address, get_oracle_address, get_tick_array_address, Whirlpool};
+        use orca_whirlpools_core::get_tick_array_start_tick_index;
+        use std::str::FromStr;
+
+        // Orca Whirlpool config on devnet
+        let whirlpool_config = Pubkey::from_str("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR")
+            .map_err(|e| Error::InternalServerError(format!("Invalid whirlpool config: {}", e)))?;
+
+        // Ensure wSOL ATA exists for SwapState PDA (relay pays for creation) - do this ONCE before loop
+        let swap_wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+        swap::ensure_ata_exists(
             self.client.as_ref(),
+            &swap_state_pda,
+            &wsol_mint,
             relay_keypair,
-            public_amount,
-            output_mint,
-            min_output_amount,
-            recipient_ata,
         )
         .await
-        .map_err(|e| Error::InternalServerError(e.to_string()))?;
+        .map_err(|e| Error::InternalServerError(format!("Failed to create wSOL ATA: {}", e)))?;
 
-        info!("✓ Token swap completed: {}", swap_signature);
-
-        // TX4: ExecuteSwap — verify min output and close SwapState PDA
-        let exec_ix = transaction_builder::build_execute_swap_instruction(
+        // Check if PrepareSwapSol + SyncNative were already called by checking wSOL ATA token balance
+        // If wSOL ATA has tokens, wrapping is complete; otherwise we need to prepare
+        let wsol_ata_account = self.client.get_account(&swap_wsol_ata).await?;
+        let wsol_token_amount = if wsol_ata_account.data.len() >= 72 {
+            u64::from_le_bytes(
+                wsol_ata_account.data[64..72]
+                    .try_into()
+                    .unwrap_or([0u8; 8])
+            )
+        } else {
+            0
+        };
+        
+        info!("📊 wSOL ATA token balance: {} wSOL", wsol_token_amount);
+        let needs_prepare = wsol_token_amount == 0;
+        info!("🔍 needs_prepare = {} (wSOL tokens: {})", needs_prepare, wsol_token_amount);
+        
+        if needs_prepare {
+            // Step 1a: PrepareSwapSol - Transfer SOL from SwapState to wSOL ATA
+            info!("Step 1a/3: Transferring SOL from SwapState to wSOL ATA...");
+            let prepare_ix = transaction_builder::build_prepare_swap_sol_instruction(
             self.program_id,
             nullifier,
-            swap_state_pda,
-            recipient_ata,
-            relay_pubkey,
-        );
-        let recent2 = self.client.get_latest_blockhash().await?;
-        let mut msg2 = Message::new(&[exec_ix], Some(&relay_pubkey));
-        msg2.recent_blockhash = recent2;
-        let mut exec_tx = Transaction::new_unsigned(msg2);
-        let bh2 = exec_tx.message.recent_blockhash;
-        exec_tx.sign(&[relay_keypair], bh2);
-        let exec_sig = self.client.send_and_confirm_transaction(&exec_tx).await?;
-        info!("✓ ExecuteSwap confirmed: {}", exec_sig);
+            )?;
 
-        Ok(exec_sig)
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut prepare_tx = Transaction::new_with_payer(&[prepare_ix], Some(&relay_pubkey));
+            prepare_tx.sign(&[relay_keypair], recent);
+
+            self.client.send_and_confirm_transaction(&prepare_tx).await
+                .map_err(|e| Error::InternalServerError(format!("PrepareSwapSol failed: {}", e)))?;
+            info!("✓ PrepareSwapSol confirmed");
+
+            // Step 1b: SyncNative - Wrap SOL → wSOL
+            info!("Step 1b/3: Wrapping SOL to wSOL (SyncNative)...");
+            
+            let sync_native_ix = spl_token::instruction::sync_native(&spl_token::id(), &swap_wsol_ata)
+                .map_err(|e| Error::InternalServerError(format!("Failed to create sync_native: {}", e)))?;
+
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut sync_tx = Transaction::new_with_payer(&[sync_native_ix], Some(&relay_pubkey));
+            sync_tx.sign(&[relay_keypair], recent);
+
+            self.client.send_and_confirm_transaction(&sync_tx).await
+                .map_err(|e| Error::InternalServerError(format!("SyncNative failed: {}", e)))?;
+            info!("✓ SyncNative confirmed");
+        } else {
+            info!("✓ SwapState already prepared (lamports drained), skipping PrepareSwapSol and SyncNative");
+        }
+
+        // Try multiple tick spacings until we find a pool that works
+        let tick_spacings = vec![64, 8, 128, 1];
+        let mut swap_sig: Option<Signature> = None;
+
+        for tick_spacing in tick_spacings {
+            info!("  Trying tick spacing {}...", tick_spacing);
+
+            // Get whirlpool address for this tick spacing
+            let (whirlpool_address, _) =
+                get_whirlpool_address(&whirlpool_config, &wsol_mint, &output_mint, tick_spacing)
+                    .map_err(|e| {
+                        warn!("  Failed to derive whirlpool address: {:?}", e);
+                        Error::InternalServerError(format!(
+                            "Failed to derive whirlpool address: {:?}",
+                            e
+                        ))
+                    })?;
+
+            // Check if pool exists by fetching it
+            let whirlpool_account = match self.client.get_account(&whirlpool_address).await {
+                Ok(acc) => acc,
+                Err(_) => {
+                    warn!("  Pool not found for tick spacing {}", tick_spacing);
+                    continue; // Try next tick spacing
+                }
+            };
+
+            // Deserialize to get the actual tick_spacing from the pool
+            let whirlpool_data = match Whirlpool::from_bytes(&whirlpool_account.data) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("  Failed to parse whirlpool data: {:?}", e);
+                    continue;
+                }
+            };
+
+            // Use the pool's actual tick spacing
+            let actual_tick_spacing = whirlpool_data.tick_spacing;
+            info!(
+                "  Found pool with actual tick spacing: {}",
+                actual_tick_spacing
+            );
+
+            // Determine swap direction
+            let a_to_b = whirlpool_data.token_mint_a.to_bytes() == wsol_mint.to_bytes();
+            let sqrt_price_limit = if a_to_b { 4295048016 } else { u128::MAX };
+
+            // Get oracle address
+            let (oracle_address, _) = get_oracle_address(&whirlpool_address)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive oracle: {:?}", e)))?;
+
+            // Get tick arrays
+            let tick_current = whirlpool_data.tick_current_index;
+            const TICK_ARRAY_SIZE: i32 = 88;
+            let tick_array_spacing = TICK_ARRAY_SIZE * (actual_tick_spacing as i32);
+            let start_tick_index_0 = get_tick_array_start_tick_index(tick_current, actual_tick_spacing);
+            let start_tick_index_1 = if a_to_b {
+                start_tick_index_0 - tick_array_spacing
+            } else {
+                start_tick_index_0 + tick_array_spacing
+            };
+            let start_tick_index_2 = if a_to_b {
+                start_tick_index_0 - tick_array_spacing * 2
+            } else {
+                start_tick_index_0 + tick_array_spacing * 2
+            };
+
+            let (tick_array_0, _) = get_tick_array_address(&whirlpool_address, start_tick_index_0)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e)))?;
+            let (tick_array_1, _) = get_tick_array_address(&whirlpool_address, start_tick_index_1)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e)))?;
+            let (tick_array_2, _) = get_tick_array_address(&whirlpool_address, start_tick_index_2)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e)))?;
+
+            // Step 2: Build and submit ExecuteSwapViaOrca instruction
+            // This performs the actual Orca swap CPI
+            // Note: actual amount is public_amount - fee (0.5%), which is what was transferred to wSOL ATA
+            let variable_fee = (public_amount * 5) / 1_000;
+            let actual_swap_amount = public_amount - variable_fee;
+            
+            info!("Step 2/3: Executing Orca swap CPI (tick spacing {}, amount: {} wSOL)...", actual_tick_spacing, actual_swap_amount);
+            let swap_ix = transaction_builder::build_execute_swap_via_orca_instruction(
+            self.program_id,
+                    nullifier,
+                    recipient_ata,
+                    actual_swap_amount, // Use actual amount after fee
+                    adjusted_min_output,  // Use adjusted minimum for devnet liquidity
+                    sqrt_price_limit,
+                true, // amount_specified_is_input
+                a_to_b,
+                whirlpool_address,
+                Pubkey::new_from_array(whirlpool_data.token_vault_a.to_bytes()),
+                Pubkey::new_from_array(whirlpool_data.token_vault_b.to_bytes()),
+                tick_array_0,
+                tick_array_1,
+                tick_array_2,
+                oracle_address,
+                relay_pubkey,  // Payer account (receives rent from closing SwapState)
+            )?;
+
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut swap_tx = Transaction::new_with_payer(&[swap_ix], Some(&relay_pubkey));
+            swap_tx.sign(&[relay_keypair], recent);
+            
+            match self.client.send_and_confirm_transaction(&swap_tx).await {
+                Ok(sig) => {
+                    info!("✓ ExecuteSwapViaOrca confirmed: {}", sig);
+                    swap_sig = Some(sig);
+                    break; // Success, exit loop
+                }
+                Err(e) => {
+                    warn!("  ❌ ExecuteSwapViaOrca failed for tick spacing {}: {}", actual_tick_spacing, e);
+                    continue; // Try next tick spacing
+                }
+            }
+        }
+
+        let signature = swap_sig.ok_or_else(|| {
+            Error::InternalServerError(
+                "All Orca pools failed. Devnet pools may be too imbalanced.".to_string(),
+            )
+        })?;
+
+        Ok(signature)
     }
 
     /// Build withdraw transaction using the canonical shield-pool layout and PDAs

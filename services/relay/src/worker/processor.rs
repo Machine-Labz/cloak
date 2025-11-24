@@ -219,7 +219,23 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                                     job_id
                                 );
                                 // PDA doesn't exist = swap completed successfully
-                                // Fall through to mark as completed
+                                // Mark as completed immediately and return to prevent retry
+                                if let Err(e) = state
+                                    .job_repo
+                                    .update_job_status(job_id, JobStatus::Completed)
+                                    .await
+                                {
+                                    error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                                }
+                                // Store nullifier to prevent double-spending
+                                if let Err(e) = state
+                                    .nullifier_repo
+                                    .create_nullifier(job.nullifier.clone(), job_id)
+                                    .await
+                                {
+                                    tracing::debug!("Nullifier storage: {}", e);
+                                }
+                                return Ok(());
                             }
                             Err(e) => {
                                 warn!("⚠️  Job {} - Failed to check SwapState PDA: {}", job_id, e);

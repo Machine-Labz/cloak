@@ -1053,16 +1053,11 @@ pub fn build_fund_wsol_instruction(
     }
 }
 
-// ============================================================================
-// ORCA SWAP INSTRUCTION
-// ============================================================================
+// REMOVED: build_orca_swap_instruction - replaced by build_execute_swap_via_orca_instruction
 
-/// Build OrcaSwap instruction to execute on-chain swap via Orca Whirlpool CPI
-///
-/// This instruction swaps SOL → output token using Orca's concentrated liquidity pools
-///
-/// Instruction data: [discriminator:1][amount:8][other_amount_threshold:8][sqrt_price_limit:16]
-pub fn build_orca_swap_instruction(
+// Commented out unused function - kept for reference
+#[allow(dead_code)]
+fn _build_orca_swap_instruction_old(
     program_id: Pubkey,
     nullifier: [u8; 32],
     amount: u64,
@@ -1145,20 +1140,65 @@ pub fn build_orca_swap_instruction(
     data.extend_from_slice(&min_output_amount.to_le_bytes());
     data.extend_from_slice(&0u128.to_le_bytes()); // sqrt_price_limit = 0 (no limit)
 
-    // Build accounts
+    // Orca Whirlpool Program ID (same for mainnet & devnet)
+    let whirlpool_program = solana_sdk::pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+
+    // Build accounts (old version without payer - function is deprecated)
     let accounts = vec![
-        AccountMeta::new(swap_state_pda, false),
-        AccountMeta::new(wsol_ata, false),
-        AccountMeta::new(recipient_ata, false),
-        AccountMeta::new(whirlpool_pda, false),
-        AccountMeta::new(vault_a, false),
-        AccountMeta::new(vault_b, false),
-        AccountMeta::new(tick_array_0, false),
-        AccountMeta::new(tick_array_1, false),
-        AccountMeta::new(tick_array_2, false),
-        AccountMeta::new_readonly(oracle, false),
-        AccountMeta::new_readonly(spl_token::id(), false),
-        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new(swap_state_pda, false),                 // 0. swap_state_pda (writable)
+        AccountMeta::new(wsol_ata, false),                       // 1. swap_wsol_ata (writable)
+        AccountMeta::new(recipient_ata, false),                  // 2. recipient_ata (writable)
+        AccountMeta::new(whirlpool_pda, false),                  // 3. whirlpool (writable)
+        AccountMeta::new(vault_a, false),                        // 4. token_vault_a (writable)
+        AccountMeta::new(vault_b, false),                        // 5. token_vault_b (writable)
+        AccountMeta::new(tick_array_0, false),                   // 6. tick_array_0 (writable)
+        AccountMeta::new(tick_array_1, false),                   // 7. tick_array_1 (writable)
+        AccountMeta::new(tick_array_2, false),                   // 8. tick_array_2 (writable)
+        AccountMeta::new_readonly(oracle, false),                // 9. oracle (readonly)
+        AccountMeta::new_readonly(spl_token::id(), false),       // 10. token_program (readonly)
+        AccountMeta::new_readonly(whirlpool_program, false),     // 11. whirlpool_program (readonly)
+    ];
+
+    Ok(Instruction {
+        program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Build PrepareSwapSol instruction - Transfer SOL from SwapState to wSOL ATA
+///
+/// This instruction only transfers lamports (no CPIs). The relay must call
+/// SyncNative separately to wrap SOL → wSOL.
+///
+/// Instruction discriminator: 8 (PrepareSwapSol)
+///
+/// # Arguments
+/// * `program_id` - Shield pool program ID
+/// * `nullifier` - Nullifier to derive SwapState PDA
+///
+/// # Returns
+/// * `Instruction` - PrepareSwapSol instruction
+pub fn build_prepare_swap_sol_instruction(
+    program_id: Pubkey,
+    nullifier: [u8; 32],
+) -> Result<Instruction, Error> {
+    // Derive SwapState PDA
+    let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
+
+    // Native SOL mint (wrapped SOL)
+    let wsol_mint = solana_sdk::pubkey!("So11111111111111111111111111111111111111112");
+
+    // Derive wSOL ATA for SwapState PDA
+    let swap_wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+
+    // Build instruction data: just the discriminator (no additional data needed)
+    let data = vec![8u8]; // PrepareSwapSol discriminator (ShieldPoolInstruction::PrepareSwapSol = 8)
+
+    // Build accounts (order must match program's expected account order)
+    let accounts = vec![
+        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable)
+        AccountMeta::new(swap_wsol_ata, false),  // 1. swap_wsol_ata (writable)
     ];
 
     Ok(Instruction {
@@ -1170,16 +1210,15 @@ pub fn build_orca_swap_instruction(
 
 /// Build ExecuteSwapViaOrca instruction - Atomic on-chain swap via Orca Whirlpool CPI
 ///
-/// This instruction replaces the semi-custodial flow (ReleaseSwapFunds → Jupiter → ExecuteSwap)
-/// with a single atomic on-chain swap via Orca CPI.
+/// **Prerequisites**: wSOL must already be in swap_wsol_ata (call PrepareSwapSol first).
+/// This instruction only performs the Orca swap CPI.
 ///
-/// Instruction discriminator: 8
+/// Instruction discriminator: 7 (ExecuteSwapViaOrca)
 ///
 /// # Arguments
 /// * `program_id` - Shield-pool program ID
 /// * `nullifier` - Nullifier used to derive SwapState PDA
 /// * `recipient_ata` - User's output token ATA (from SwapState)
-/// * `payer` - Transaction payer (receives rent refund)
 /// * `amount` - Amount of wSOL to swap (from Orca quote)
 /// * `other_amount_threshold` - Minimum output amount (from Orca quote)
 /// * `sqrt_price_limit` - Price limit (from Orca quote)
@@ -1196,7 +1235,6 @@ pub fn build_execute_swap_via_orca_instruction(
     program_id: Pubkey,
     nullifier: [u8; 32],
     recipient_ata: Pubkey,
-    payer: Pubkey,
     // Orca swap quote parameters
     amount: u64,
     other_amount_threshold: u64,
@@ -1211,6 +1249,7 @@ pub fn build_execute_swap_via_orca_instruction(
     tick_array_1: Pubkey,
     tick_array_2: Pubkey,
     oracle: Pubkey,
+    payer: Pubkey,  // Payer account (receives rent from closing SwapState)
 ) -> Result<Instruction, Error> {
     // Derive SwapState PDA
     let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
@@ -1231,7 +1270,7 @@ pub fn build_execute_swap_via_orca_instruction(
     //                          [sqrt_price_limit: 16][amount_specified_is_input: 1][a_to_b: 1]
     // Total: 35 bytes
     let mut data = Vec::with_capacity(35);
-    data.push(8u8); // ExecuteSwapViaOrca discriminator
+    data.push(7u8); // ExecuteSwapViaOrca discriminator (matches ShieldPoolInstruction::ExecuteSwapViaOrca = 7)
     data.extend_from_slice(&amount.to_le_bytes());
     data.extend_from_slice(&other_amount_threshold.to_le_bytes());
     data.extend_from_slice(&sqrt_price_limit.to_le_bytes());
@@ -1239,8 +1278,9 @@ pub fn build_execute_swap_via_orca_instruction(
     data.push(if a_to_b { 1 } else { 0 });
 
     // Build accounts (order must match program's expected account order)
+    // Note: payer is needed to receive rent when SwapState is closed after swap
     let accounts = vec![
-        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable)
+        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable, closed after swap)
         AccountMeta::new(swap_wsol_ata, false),  // 1. swap_wsol_ata (writable)
         AccountMeta::new(recipient_ata, false),  // 2. recipient_ata (writable)
         AccountMeta::new(whirlpool, false),      // 3. whirlpool (writable)
@@ -1250,9 +1290,9 @@ pub fn build_execute_swap_via_orca_instruction(
         AccountMeta::new(tick_array_1, false),   // 7. tick_array_1 (writable)
         AccountMeta::new(tick_array_2, false),   // 8. tick_array_2 (writable)
         AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
-        AccountMeta::new_readonly(token_program_id, false), // 10. token_program
-        AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program
-        AccountMeta::new(payer, true),           // 12. payer (signer, writable)
+        AccountMeta::new_readonly(token_program_id, false), // 10. token_program (readonly)
+        AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program (readonly)
+        AccountMeta::new(payer, false),          // 12. payer (writable) - receives rent from closing SwapState
     ];
 
     Ok(Instruction {

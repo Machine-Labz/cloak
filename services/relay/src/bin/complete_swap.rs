@@ -165,7 +165,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to execute ExecuteSwap: {}", e))?;
 
     println!("   ✅ ExecuteSwap completed: {}", exec_sig);
-    println!("   View: https://solscan.io/tx/{}?cluster=devnet", exec_sig);
+    println!("   View: https://orb.helius.dev/tx/{}?cluster=devnet", exec_sig);
     println!();
 
     // Verify PDA is closed

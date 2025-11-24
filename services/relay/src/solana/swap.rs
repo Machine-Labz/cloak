@@ -313,7 +313,9 @@ async fn perform_jupiter_swap(
 
     info!("  Token transfer confirmed: {}", transfer_sig);
 
-    Ok(signature.to_string())
+    // Return the transfer signature since that's the transaction that actually changes
+    // the recipient's USDC balance
+    Ok(transfer_sig.to_string())
 }
 
 async fn perform_orca_swap(
@@ -598,7 +600,9 @@ async fn perform_orca_swap_with_pool(
 
     info!("  Token transfer to recipient confirmed: {}", transfer_sig);
 
-    Ok(signature.to_string())
+    // Return the transfer signature since that's the transaction that actually changes
+    // the recipient's USDC balance
+    Ok(transfer_sig.to_string())
 }
 
 /// Wrap SOL to wSOL in the relay's ATA
