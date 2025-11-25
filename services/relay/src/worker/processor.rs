@@ -12,20 +12,37 @@ use crate::AppState;
 pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> {
     let job_id = job.id;
 
-    info!("🔄 Processing job: {}", job_id);
-    info!("   Request ID: {}", job.request_id);
-    info!("   Status: {:?}", job.status);
+    // Re-fetch job from database to get current status (buffer may have stale data)
+    let current_job = match state.job_repo.get_job_by_id(job_id).await {
+        Ok(Some(j)) => j,
+        Ok(None) => {
+            warn!("⚠️  Job {} not found in database, skipping", job_id);
+            return Ok(());
+        }
+        Err(e) => {
+            error!("❌ Failed to fetch job {} from database: {}", job_id, e);
+            // Fall back to using the provided job object
+            job
+        }
+    };
 
-    // Check if job is already completed or failed
-    if job.status == JobStatus::Completed {
+    info!("🔄 Processing job: {}", job_id);
+    info!("   Request ID: {}", current_job.request_id);
+    info!("   Status: {:?}", current_job.status);
+
+    // Check if job is already completed or failed (using fresh DB data)
+    if current_job.status == JobStatus::Completed {
         info!("✅ Job {} already completed, skipping", job_id);
         return Ok(());
     }
 
-    if job.status == JobStatus::Failed {
+    if current_job.status == JobStatus::Failed {
         warn!("⚠️  Job {} already marked as failed, skipping", job_id);
         return Ok(());
     }
+
+    // Use the fresh job data for processing
+    let job = current_job;
 
     // Update status to processing
     if let Err(e) = state
