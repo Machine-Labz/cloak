@@ -235,13 +235,13 @@ pub fn process_execute_swap_via_orca(
     // This prevents retries and recovers the rent-exempt lamports
     let swap_state_lamports = swap_state_info.lamports();
     let payer_lamports = payer_info.lamports();
-    
+
     // Transfer all lamports from SwapState to payer (closing the account)
     unsafe {
         *swap_state_info.borrow_mut_lamports_unchecked() = 0;
         *payer_info.borrow_mut_lamports_unchecked() = payer_lamports + swap_state_lamports;
     }
-    
+
     // Clear the SwapState data to mark it as closed
     let mut swap_state_data = swap_state_info.try_borrow_mut_data()?;
     swap_state_data.fill(0);
