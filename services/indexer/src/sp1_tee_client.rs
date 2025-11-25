@@ -95,36 +95,69 @@ impl Sp1TeeClient {
         info!("SP1 verifying key hash: 0x{}", hex::encode(vk.bytes32()));
 
         // Prepare the combined input, optionally including swap_params
-        let combined_input = if let Some(sp) = swap_params {
-            let formatted = format!(
-                r#"{{
-                    "private": {},
-                    "public": {},
-                    "outputs": {},
-                    "swap_params": {}
-                }}"#,
-                private_inputs, public_inputs, outputs, sp
-            );
-            info!(
-                "📋 Combined input WITH swap_params (first 400 chars): {}",
-                &formatted[..std::cmp::min(400, formatted.len())]
-            );
-            formatted
+        // Parse the JSON strings into Values first, then construct the final JSON properly
+        let private_val: serde_json::Value = serde_json::from_str(private_inputs)
+            .map_err(|e| anyhow::anyhow!("Invalid private_inputs JSON: {}", e))?;
+        let public_val: serde_json::Value = serde_json::from_str(public_inputs)
+            .map_err(|e| anyhow::anyhow!("Invalid public_inputs JSON: {}", e))?;
+        let outputs_val: serde_json::Value = serde_json::from_str(outputs)
+            .map_err(|e| anyhow::anyhow!("Invalid outputs JSON: {}", e))?;
+        
+        let combined_json = if let Some(sp) = swap_params {
+            // Parse swap_params to ensure it's valid JSON
+            let swap_params_val: serde_json::Value = serde_json::from_str(sp)
+                .map_err(|e| anyhow::anyhow!(
+                    "Invalid swap_params JSON: {}. Raw: {}",
+                    e,
+                    &sp[..std::cmp::min(200, sp.len())]
+                ))?;
+            
+            info!("📋 Parsed swap_params_val: {}", serde_json::to_string(&swap_params_val).unwrap_or_else(|_| "error".to_string()));
+            
+            let json_obj = serde_json::json!({
+                "private": private_val,
+                "public": public_val,
+                "outputs": outputs_val,
+                "swap_params": swap_params_val
+            });
+            
+            // Verify swap_params is present in the final JSON
+            if let Some(sp_in_json) = json_obj.get("swap_params") {
+                info!("✅ swap_params is present in combined_json: {}", serde_json::to_string(sp_in_json).unwrap_or_else(|_| "error".to_string()));
+            } else {
+                tracing::error!("❌ swap_params is MISSING from combined_json!");
+            }
+            
+            json_obj
         } else {
-            let formatted = format!(
-                r#"{{
-                    "private": {},
-                    "public": {},
-                    "outputs": {}
-                }}"#,
-                private_inputs, public_inputs, outputs
+            serde_json::json!({
+                "private": private_val,
+                "public": public_val,
+                "outputs": outputs_val
+            })
+        };
+        
+        let combined_input = serde_json::to_string(&combined_json)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize combined input: {}", e))?;
+        
+        if let Some(sp) = swap_params {
+            info!(
+                "📋 Combined input WITH swap_params (first 1000 chars): {}",
+                &combined_input[..std::cmp::min(1000, combined_input.len())]
             );
+            info!("📋 Full swap_params string: {}", sp);
+            // Verify swap_params appears in the serialized string
+            if combined_input.contains("swap_params") {
+                info!("✅ 'swap_params' key found in serialized JSON");
+            } else {
+                tracing::error!("❌ 'swap_params' key NOT found in serialized JSON!");
+            }
+        } else {
             info!(
                 "📋 Combined input WITHOUT swap_params (first 400 chars): {}",
-                &formatted[..std::cmp::min(400, formatted.len())]
+                &combined_input[..std::cmp::min(400, combined_input.len())]
             );
-            formatted
-        };
+        }
 
         let mut stdin = SP1Stdin::new();
         stdin.write(&combined_input);

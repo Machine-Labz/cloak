@@ -69,8 +69,48 @@ pub fn main() {
     let input_json = io::read::<String>();
 
     // Parse the input
-    let inputs: CircuitInputs =
-        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
+    let inputs: CircuitInputs = match serde_json::from_str(&input_json) {
+        Ok(inputs) => inputs,
+        Err(e) => {
+            eprintln!("Failed to parse input JSON: {}", e);
+            eprintln!("Input JSON (first 2000 chars): {}", &input_json[..std::cmp::min(2000, input_json.len())]);
+            panic!("Failed to parse input JSON: {}", e);
+        }
+    };
+
+    // Debug: Log swap_params presence with detailed info
+    eprintln!("🔍 Checking swap_params in circuit...");
+    eprintln!("   Input JSON length: {} chars", input_json.len());
+    
+    // First check raw JSON for swap_params key
+    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&input_json) {
+        if let Some(sp_val) = json_val.get("swap_params") {
+            eprintln!("✅ swap_params key found in raw JSON");
+            eprintln!("   swap_params type: {:?}", sp_val);
+            if let Some(obj) = sp_val.as_object() {
+                eprintln!("   swap_params object keys: {:?}", obj.keys().collect::<Vec<_>>());
+                if let Some(output_mint) = obj.get("output_mint") {
+                    eprintln!("   output_mint value: {:?}", output_mint);
+                }
+                if let Some(recipient_ata) = obj.get("recipient_ata") {
+                    eprintln!("   recipient_ata value: {:?}", recipient_ata);
+                }
+            }
+        } else {
+            eprintln!("⚠️  swap_params key NOT found in raw JSON");
+        }
+    }
+    
+    // Now check if it was successfully deserialized
+    if let Some(ref sp) = inputs.swap_params {
+        eprintln!("✅ swap_params successfully deserialized in circuit inputs");
+        eprintln!("   output_mint: {:?}", sp.output_mint);
+        eprintln!("   recipient_ata: {:?}", sp.recipient_ata);
+        eprintln!("   min_output_amount: {}", sp.min_output_amount);
+    } else {
+        eprintln!("❌ swap_params is None after deserialization");
+        eprintln!("   This means deserialization failed - check address parsing!");
+    }
 
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
@@ -121,16 +161,23 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     let outputs_sum: u64 = outputs.iter().map(|o| o.amount).sum();
     let fee = calculate_fee(private.amount);
 
+    // Debug: Log swap mode detection
+    eprintln!("🔍 Constraint 5 check: outputs_sum={}, fee={}, amount={}, swap_params.is_some()={}", 
+              outputs_sum, fee, private.amount, inputs.swap_params.is_some());
+
     if inputs.swap_params.is_some() {
         // Swap mode: verify outputs are empty (all amount goes to swap minus fee)
+        eprintln!("✅ Swap mode detected - checking outputs are empty");
         if outputs_sum != 0 {
             return Err(anyhow!(
                 "Swap mode requires empty outputs, got outputs_sum = {}",
                 outputs_sum
             ));
         }
+        eprintln!("✅ Swap mode: outputs are empty (correct)");
     } else {
         // Regular mode: verify conservation law
+        eprintln!("⚠️  Regular mode detected - checking conservation law");
         let total_spent = outputs_sum + fee;
         if total_spent != private.amount {
             return Err(anyhow!(
@@ -140,6 +187,7 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
                 private.amount
             ));
         }
+        eprintln!("✅ Regular mode: conservation law satisfied");
     }
 
     // Constraint 6: H(serialize(outputs)) == outputs_hash
