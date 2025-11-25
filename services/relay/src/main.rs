@@ -6,6 +6,7 @@ mod db;
 mod error;
 mod planner;
 mod solana;
+mod swap;
 mod worker;
 
 use planner::orchestrator;
@@ -209,10 +210,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         // Configure windowing: process when slot ends in 0 or 5
         let window_config = worker::window_scheduler::WindowConfig {
-            slot_patterns: vec![0, 5],  // Every ~5 slots (~2.5s)
-            min_batch_size: None,        // No minimum - process whatever is ready
-            max_batch_size: 50,          // Safety limit
-            poll_interval_secs: 1,       // Check slot every second
+            slot_patterns: vec![0, 5], // Every ~5 slots (~2.5s)
+            min_batch_size: None,      // No minimum - process whatever is ready
+            max_batch_size: 50,        // Safety limit
+            poll_interval_secs: 1,     // Check slot every second
         };
 
         let scheduler = Arc::new(worker::window_scheduler::WindowScheduler::new(

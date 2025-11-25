@@ -168,8 +168,9 @@ pub async fn deposit(
 
     // Atomically allocate next index and store the note in the database
     // This prevents race conditions when multiple deposits arrive concurrently
+    // Returns (leaf_index, is_existing) where is_existing is true if commitment already existed
     tracing::info!("💾 Atomically allocating index and storing note");
-    let allocated_index = match state
+    let (allocated_index, is_existing) = match state
         .storage
         .allocate_and_store_note(
             &request.leaf_commit,
@@ -180,12 +181,19 @@ pub async fn deposit(
         )
         .await
     {
-        Ok(index) => {
-            tracing::info!(
-                leaf_index = index,
-                "✅ Note stored successfully with atomically allocated index"
-            );
-            index
+        Ok((index, was_existing)) => {
+            if was_existing {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Note already exists, returning existing leaf_index (idempotent)"
+                );
+            } else {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Note stored successfully with atomically allocated index"
+                );
+            }
+            (index, was_existing)
         }
         Err(e) => {
             // Check if this is a duplicate key error (commitment already exists)
@@ -250,51 +258,90 @@ pub async fn deposit(
         }
     };
 
-    // Insert the leaf into the merkle tree and get the new root
-    tracing::info!("🌳 Inserting leaf into Merkle tree");
     let mut tree = state.merkle_tree.lock().await;
-    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
-        Ok((new_root, _)) => {
-            tracing::info!(
-                leaf_index = allocated_index,
-                new_root = new_root,
-                "✅ Successfully inserted leaf into Merkle tree"
-            );
-            
-            // Push new root to on-chain roots ring synchronously to prevent race conditions
-            // The withdrawal proof depends on this root being on-chain before it can be verified
-            tracing::info!("🔗 Pushing root to on-chain roots ring");
-            if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
-                tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
-                // Continue anyway - withdrawals can still work if root is pushed later
-                // or if the on-chain program has a grace period for root updates
-                tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
-            } else {
-                tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+
+    if is_existing {
+        // Note already exists - just get the current root and return it
+        tracing::info!("🌳 Note already in Merkle tree, retrieving current root");
+        match tree.get_tree_state(&state.storage).await {
+            Ok(tree_state) => {
+                tracing::info!(
+                    leaf_index = allocated_index,
+                    root = tree_state.root,
+                    "✅ Returning existing note data (idempotent)"
+                );
+                (
+                    StatusCode::OK, // 200 OK for existing resource
+                    Json(serde_json::json!({
+                        "success": true,
+                        "leafIndex": allocated_index,
+                        "root": tree_state.root,
+                        "nextIndex": tree_state.next_index,
+                        "leafCommit": request.leaf_commit.to_lowercase(),
+                        "message": "Deposit already exists (idempotent)"
+                    })),
+                )
             }
-            
-            tracing::info!("🎉 Deposit request completed successfully");
-            (
-                StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "success": true,
-                    "leafIndex": allocated_index,
-                    "root": new_root,
-                    "nextIndex": allocated_index + 1,
-                    "leafCommit": request.leaf_commit.to_lowercase(),
-                    "message": "Deposit processed successfully"
-                })),
-            )
+            Err(e) => {
+                tracing::error!("❌ Failed to get merkle tree state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Failed to get merkle tree state",
+                        "details": e.to_string()
+                    })),
+                )
+            }
         }
-        Err(e) => {
-            tracing::error!("❌ Failed to insert leaf into merkle tree: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "Failed to update merkle tree",
-                    "details": e.to_string()
-                })),
-            )
+    } else {
+        // New note - insert into merkle tree
+        tracing::info!("🌳 Inserting leaf into Merkle tree");
+        match tree
+            .insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage)
+            .await
+        {
+            Ok((new_root, _)) => {
+                tracing::info!(
+                    leaf_index = allocated_index,
+                    new_root = new_root,
+                    "✅ Successfully inserted leaf into Merkle tree"
+                );
+
+                // Push new root to on-chain roots ring synchronously to prevent race conditions
+                // The withdrawal proof depends on this root being on-chain before it can be verified
+                tracing::info!("🔗 Pushing root to on-chain roots ring");
+                if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
+                    tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                    // Continue anyway - withdrawals can still work if root is pushed later
+                    // or if the on-chain program has a grace period for root updates
+                    tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
+                } else {
+                    tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+                }
+
+                tracing::info!("🎉 Deposit request completed successfully");
+                (
+                    StatusCode::CREATED,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "leafIndex": allocated_index,
+                        "root": new_root,
+                        "nextIndex": allocated_index + 1,
+                        "leafCommit": request.leaf_commit.to_lowercase(),
+                        "message": "Deposit processed successfully"
+                    })),
+                )
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to insert leaf into merkle tree: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Failed to update merkle tree",
+                        "details": e.to_string()
+                    })),
+                )
+            }
         }
     }
 }

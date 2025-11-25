@@ -16,6 +16,9 @@ mod admin_push_root;
 #[cfg(test)]
 mod withdraw;
 
+#[cfg(test)]
+mod withdraw_swap;
+
 pub fn setup() -> (Pubkey, Mollusk) {
     let program_id = Pubkey::new_from_array(crate::ID);
     let mut mollusk = Mollusk::new(&program_id, "../../target/deploy/shield_pool");

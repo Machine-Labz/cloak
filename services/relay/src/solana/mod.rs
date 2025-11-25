@@ -1,13 +1,16 @@
 pub mod client;
+pub mod jupiter;
 pub mod submit;
+pub mod swap;
 pub mod transaction_builder;
 
 use async_trait::async_trait;
+use base64;
 use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signature, Signer},
+    signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
 #[cfg(feature = "jito")]
@@ -22,6 +25,27 @@ use crate::config::SolanaConfig;
 use crate::db::models::Job;
 use crate::error::Error;
 use serde_json;
+
+// Manual implementation of associated token account derivation
+// This avoids dependency conflicts with spl-associated-token-account
+fn get_associated_token_address(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
+    // Associated Token Account Program ID
+    const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+    // Token Program ID
+    const TOKEN_PROGRAM_ID: Pubkey =
+        solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    // Find the associated token account address
+    let (ata, _) = Pubkey::find_program_address(
+        &[wallet.as_ref(), TOKEN_PROGRAM_ID.as_ref(), mint.as_ref()],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+
+    ata
+}
+
 // Removed external TransactionResult dependency; we return Signature to callers.
 
 // Helper function to parse keypair from environment variable
@@ -45,7 +69,13 @@ pub trait SolanaClient: Send + Sync {
     async fn get_block_height(&self) -> Result<u64, Error>;
     async fn get_slot(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
-    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
+    async fn check_nullifier_exists(
+        &self,
+        nullifier_shard: &Pubkey,
+        nullifier: &[u8],
+    ) -> Result<bool, Error>;
+    async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error>;
+    async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, Error>;
 }
 
 pub struct SolanaService {
@@ -94,11 +124,25 @@ impl SolanaService {
 
     /// Check if a nullifier already exists on-chain
     pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
-        // Derive nullifier shard PDA from program ID
-        let (_, _, _, nullifier_shard_pda) =
-            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+        // Parse mint address (use configured mint or default to native SOL)
+        let mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default()
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default()
+        };
 
-        self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
+        // Derive nullifier shard PDA from program ID with mint
+        let (_, _, _, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint);
+
+        self.client
+            .check_nullifier_exists(&nullifier_shard_pda, nullifier)
+            .await
     }
 
     /// Submit a withdraw transaction to Solana
@@ -109,16 +153,44 @@ impl SolanaService {
         );
 
         // 1. Parse outputs from JSON
-        let outputs = self.parse_outputs(&job.outputs_json)?;
+        let outputs_value = if job.outputs_json.is_object() {
+            // New format: { "outputs": [...], "swap": {...} }
+            job.outputs_json.get("outputs").unwrap_or(&job.outputs_json)
+        } else {
+            // Legacy format: [...]
+            &job.outputs_json
+        };
+        let outputs = self.parse_outputs(outputs_value)?;
 
-        // 2. Build transaction
-        let transaction = self.build_withdraw_transaction(job, &outputs).await?;
+        // 2. Check if swap is requested
+        let swap_config: Option<crate::swap::SwapConfig> =
+            if let Some(swap_value) = job.outputs_json.get("swap") {
+                match serde_json::from_value(swap_value.clone()) {
+                    Ok(config) => {
+                        info!("Swap requested in job {}: {:?}", job.request_id, config);
+                        Some(config)
+                    }
+                    Err(e) => {
+                        warn!("Invalid swap config in job {}: {}", job.request_id, e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
 
-        // 3. Submit and confirm transaction
-        let signature = self.submit_and_confirm(&transaction, job, &outputs).await?;
-
-        info!("Withdraw transaction confirmed: {}", signature);
-        Ok(signature)
+        // 3. Build and submit transaction(s)
+        if let Some(swap_config) = swap_config {
+            // Two-transaction flow: withdraw to relay temp account, then swap to final recipient
+            self.submit_withdraw_with_swap(job, &outputs, &swap_config)
+                .await
+        } else {
+            // Single-transaction flow: just withdraw
+            let transaction = self.build_withdraw_transaction(job, &outputs).await?;
+            let signature = self.submit_and_confirm(&transaction, job, &outputs).await?;
+            info!("Withdraw transaction confirmed: {}", signature);
+            Ok(signature)
+        }
     }
 
     /// Health check for Solana connection
@@ -128,6 +200,29 @@ impl SolanaService {
             Err(e) => {
                 error!("Solana health check failed: {}", e);
                 Err(e)
+            }
+        }
+    }
+
+    /// Check if a SwapState PDA exists for a given nullifier
+    /// Returns Ok(true) if exists, Ok(false) if not found
+    pub async fn check_swap_state_exists(&self, nullifier: &[u8; 32]) -> Result<bool, Error> {
+        let (swap_state_pda, _) =
+            transaction_builder::derive_swap_state_pda(&self.program_id, nullifier);
+
+        match self.client.get_account(&swap_state_pda).await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                // Check if it's "account not found" error
+                let error_str = e.to_string();
+                if error_str.contains("AccountNotFound")
+                    || error_str.contains("could not find account")
+                {
+                    Ok(false)
+                } else {
+                    // Some other error occurred
+                    Err(e)
+                }
             }
         }
     }
@@ -164,6 +259,363 @@ impl SolanaService {
         Ok(outputs)
     }
 
+    /// Submit a two-transaction swap flow (PDA-guarded):
+    /// 1) WithdrawSwap locks user's SOL in a SwapState PDA (no relay custody)
+    /// 2) Relay executes Jupiter swap using its own SOL to the recipient ATA, then calls ExecuteSwap
+    ///    to verify min output and reimburse the relay by closing the PDA
+    async fn submit_withdraw_with_swap(
+        &self,
+        job: &Job,
+        outputs: &[Output],
+        swap_config: &crate::swap::SwapConfig,
+    ) -> Result<Signature, Error> {
+        info!(
+            "Starting PDA-based withdraw+swap flow for job {}",
+            job.request_id
+        );
+
+        // Relay fee payer is required (pays PDA rent and signs Jupiter swap; reimbursed via ExecuteSwap)
+        let relay_keypair = self.fee_payer.as_ref().ok_or_else(|| {
+            Error::ValidationError("Relay fee payer keypair required for swap withdrawals".into())
+        })?;
+        let relay_pubkey = relay_keypair.pubkey();
+
+        // Output mint to receive (e.g., USDC)
+        let output_mint = Pubkey::from_str(&swap_config.output_mint)
+            .map_err(|e| Error::ValidationError(format!("Invalid output mint: {}", e)))?;
+
+        // Parse public inputs -> nullifier and public_amount
+        if job.public_inputs.len() != 104 {
+            return Err(Error::ValidationError(
+                "public inputs must be 104 bytes".into(),
+            ));
+        }
+        let mut public_104 = [0u8; 104];
+        public_104.copy_from_slice(&job.public_inputs);
+        let mut nullifier = [0u8; 32];
+        nullifier.copy_from_slice(&public_104[32..64]);
+        let public_amount = u64::from_le_bytes(public_104[96..104].try_into().unwrap());
+
+        // Recipient wallet -> recipient ATA for output mint
+        if outputs.is_empty() {
+            return Err(Error::ValidationError(
+                "At least one output is required".into(),
+            ));
+        }
+        let recipient_wallet = outputs[0].to_pubkey()?;
+        let recipient_ata = get_associated_token_address(&recipient_wallet, &output_mint);
+
+        // Parse mint address (use configured mint or default to native SOL)
+        let input_mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default()
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default()
+        };
+
+        // Derive PDAs using the input mint (the pool's token)
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &input_mint);
+        let (swap_state_pda, _bump) =
+            transaction_builder::derive_swap_state_pda(&self.program_id, &nullifier);
+
+        // Use min_output_amount from client (baked into proof)
+        // The client already got a quote and generated the proof with that value
+        let min_output_amount = swap_config.min_output_amount;
+        info!(
+            "Using client-provided min_output_amount: {} (from proof)",
+            min_output_amount
+        );
+        info!("🌊 Using Orca Whirlpool CPI for atomic on-chain swap");
+
+        // Check swap state:
+        // 1. If nullifier is already used on-chain → swap fully completed, return success
+        // 2. If SwapState PDA exists → TX1 done, proceed to TX2
+        // 3. If neither → start from TX1
+        
+        // First check if nullifier is already used (swap fully completed)
+        if self.check_nullifier_exists(&nullifier).await? {
+            info!("✅ Nullifier already used on-chain - swap fully completed");
+            // Return a dummy signature since we can't retrieve the original
+            return Ok(Signature::default());
+        }
+
+        // Check if TX1 (WithdrawSwap) was already completed
+        // If SwapState PDA exists, TX1 is done and we can skip to TX2
+        let tx1_already_done = match self.check_swap_state_exists(&nullifier).await {
+            Ok(exists) => {
+                if exists {
+                    info!("✓ SwapState PDA already exists - TX1 (WithdrawSwap) was previously completed");
+                    info!("  Skipping TX1, proceeding directly to TX2 (swap + close)");
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️  Could not check SwapState PDA existence: {}, assuming TX1 not done",
+                    e
+                );
+                false
+            }
+        };
+
+        // TX1: WithdrawSwap — lock SOL in SwapState PDA (skip if already done)
+        if !tx1_already_done {
+            let recent = self.client.get_latest_blockhash().await?;
+            let withdraw_swap_tx = transaction_builder::build_withdraw_swap_transaction(
+                job.proof_bytes.clone(),
+                public_104,
+                output_mint,
+                recipient_ata,
+                min_output_amount,
+                self.program_id,
+                pool_pda,
+                roots_ring_pda,
+                nullifier_shard_pda,
+                treasury_pda,
+                swap_state_pda,
+                relay_pubkey,
+                recent,
+                self.config.priority_micro_lamports,
+            )?;
+            info!("Submitting WithdrawSwap (1/2)...");
+            let mut signed_withdraw = withdraw_swap_tx.clone();
+            let bh1 = signed_withdraw.message.recent_blockhash;
+            signed_withdraw.sign(&[relay_keypair], bh1);
+            let withdraw_sig = self
+                .client
+                .send_and_confirm_transaction(&signed_withdraw)
+                .await?;
+            info!("✓ WithdrawSwap confirmed: {}", withdraw_sig);
+        }
+
+        // TX2: ExecuteSwapViaOrca - Atomic on-chain CPI swap directly to recipient
+        // This replaces the old flow: ReleaseSwapFunds → off-chain swap → ExecuteSwap
+        // The swap happens atomically via CPI, and the program handles everything
+        // Apply additional slippage tolerance for devnet pools (they have poor liquidity)
+        // Use 50% of the expected output as minimum to account for devnet pool imbalances
+        let adjusted_min_output = min_output_amount / 2;
+        
+        info!(
+            "🔄 Executing ON-CHAIN CPI swap: {} lamports SOL → minimum {} tokens of {} (adjusted from {} for devnet)",
+            public_amount, adjusted_min_output, output_mint, min_output_amount
+        );
+
+        // Ensure recipient has an ATA for the output token (relay pays for creation)
+        swap::ensure_ata_exists(
+            self.client.as_ref(),
+            &recipient_wallet,
+            &output_mint,
+            relay_keypair,
+        )
+        .await
+        .map_err(|e| Error::InternalServerError(e.to_string()))?;
+
+        // Get Orca pool information and build ExecuteSwapViaOrca instruction
+        let wsol_mint = Pubkey::from_str("So11111111111111111111111111111111111111112")
+            .map_err(|e| Error::InternalServerError(format!("Invalid wSOL mint: {}", e)))?;
+        
+        use orca_whirlpools_client::{get_whirlpool_address, get_oracle_address, get_tick_array_address, Whirlpool};
+        use orca_whirlpools_core::get_tick_array_start_tick_index;
+        use std::str::FromStr;
+
+        // Orca Whirlpool config on devnet
+        let whirlpool_config = Pubkey::from_str("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR")
+            .map_err(|e| Error::InternalServerError(format!("Invalid whirlpool config: {}", e)))?;
+
+        // Ensure wSOL ATA exists for SwapState PDA (relay pays for creation) - do this ONCE before loop
+        let swap_wsol_ata = get_associated_token_address(&swap_state_pda, &wsol_mint);
+        swap::ensure_ata_exists(
+            self.client.as_ref(),
+            &swap_state_pda,
+            &wsol_mint,
+            relay_keypair,
+        )
+        .await
+        .map_err(|e| Error::InternalServerError(format!("Failed to create wSOL ATA: {}", e)))?;
+
+        // Check if PrepareSwapSol + SyncNative were already called by checking wSOL ATA token balance
+        // If wSOL ATA has tokens, wrapping is complete; otherwise we need to prepare
+        let wsol_ata_account = self.client.get_account(&swap_wsol_ata).await?;
+        let wsol_token_amount = if wsol_ata_account.data.len() >= 72 {
+            u64::from_le_bytes(
+                wsol_ata_account.data[64..72]
+                    .try_into()
+                    .unwrap_or([0u8; 8])
+            )
+        } else {
+            0
+        };
+        
+        info!("📊 wSOL ATA token balance: {} wSOL", wsol_token_amount);
+        let needs_prepare = wsol_token_amount == 0;
+        info!("🔍 needs_prepare = {} (wSOL tokens: {})", needs_prepare, wsol_token_amount);
+        
+        if needs_prepare {
+            // Step 1a: PrepareSwapSol - Transfer SOL from SwapState to wSOL ATA
+            info!("Step 1a/3: Transferring SOL from SwapState to wSOL ATA...");
+            let prepare_ix = transaction_builder::build_prepare_swap_sol_instruction(
+            self.program_id,
+            nullifier,
+            )?;
+
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut prepare_tx = Transaction::new_with_payer(&[prepare_ix], Some(&relay_pubkey));
+            prepare_tx.sign(&[relay_keypair], recent);
+
+            self.client.send_and_confirm_transaction(&prepare_tx).await
+                .map_err(|e| Error::InternalServerError(format!("PrepareSwapSol failed: {}", e)))?;
+            info!("✓ PrepareSwapSol confirmed");
+
+            // Step 1b: SyncNative - Wrap SOL → wSOL
+            info!("Step 1b/3: Wrapping SOL to wSOL (SyncNative)...");
+            
+            let sync_native_ix = spl_token::instruction::sync_native(&spl_token::id(), &swap_wsol_ata)
+                .map_err(|e| Error::InternalServerError(format!("Failed to create sync_native: {}", e)))?;
+
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut sync_tx = Transaction::new_with_payer(&[sync_native_ix], Some(&relay_pubkey));
+            sync_tx.sign(&[relay_keypair], recent);
+
+            self.client.send_and_confirm_transaction(&sync_tx).await
+                .map_err(|e| Error::InternalServerError(format!("SyncNative failed: {}", e)))?;
+            info!("✓ SyncNative confirmed");
+        } else {
+            info!("✓ SwapState already prepared (lamports drained), skipping PrepareSwapSol and SyncNative");
+        }
+
+        // Try multiple tick spacings until we find a pool that works
+        let tick_spacings = vec![64, 8, 128, 1];
+        let mut swap_sig: Option<Signature> = None;
+
+        for tick_spacing in tick_spacings {
+            info!("  Trying tick spacing {}...", tick_spacing);
+
+            // Get whirlpool address for this tick spacing
+            let (whirlpool_address, _) =
+                get_whirlpool_address(&whirlpool_config, &wsol_mint, &output_mint, tick_spacing)
+                    .map_err(|e| {
+                        warn!("  Failed to derive whirlpool address: {:?}", e);
+                        Error::InternalServerError(format!(
+                            "Failed to derive whirlpool address: {:?}",
+                            e
+                        ))
+                    })?;
+
+            // Check if pool exists by fetching it
+            let whirlpool_account = match self.client.get_account(&whirlpool_address).await {
+                Ok(acc) => acc,
+                Err(_) => {
+                    warn!("  Pool not found for tick spacing {}", tick_spacing);
+                    continue; // Try next tick spacing
+                }
+            };
+
+            // Deserialize to get the actual tick_spacing from the pool
+            let whirlpool_data = match Whirlpool::from_bytes(&whirlpool_account.data) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("  Failed to parse whirlpool data: {:?}", e);
+                    continue;
+                }
+            };
+
+            // Use the pool's actual tick spacing
+            let actual_tick_spacing = whirlpool_data.tick_spacing;
+            info!(
+                "  Found pool with actual tick spacing: {}",
+                actual_tick_spacing
+            );
+
+            // Determine swap direction
+            let a_to_b = whirlpool_data.token_mint_a.to_bytes() == wsol_mint.to_bytes();
+            let sqrt_price_limit = if a_to_b { 4295048016 } else { u128::MAX };
+
+            // Get oracle address
+            let (oracle_address, _) = get_oracle_address(&whirlpool_address)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive oracle: {:?}", e)))?;
+
+            // Get tick arrays
+            let tick_current = whirlpool_data.tick_current_index;
+            const TICK_ARRAY_SIZE: i32 = 88;
+            let tick_array_spacing = TICK_ARRAY_SIZE * (actual_tick_spacing as i32);
+            let start_tick_index_0 = get_tick_array_start_tick_index(tick_current, actual_tick_spacing);
+            let start_tick_index_1 = if a_to_b {
+                start_tick_index_0 - tick_array_spacing
+            } else {
+                start_tick_index_0 + tick_array_spacing
+            };
+            let start_tick_index_2 = if a_to_b {
+                start_tick_index_0 - tick_array_spacing * 2
+            } else {
+                start_tick_index_0 + tick_array_spacing * 2
+            };
+
+            let (tick_array_0, _) = get_tick_array_address(&whirlpool_address, start_tick_index_0)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e)))?;
+            let (tick_array_1, _) = get_tick_array_address(&whirlpool_address, start_tick_index_1)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e)))?;
+            let (tick_array_2, _) = get_tick_array_address(&whirlpool_address, start_tick_index_2)
+                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e)))?;
+
+            // Step 2: Build and submit ExecuteSwapViaOrca instruction
+            // This performs the actual Orca swap CPI
+            // Note: actual amount is public_amount - fee (0.5%), which is what was transferred to wSOL ATA
+            let variable_fee = (public_amount * 5) / 1_000;
+            let actual_swap_amount = public_amount - variable_fee;
+            
+            info!("Step 2/3: Executing Orca swap CPI (tick spacing {}, amount: {} wSOL)...", actual_tick_spacing, actual_swap_amount);
+            let swap_ix = transaction_builder::build_execute_swap_via_orca_instruction(
+            self.program_id,
+                    nullifier,
+                    recipient_ata,
+                    actual_swap_amount, // Use actual amount after fee
+                    adjusted_min_output,  // Use adjusted minimum for devnet liquidity
+                    sqrt_price_limit,
+                true, // amount_specified_is_input
+                a_to_b,
+                whirlpool_address,
+                Pubkey::new_from_array(whirlpool_data.token_vault_a.to_bytes()),
+                Pubkey::new_from_array(whirlpool_data.token_vault_b.to_bytes()),
+                tick_array_0,
+                tick_array_1,
+                tick_array_2,
+                oracle_address,
+                relay_pubkey,  // Payer account (receives rent from closing SwapState)
+            )?;
+
+            let recent = self.client.get_latest_blockhash().await?;
+            let mut swap_tx = Transaction::new_with_payer(&[swap_ix], Some(&relay_pubkey));
+            swap_tx.sign(&[relay_keypair], recent);
+            
+            match self.client.send_and_confirm_transaction(&swap_tx).await {
+                Ok(sig) => {
+                    info!("✓ ExecuteSwapViaOrca confirmed: {}", sig);
+                    swap_sig = Some(sig);
+                    break; // Success, exit loop
+                }
+                Err(e) => {
+                    warn!("  ❌ ExecuteSwapViaOrca failed for tick spacing {}: {}", actual_tick_spacing, e);
+                    continue; // Try next tick spacing
+                }
+            }
+        }
+
+        let signature = swap_sig.ok_or_else(|| {
+            Error::InternalServerError(
+                "All Orca pools failed. Devnet pools may be too imbalanced.".to_string(),
+            )
+        })?;
+
+        Ok(signature)
+    }
+
     /// Build withdraw transaction using the canonical shield-pool layout and PDAs
     /// If PoW is enabled (claim_finder present), will query for wildcard claims
     /// and use the PoW-enabled transaction builder
@@ -175,7 +627,7 @@ impl SolanaService {
         let recent_blockhash = self.client.get_latest_blockhash().await?;
 
         // Validate outputs (1-10 allowed)
-        if outputs.len() == 0 || outputs.len() > 10 {
+        if outputs.is_empty() || outputs.len() > 10 {
             return Err(Error::ValidationError(
                 "Number of outputs must be between 1 and 10".into(),
             ));
@@ -183,7 +635,7 @@ impl SolanaService {
 
         // Convert API Output to planner Output
         use crate::planner::Output as PlannerOutput;
-        let planner_outputs: Result<Vec<PlannerOutput>, Error> = outputs
+        let planner_outputs: Vec<PlannerOutput> = outputs
             .iter()
             .map(|o| {
                 let pubkey = o.to_pubkey()?;
@@ -192,8 +644,13 @@ impl SolanaService {
                     amount: o.amount,
                 })
             })
+            .collect::<Result<_, Error>>()?;
+
+        // Collect recipient pubkeys (1..N)
+        let recipient_pubkeys: Vec<Pubkey> = planner_outputs
+            .iter()
+            .map(|o| Pubkey::new_from_array(o.address))
             .collect();
-        let planner_outputs = planner_outputs?;
 
         // Get first recipient for fee payer fallback
         let recipient_pubkey = outputs[0].to_pubkey()?;
@@ -220,14 +677,55 @@ impl SolanaService {
         let mut public_104 = [0u8; 104];
         public_104.copy_from_slice(&job.public_inputs);
 
-        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
-            transaction_builder::derive_shield_pool_pdas(&self.program_id);
+        // Parse mint address (empty = native SOL)
+        let mint = if let Some(mint_str) = &self.config.mint_address {
+            if mint_str.is_empty() {
+                Pubkey::default() // Native SOL
+            } else {
+                Pubkey::from_str(mint_str)
+                    .map_err(|e| Error::ValidationError(format!("Invalid mint address: {}", e)))?
+            }
+        } else {
+            Pubkey::default() // Default to native SOL
+        };
+        let is_spl_mint = mint != Pubkey::default();
 
-        info!("Derived Shield Pool PDAs from program ID:");
-        info!("  Pool: {}", pool_pda);
-        info!("  Treasury: {}", treasury_pda);
-        info!("  Roots Ring: {}", roots_ring_pda);
-        info!("  Nullifier Shard: {}", nullifier_shard_pda);
+        // Get Shield Pool account addresses (use configured addresses if available, otherwise derive PDAs)
+        let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
+            Some(pool_addr),
+            Some(treasury_addr),
+            Some(roots_ring_addr),
+            Some(nullifier_shard_addr),
+        ) = (
+            &self.config.pool_address,
+            &self.config.treasury_address,
+            &self.config.roots_ring_address,
+            &self.config.nullifier_shard_address,
+        ) {
+            // Use configured addresses
+            let pool_pda = Pubkey::from_str(pool_addr)
+                .map_err(|e| Error::ValidationError(format!("Invalid pool address: {}", e)))?;
+            let treasury_pda = Pubkey::from_str(treasury_addr)
+                .map_err(|e| Error::ValidationError(format!("Invalid treasury address: {}", e)))?;
+            let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
+                Error::ValidationError(format!("Invalid roots ring address: {}", e))
+            })?;
+            let nullifier_shard_pda = Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
+                Error::ValidationError(format!("Invalid nullifier shard address: {}", e))
+            })?;
+
+            info!("Using configured account addresses:");
+            info!("  Pool: {}", pool_pda);
+            info!("  Treasury: {}", treasury_pda);
+            info!("  Roots Ring: {}", roots_ring_pda);
+            info!("  Nullifier Shard: {}", nullifier_shard_pda);
+
+            (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+        } else {
+            // Fallback to PDA derivation with mint
+            warn!("Account addresses not configured, deriving PDAs with mint (this may cause errors if accounts don't exist)");
+            transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
+        };
 
         // Fee payer pubkey: prefer loaded keypair, else withdraw_authority pubkey, else recipient
         let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
@@ -242,6 +740,29 @@ impl SolanaService {
 
         // Priority fee (micro-lamports per CU) from config
         let priority_micro_lamports: u64 = self.config.priority_micro_lamports;
+
+        // Pre-compute SPL token accounts when using an SPL mint
+        let pool_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&pool_pda, &mint))
+        } else {
+            None
+        };
+        let treasury_token_account = if is_spl_mint {
+            Some(get_associated_token_address(&treasury_pda, &mint))
+        } else {
+            None
+        };
+        let recipient_token_accounts_vec: Option<Vec<Pubkey>> = if is_spl_mint {
+            Some(
+                recipient_pubkeys
+                    .iter()
+                    .map(|pk| get_associated_token_address(pk, &mint))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let recipient_token_accounts_slice = recipient_token_accounts_vec.as_deref();
 
         // Check if PoW is enabled
         let tx = if let Some(ref claim_finder) = self.claim_finder {
@@ -272,13 +793,11 @@ impl SolanaService {
                             )
                         })?;
 
-                    // Extract recipient pubkeys for accounts
-                    let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
-                        .iter()
-                        .map(|o| Pubkey::new_from_array(o.address))
-                        .map(Ok)
-                        .collect();
-                    let recipient_pubkeys = recipient_pubkeys?;
+                    let miner_token_account = if is_spl_mint {
+                        Some(get_associated_token_address(&claim.miner_authority, &mint))
+                    } else {
+                        None
+                    };
 
                     // Build PoW-enabled transaction
                     let pow_tx = transaction_builder::build_withdraw_transaction_with_pow(
@@ -300,17 +819,26 @@ impl SolanaService {
                         fee_payer_pubkey,
                         recent_blockhash,
                         priority_micro_lamports,
+                        if is_spl_mint { Some(mint) } else { None },
+                        pool_token_account,
+                        recipient_token_accounts_slice,
+                        treasury_token_account,
+                        miner_token_account,
                     )?;
 
-                    // Check if transaction size exceeds Solana's limit (1644 bytes encoded)
-                    let serialized_size = bincode::serialize(&pow_tx)
-                        .map(|bytes| bytes.len())
-                        .unwrap_or(0);
+                    // Check if transaction size exceeds Solana's limit (1644 bytes base64-encoded)
+                    // We need to check the base64-encoded size since that's what RPC receives
+                    let serialized_bytes = bincode::serialize(&pow_tx).unwrap_or_default();
+                    let base64_encoded = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &serialized_bytes,
+                    );
+                    let encoded_size = base64_encoded.len();
 
-                    if serialized_size > 1644 {
+                    if encoded_size > 1644 {
                         warn!(
-                            "⚠️  PoW transaction too large ({} bytes > 1644 limit), falling back to non-PoW transaction",
-                            serialized_size
+                            "⚠️  PoW transaction too large ({} bytes base64 > 1644 limit), falling back to non-PoW transaction",
+                            encoded_size
                         );
 
                         // Fallback to non-PoW transaction
@@ -327,16 +855,21 @@ impl SolanaService {
                             fee_payer_pubkey,
                             recent_blockhash,
                             priority_micro_lamports,
+                            if is_spl_mint { Some(mint) } else { None },
+                            pool_token_account,
+                            recipient_token_accounts_slice,
+                            treasury_token_account,
                         )?
                     } else {
-                        info!("✓ PoW transaction size: {} bytes", serialized_size);
+                        info!(
+                            "✓ PoW transaction size: {} bytes (base64: {})",
+                            serialized_bytes.len(),
+                            encoded_size
+                        );
                         pow_tx
                     }
                 }
                 Ok(None) => {
-                    // PoW mode is enabled but no claims are available yet
-                    // Return a retryable error so the worker will requeue the job
-                    // and try again when miners have produced claims
                     warn!(
                         "No PoW claims available for job {}. Will retry until miners provide claims.",
                         job.request_id
@@ -355,15 +888,6 @@ impl SolanaService {
                 }
             }
         } else {
-            // Legacy path (no PoW)
-            // Extract recipient pubkeys for accounts
-            let recipient_pubkeys: Result<Vec<Pubkey>, Error> = planner_outputs
-                .iter()
-                .map(|o| Pubkey::new_from_array(o.address))
-                .map(Ok)
-                .collect();
-            let recipient_pubkeys = recipient_pubkeys?;
-
             transaction_builder::build_withdraw_transaction(
                 proof_bytes.clone(),
                 public_104,
@@ -377,6 +901,10 @@ impl SolanaService {
                 fee_payer_pubkey,
                 recent_blockhash,
                 priority_micro_lamports,
+                if is_spl_mint { Some(mint) } else { None },
+                pool_token_account,
+                recipient_token_accounts_slice,
+                treasury_token_account,
             )?
         };
 
@@ -433,8 +961,53 @@ impl SolanaService {
                 let mut public_104 = [0u8; 104];
                 public_104.copy_from_slice(&job.public_inputs);
 
-                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) =
-                    transaction_builder::derive_shield_pool_pdas(&self.program_id);
+                // Parse mint address (empty = native SOL)
+                let mint = if let Some(mint_str) = &self.config.mint_address {
+                    if mint_str.is_empty() {
+                        Pubkey::default() // Native SOL
+                    } else {
+                        Pubkey::from_str(mint_str).map_err(|e| {
+                            Error::ValidationError(format!("Invalid mint address: {}", e))
+                        })?
+                    }
+                } else {
+                    Pubkey::default() // Default to native SOL
+                };
+
+                let (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda) = if let (
+                    Some(pool_addr),
+                    Some(treasury_addr),
+                    Some(roots_ring_addr),
+                    Some(nullifier_shard_addr),
+                ) = (
+                    &self.config.pool_address,
+                    &self.config.treasury_address,
+                    &self.config.roots_ring_address,
+                    &self.config.nullifier_shard_address,
+                ) {
+                    // Use configured addresses
+                    let pool_pda = Pubkey::from_str(pool_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid pool address: {}", e))
+                    })?;
+                    let treasury_pda = Pubkey::from_str(treasury_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid treasury address: {}", e))
+                    })?;
+                    let roots_ring_pda = Pubkey::from_str(roots_ring_addr).map_err(|e| {
+                        Error::ValidationError(format!("Invalid roots ring address: {}", e))
+                    })?;
+                    let nullifier_shard_pda =
+                        Pubkey::from_str(nullifier_shard_addr).map_err(|e| {
+                            Error::ValidationError(format!(
+                                "Invalid nullifier shard address: {}",
+                                e
+                            ))
+                        })?;
+
+                    (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
+                } else {
+                    // Fallback to PDA derivation with mint
+                    transaction_builder::derive_shield_pool_pdas(&self.program_id, &mint)
+                };
 
                 let fee_payer_pubkey = if let Some(ref kp) = self.fee_payer {
                     kp.pubkey()
@@ -571,8 +1144,9 @@ mod tests {
             max_retries: 3,
             retry_delay_ms: 1000,
             scramble_registry_program_id: Some(
-                "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6".to_string(),
+                "scb1q9pSBXbmAj2rc58wqKKsvuf4t4z9CKx6Xk79Js4".to_string(),
             ),
+            mint_address: None, // Default to native SOL
             pool_address: Some("11111111111111111111111111111111".to_string()),
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),

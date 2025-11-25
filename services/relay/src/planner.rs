@@ -32,11 +32,23 @@ pub struct Selected {
 
 pub mod orchestrator;
 
+/// Calculate fee based on mint decimals
+/// - Variable fee: 0.5% of amount for all cases
+/// - Note: This must match the ZK circuit's fee calculation (zk-guest-sp1/guest/src/encoding.rs)
+///   which validates the conservation law: outputs_sum + fee = amount
 #[inline(always)]
-pub fn calculate_fee(amount: u64) -> u64 {
-    let fixed_fee = 2_500_000u64; // 0.0025 SOL
+pub fn calculate_fee(amount: u64, _decimals: u8) -> u64 {
+    // ZK circuit validates: outputs_sum + variable_fee = amount
+    // Must match guest/src/encoding.rs::calculate_fee()
     let variable_fee = (amount.saturating_mul(5)) / 1_000; // 0.5%
-    fixed_fee.saturating_add(variable_fee)
+    variable_fee
+}
+
+/// Legacy function for backwards compatibility (assumes 9 decimals / SOL)
+/// @deprecated Use calculate_fee(amount, decimals) instead
+#[inline(always)]
+pub fn calculate_fee_legacy(amount: u64) -> u64 {
+    calculate_fee(amount, 9)
 }
 
 /// Select a single note to satisfy target_amount.
@@ -66,7 +78,7 @@ pub fn select_note(
             continue;
         }
         // check conservation feasibility: recipient_amount = target_amount, total amount = n.amount
-        let fee = calculate_fee(n.amount);
+        let fee = calculate_fee_legacy(n.amount);
         if n.amount < target_amount.saturating_add(fee) {
             continue 'outer;
         }
@@ -128,7 +140,7 @@ pub fn compute_outputs_single(
 
 /// Given a note total `amount`, compute (fee, recipient_amount) for single-output MVP
 pub fn compute_fee_and_recipient_amount(amount: u64) -> (u64, u64) {
-    let fee = calculate_fee(amount);
+    let fee = calculate_fee_legacy(amount);
     let recipient_amount = amount.saturating_sub(fee);
     (fee, recipient_amount)
 }
@@ -169,7 +181,7 @@ mod tests {
     fn test_conservation_fee_and_outputs_hash() {
         // amount is note amount; recipient gets amount - fee
         let amount: u64 = 1_000_000_000; // 1 SOL
-        let fee = calculate_fee(amount);
+        let fee = calculate_fee(amount, 9); // SOL has 9 decimals
         let recipient_amount = amount - fee;
         let addr = [0x11u8; 32];
         let (outs, hash) = compute_outputs_single(addr, recipient_amount);
@@ -200,7 +212,7 @@ mod tests {
         let outputs_hash = [0xCCu8; 32];
         let amount = 2_000_000_000u64;
         let (fee, recipient_amount) = compute_fee_and_recipient_amount(amount);
-        assert_eq!(fee, calculate_fee(amount));
+        assert_eq!(fee, calculate_fee(amount, 9)); // SOL has 9 decimals
         assert_eq!(recipient_amount + fee, amount);
 
         let buf = build_public_inputs_104(&root, &nf, &outputs_hash, amount);

@@ -49,6 +49,13 @@ impl RpcSolanaClient {
 
 #[async_trait]
 impl SolanaClient for RpcSolanaClient {
+    async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, Error> {
+        self.client
+            .get_minimum_balance_for_rent_exemption(data_len)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
     async fn get_latest_blockhash(&self) -> Result<solana_sdk::hash::Hash, Error> {
         self.client
             .get_latest_blockhash()
@@ -60,7 +67,6 @@ impl SolanaClient for RpcSolanaClient {
         &self,
         transaction: &Transaction,
     ) -> Result<Signature, Error> {
-
         // First send the transaction
         let signature = self
             .client
@@ -76,7 +82,6 @@ impl SolanaClient for RpcSolanaClient {
                 }
                 Error::InternalServerError(format!("send_transaction failed: {}", e))
             })?;
-
 
         // Then confirm it with retries
         let mut retries = 0;
@@ -143,14 +148,20 @@ impl SolanaClient for RpcSolanaClient {
             .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
-    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error> {
+    async fn check_nullifier_exists(
+        &self,
+        nullifier_shard: &Pubkey,
+        nullifier: &[u8],
+    ) -> Result<bool, Error> {
         // Fetch the nullifier shard account data
         match self.client.get_account_data(nullifier_shard).await {
             Ok(data) => {
                 // The nullifier shard stores nullifiers as a set of 32-byte hashes
                 // Check if our nullifier exists in the account data
                 if nullifier.len() != 32 {
-                    return Err(Error::ValidationError("Nullifier must be 32 bytes".to_string()));
+                    return Err(Error::ValidationError(
+                        "Nullifier must be 32 bytes".to_string(),
+                    ));
                 }
 
                 // Search for the nullifier in the account data
@@ -169,10 +180,20 @@ impl SolanaClient for RpcSolanaClient {
                 if e.to_string().contains("AccountNotFound") {
                     Ok(false)
                 } else {
-                    Err(Error::InternalServerError(format!("Failed to check nullifier: {}", e)))
+                    Err(Error::InternalServerError(format!(
+                        "Failed to check nullifier: {}",
+                        e
+                    )))
                 }
             }
         }
+    }
+
+    async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error> {
+        self.client
+            .get_account(pubkey)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 }
 
@@ -187,6 +208,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -204,6 +226,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -231,6 +254,7 @@ mod tests {
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),
             nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
+            mint_address: None, // add spl address we wanat to
         };
 
         // Test commitment parsing

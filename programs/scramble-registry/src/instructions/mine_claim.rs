@@ -141,7 +141,6 @@ pub fn process_mine_claim_instruction(
 
     // Create PDA account if it doesn't exist
     if claim_account.data_is_empty() {
-
         // Calculate space and rent
         let space = Claim::SIZE;
         let rent = Rent::get()?;
@@ -166,7 +165,6 @@ pub fn process_mine_claim_instruction(
             owner: &crate::ID,
         }
         .invoke_signed(&[signer])?;
-
     }
 
     // Initialize claim data
