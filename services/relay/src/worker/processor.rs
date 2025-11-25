@@ -78,7 +78,7 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                     }
 
                     // conservation preflight
-                    if let Ok(amt_bytes) = job.public_inputs[96..104].try_into::<[u8; 8]>() {
+                    if let Ok(amt_bytes) = <[u8; 8]>::try_from(&job.public_inputs[96..104]) {
                         let amt = u64::from_le_bytes(amt_bytes);
                         let fee = crate::planner::calculate_fee(amt);
                         if amount + fee != amt {

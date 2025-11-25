@@ -1,13 +1,16 @@
 use axum::{
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;
-use tower::ServiceBuilder;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    key_extractor::SmartIpKeyExtractor,
+    GovernorLayer,
+};
+use governor::middleware::NoOpMiddleware;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware
@@ -115,7 +118,7 @@ pub fn cors_layer(cors_origins: &[String]) -> CorsLayer {
 
 /// Request timeout middleware
 /// Uses different timeouts based on endpoint:
-/// - /api/v1/prove: 600 seconds (10 minutes) - proof generation is slow
+/// - /api/v1/deposit: 60 seconds - Merkle tree insertion can be slow
 /// - Other endpoints: 10 seconds - faster timeout for regular requests
 pub async fn timeout_middleware(
     request: Request<axum::body::Body>,
@@ -123,9 +126,9 @@ pub async fn timeout_middleware(
 ) -> Result<Response, StatusCode> {
     let path = request.uri().path().to_string();
     
-    // Use longer timeout for proof generation endpoint
-    let timeout_duration = if path == "/api/v1/prove" {
-        std::time::Duration::from_secs(600) // 10 minutes for proof generation
+    // Use longer timeout for slow endpoints
+    let timeout_duration = if path == "/api/v1/deposit" {
+        std::time::Duration::from_secs(60) // 60 seconds for deposit (Merkle tree insertion)
     } else {
         std::time::Duration::from_secs(10) // 10 seconds for other endpoints
     };
@@ -151,30 +154,19 @@ pub fn request_size_limit() -> axum::extract::DefaultBodyLimit {
 
 /// Rate limiting middleware for general endpoints
 /// 100 requests per minute per IP
-pub fn rate_limit_general() -> GovernorLayer {
-    use std::time::Duration;
-    let governor_conf = Box::new(
+pub fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(NonZeroU32::new(600).unwrap()) // 100 per minute = 1 per 600ms
-            .burst_size(NonZeroU32::new(200).unwrap())
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(600u64) // 100 per minute = 1 per 600ms
+            .burst_size(200u32)
             .finish()
             .unwrap(),
     );
-    GovernorLayer::new(governor_conf)
+    GovernorLayer {
+        config: governor_conf,
+    }
 }
 
-/// Rate limiting middleware for proof generation endpoint
-/// 10 requests per minute per IP (proof generation is expensive)
-pub fn rate_limit_prove() -> GovernorLayer {
-    use std::time::Duration;
-    let governor_conf = Box::new(
-        GovernorConfigBuilder::default()
-            .per_millisecond(NonZeroU32::new(6000).unwrap()) // 10 per minute = 1 per 6000ms
-            .burst_size(NonZeroU32::new(10).unwrap())
-            .finish()
-            .unwrap(),
-    );
-    GovernorLayer::new(governor_conf)
-}
 
 // Tests can be added here when needed

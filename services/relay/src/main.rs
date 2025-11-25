@@ -11,18 +11,20 @@ mod worker;
 use planner::orchestrator;
 
 use axum::{
-    extract::State,
-    http::{header, Request, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Json, Response},
+    response::{Json, Response},
     routing::{get, post},
     Router,
+    body::Body,
 };
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
-use std::num::NonZeroU32;
-use tower::ServiceBuilder;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    key_extractor::SmartIpKeyExtractor,
+    GovernorLayer,
+};
+use governor::middleware::NoOpMiddleware;
 use tower_http::{
     cors::{Any, CorsLayer},
     set_header::SetResponseHeaderLayer,
@@ -159,8 +161,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
-        // Withdraw endpoint with stricter rate limiting
-        .route("/withdraw", post(api::withdraw::handle_withdraw).layer(rate_limit_withdraw()))
+        // Withdraw endpoint (with stricter rate limiting applied after with_state)
+        .route("/withdraw", post(api::withdraw::handle_withdraw))
+        .fallback(handle_404)
         .route("/status/:id", get(api::status::get_status))
         // Miners API - backlog status
         .route("/backlog", get(api::backlog::get_backlog_status))
@@ -177,7 +180,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post(orchestrator::orchestrate_withdraw),
         )
         // Apply general rate limiting to all routes
-        .layer(rate_limit_general())
+        // Temporarily disabled to debug "Unable To Extract Key!" error
+        // .layer(rate_limit_general())
         .layer(cors)
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
@@ -196,7 +200,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         ))
         .layer(TraceLayer::new_for_http())
-        .with_state(app_state.clone());
+        .layer(axum::middleware::from_fn(log_errors))
+        .with_state(app_state.clone())
+        .layer(axum::middleware::map_response(handle_response_errors));
 
     // Spawn the window scheduler task to process jobs in batched windows
     let scheduler_state = app_state.clone();
@@ -230,28 +236,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Rate limiting middleware for withdraw endpoint
 /// 10 requests per minute per IP (withdraw is critical)
-fn rate_limit_withdraw() -> GovernorLayer {
-    let governor_conf = Box::new(
+fn rate_limit_withdraw() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    use std::sync::Arc;
+    let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(NonZeroU32::new(6000).unwrap()) // 10 per minute = 1 per 6000ms
-            .burst_size(NonZeroU32::new(20).unwrap())
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(6000u64) // 10 per minute = 1 per 6000ms
+            .burst_size(20u32)
             .finish()
             .unwrap(),
     );
-    GovernorLayer::new(governor_conf)
+    GovernorLayer {
+        config: governor_conf,
+    }
 }
 
 /// Rate limiting middleware for general endpoints
 /// 100 requests per minute per IP
-fn rate_limit_general() -> GovernorLayer {
-    let governor_conf = Box::new(
+fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    use std::sync::Arc;
+    let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(NonZeroU32::new(600).unwrap()) // 100 per minute = 1 per 600ms
-            .burst_size(NonZeroU32::new(200).unwrap())
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(600u64) // 100 per minute = 1 per 600ms
+            .burst_size(200u32)
             .finish()
             .unwrap(),
     );
-    GovernorLayer::new(governor_conf)
+    GovernorLayer {
+        config: governor_conf,
+    }
 }
 
 /// Create CORS layer based on configured origins
@@ -299,6 +313,71 @@ async fn root() -> Json<Value> {
             "submit": "POST /submit"
         }
     }))
+}
+
+/// Middleware to log all errors before they're converted to responses
+async fn log_errors(
+    request: axum::http::Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    let method = request.method().clone();
+    
+    // Log incoming request for /withdraw to debug
+    if path == "/withdraw" {
+        use tracing::warn;
+        warn!("Incoming /withdraw request - before processing");
+    }
+    
+    let response = next.run(request).await;
+    
+    // Log if it's an error response
+    if response.status().is_server_error() || response.status().is_client_error() {
+        use tracing::error;
+        error!(
+            method = %method,
+            path = %path,
+            status = %response.status(),
+            "❌ Error response returned"
+        );
+        
+        // For /withdraw errors, log more details
+        if path == "/withdraw" {
+            error!("❌ /withdraw endpoint failed - this may be a JSON deserialization error");
+            error!("❌ Expected JSON structure: {{ outputs: [...], policy: {{ fee_bps: number }}, public_inputs: {{ root, nf, amount, fee_bps, outputs_hash }}, proof_bytes: string }}");
+        }
+    }
+    
+    response
+}
+
+
+/// Handle response errors to log details
+async fn handle_response_errors(
+    response: axum::response::Response,
+) -> axum::response::Response {
+    use tracing::error;
+    
+    // Log if it's an error response
+    if response.status().is_server_error() || response.status().is_client_error() {
+        error!(
+            status = %response.status(),
+            "❌ Response error - this may be a JSON deserialization error or missing field"
+        );
+    }
+    
+    response
+}
+
+async fn handle_404() -> impl axum::response::IntoResponse {
+    use axum::http::StatusCode;
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": true,
+            "message": "Route not found"
+        }))
+    )
 }
 
 async fn health_check() -> Json<Value> {

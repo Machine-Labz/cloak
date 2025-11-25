@@ -292,6 +292,33 @@ impl PostgresTreeStorage {
         Ok(note)
     }
 
+    /// Get a specific note by leaf commit
+    pub async fn get_note_by_commit(&self, leaf_commit: &str) -> Result<Option<StoredNote>> {
+        let clean_commit = leaf_commit
+            .strip_prefix("0x")
+            .unwrap_or(leaf_commit)
+            .to_lowercase();
+
+        let start = std::time::Instant::now();
+
+        let note = sqlx::query_as::<_, StoredNote>(
+            r#"
+            SELECT id, leaf_commit, encrypted_output, leaf_index, tx_signature, slot, block_time, created_at 
+            FROM notes 
+            WHERE leaf_commit = $1
+            "#
+        )
+        .bind(&clean_commit)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(IndexerError::Database)?;
+
+        let duration = start.elapsed();
+        crate::log_database_operation!("SELECT", "notes", duration.as_millis() as u64);
+
+        Ok(note)
+    }
+
     /// Update indexer metadata
     pub async fn update_metadata(&self, key: &str, value: &str) -> Result<()> {
         let start = std::time::Instant::now();

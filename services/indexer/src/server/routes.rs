@@ -5,10 +5,12 @@ use crate::error::{not_found_with_endpoints, IndexerError};
 use crate::merkle::{MerkleTree, TreeStorage};
 use crate::server::final_handlers::{AppState, *};
 use crate::server::middleware::{
-    cors_layer, logging_middleware, rate_limit_general, rate_limit_prove,
+    cors_layer, logging_middleware, rate_limit_general,
     request_size_limit, timeout_middleware,
 };
-use crate::server::prover_handler::generate_proof;
+use crate::server::tee_artifact_handler::{
+    create_artifact, get_proof_status, request_proof, upload_stdin,
+};
 use crate::sp1_tee_client::create_tee_client;
 use axum::{
     middleware,
@@ -162,8 +164,11 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/merkle/root", get(get_merkle_root))
         .route("/merkle/proof/:index", get(get_merkle_proof))
         .route("/notes/range", get(get_notes_range))
-        // Proof generation endpoint with stricter rate limiting
-        .route("/prove", post(generate_proof).layer(rate_limit_prove()))
+        // TEE artifact-based proof generation endpoints
+        .route("/tee/artifact", post(create_artifact))
+        .route("/tee/artifact/:artifact_id/upload", post(upload_stdin))
+        .route("/tee/request-proof", post(request_proof))
+        .route("/tee/proof-status", get(get_proof_status))
         // Admin endpoints
         .route("/admin/reset", post(reset_database))
         // Apply general rate limiting to all routes
