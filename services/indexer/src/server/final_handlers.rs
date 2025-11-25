@@ -206,7 +206,7 @@ pub async fn deposit(
                 );
                 
                 // Get the existing note to return its index
-                match state.storage.get_note_by_commit(&request.leaf_commit).await {
+                match state.storage.get_note_by_commitment(&request.leaf_commit).await {
                     Ok(Some(existing_note)) => {
                         tracing::info!(
                             leaf_index = existing_note.leaf_index,

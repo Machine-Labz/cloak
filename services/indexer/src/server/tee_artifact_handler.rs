@@ -361,10 +361,19 @@ pub async fn request_proof(
             public_inputs_from_stdin
         };
 
+        // Extract swap_params if present (optional for swap transactions)
+        let swap_params = stdin_json.get("swap_params")
+            .and_then(|sp| serde_json::to_string(sp).ok());
+
         // Generate proof
         let start_time = std::time::Instant::now();
         match tee_client_clone
-            .generate_proof(&private_inputs, &public_inputs_final, &outputs)
+            .generate_proof(
+                &private_inputs,
+                &public_inputs_final,
+                &outputs,
+                swap_params.as_deref(),
+            )
             .await
         {
             Ok(result) => {
