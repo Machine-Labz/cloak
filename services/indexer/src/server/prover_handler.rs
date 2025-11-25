@@ -281,7 +281,11 @@ pub async fn generate_proof(
         state.config.sp1_tee.timeout_seconds
     );
 
-    let swap_params_str = request.swap_params.as_ref().map(|v| v.to_string());
+    // Convert swap_params JSON Value to string using serde_json::to_string
+    // This ensures valid JSON formatting (to_string() on Value doesn't produce valid JSON)
+    let swap_params_str = request.swap_params.as_ref().and_then(|v| {
+        serde_json::to_string(v).ok()
+    });
 
     match tee_client
         .generate_proof(
