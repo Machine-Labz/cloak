@@ -25,6 +25,8 @@ tower-http = { version = "0.5", features = [
     "trace",
     "compression-gzip",
 ] }
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
 
 # Database
 sqlx = { version = "0.7", features = [
