@@ -4,8 +4,7 @@
 //!
 //! Run with: cargo run --bin migrate
 
-use indexer::database::Database;
-use indexer::{Config, IndexerError};
+use indexer::{database::Database, Config, IndexerError};
 
 #[tokio::main]
 async fn main() -> Result<(), IndexerError> {

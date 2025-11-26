@@ -27,8 +27,7 @@ pub enum Error {
 
 impl axum::response::IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
+        use axum::{http::StatusCode, Json};
         use serde_json::json;
         use tracing::error;
 

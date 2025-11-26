@@ -1,6 +1,7 @@
-use crate::{error::ShieldPoolError, state::CommitmentQueue};
 use pinocchio::{account_info::AccountInfo, pubkey::Pubkey, ProgramResult};
 use pinocchio_system::instructions::Transfer;
+
+use crate::{error::ShieldPoolError, state::CommitmentQueue};
 
 #[inline(always)]
 pub fn process_deposit_instruction(

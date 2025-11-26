@@ -1,5 +1,6 @@
-use blake3::Hasher;
 use std::time::{Duration, Instant};
+
+use blake3::Hasher;
 
 /// Root metadata within the current acceptable window
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,8 +163,9 @@ pub fn jitter_delay(now: Instant) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Instant;
+
+    use super::*;
 
     #[test]
     fn test_conservation_fee_and_outputs_hash() {

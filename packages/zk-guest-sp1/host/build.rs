@@ -10,7 +10,8 @@ fn main() {
 
         // Copy pre-built ELF to the expected location
         let target_dir = std::env::var("OUT_DIR").unwrap();
-        let target_elf_dir = Path::new(&target_dir).join("elf-compilation/riscv32im-succinct-zkvm-elf/release");
+        let target_elf_dir =
+            Path::new(&target_dir).join("elf-compilation/riscv32im-succinct-zkvm-elf/release");
         std::fs::create_dir_all(&target_elf_dir).expect("Failed to create ELF directory");
 
         let target_elf = target_elf_dir.join("zk-guest-sp1-guest");
@@ -27,12 +28,20 @@ fn main() {
 
         // Set the environment variable that include_elf! expects
         // This tells the macro where to find the ELF at compile time
-        println!("cargo:rustc-env=SP1_ELF_zk-guest-sp1-guest={}", target_elf.display());
-        println!("cargo:warning=Pre-built ELF copied to: {}", target_elf.display());
+        println!(
+            "cargo:rustc-env=SP1_ELF_zk-guest-sp1-guest={}",
+            target_elf.display()
+        );
+        println!(
+            "cargo:warning=Pre-built ELF copied to: {}",
+            target_elf.display()
+        );
     } else {
         #[cfg(feature = "build-guest")]
         {
-            println!("cargo:warning=Pre-built ELF not found, building guest program with SP1 toolchain");
+            println!(
+                "cargo:warning=Pre-built ELF not found, building guest program with SP1 toolchain"
+            );
             println!("cargo:rerun-if-changed=../guest");
             sp1_build::build_program("../guest");
         }

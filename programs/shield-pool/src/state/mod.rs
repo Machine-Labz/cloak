@@ -1,5 +1,6 @@
-use crate::{error::ShieldPoolError, ID};
 use pinocchio::{account_info::AccountInfo, program_error::ProgramError};
+
+use crate::{error::ShieldPoolError, ID};
 
 /// CommitmentQueue: Fixed-size ring buffer storing recent deposit commitments.
 /// Layout:

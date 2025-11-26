@@ -1,10 +1,9 @@
+use std::{fs, path::Path};
+
 use anyhow::Result;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{ProverClient, SP1Stdin};
-use std::fs;
-use std::path::Path;
-
 use zk_guest_sp1_host::encoding::*;
 
 // Custom serialization for hex strings

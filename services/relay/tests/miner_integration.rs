@@ -314,7 +314,8 @@ fn test_miner_pda_derivation() {
 
 #[cfg(feature = "integration-tests")]
 mod integration {
-    use super::*;
+    use std::env;
+
     use cloak_miner::{
         build_mine_and_reveal_instructions, build_register_miner_ix, fetch_recent_slot_hash,
         fetch_registry, ClaimManager,
@@ -325,7 +326,8 @@ mod integration {
         signature::{Keypair, Signer},
         transaction::Transaction,
     };
-    use std::env;
+
+    use super::*;
 
     fn setup_test_env() -> (RpcClient, Keypair, Pubkey) {
         let rpc_url =
@@ -623,8 +625,9 @@ mod integration {
 
 #[cfg(all(test, feature = "bench"))]
 mod benchmarks {
-    use super::*;
     use std::time::Instant;
+
+    use super::*;
 
     #[test]
     #[ignore]

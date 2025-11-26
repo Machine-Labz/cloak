@@ -1,6 +1,7 @@
+use std::fs;
+
 use anyhow::Result;
 use sp1_sdk::{HashableKey, ProverClient};
-use std::fs;
 
 fn find_guest_elf() -> Result<Vec<u8>> {
     let paths = [

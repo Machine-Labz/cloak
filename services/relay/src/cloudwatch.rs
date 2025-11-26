@@ -1,16 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use aws_config::BehaviorVersion;
-use aws_sdk_cloudwatchlogs::types::InputLogEvent;
-use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
-use std::sync::Arc;
+use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client as CloudWatchLogsClient};
 use tokio::sync::mpsc;
 use tracing::Subscriber;
-use tracing_subscriber::fmt::{format::FmtSpan, time::SystemTime};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{
+    fmt::{format::FmtSpan, time::SystemTime},
+    layer::SubscriberExt,
+    registry::LookupSpan,
+    util::SubscriberInitExt,
+    EnvFilter, Layer,
+};
 
 /// Get the machine ID to use as log stream name
 fn get_machine_id() -> String {
@@ -292,7 +293,7 @@ pub async fn init_logging_with_cloudwatch(
                 .with(env_filter)
                 .with(
                     tracing_subscriber::fmt::layer()
-                        .with_timer(SystemTime::default())
+                        .with_timer(SystemTime)
                         .with_span_events(FmtSpan::CLOSE),
                 )
                 .init();
@@ -326,7 +327,7 @@ pub async fn init_logging_with_cloudwatch(
         .with(env_filter)
         .with(
             tracing_subscriber::fmt::layer()
-                .with_timer(SystemTime::default())
+                .with_timer(SystemTime)
                 .with_span_events(FmtSpan::CLOSE),
         )
         .with(CloudWatchLayer::new(tx))

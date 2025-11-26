@@ -1,3 +1,8 @@
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
 use anyhow::Result;
 use bincode;
 use cloak_proof_extract::extract_groth16_260_sp1;
@@ -8,11 +13,11 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::system_instruction;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
+use solana_sdk::{
+    pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
+    transaction::Transaction,
+};
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
-use std::str::FromStr;
-use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
     check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
     SOL_TO_LAMPORTS,

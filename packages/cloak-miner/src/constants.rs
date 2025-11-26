@@ -2,8 +2,9 @@
 //!
 //! Defines program IDs for different Solana networks.
 
-use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
+
+use solana_sdk::pubkey::Pubkey;
 
 /// Network identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +62,24 @@ impl Network {
             }
         }
     }
+
+    /// Get shield pool program ID for this network
+    pub fn shield_pool_program_id(&self) -> Result<Pubkey, String> {
+        match self {
+            Network::Mainnet => Pubkey::from_str(MAINNET_SHIELD_POOL_PROGRAM_ID)
+                .map_err(|e| format!("Invalid mainnet shield pool program ID: {}", e)),
+            Network::Devnet => Pubkey::from_str(DEVNET_SHIELD_POOL_PROGRAM_ID)
+                .map_err(|e| format!("Invalid devnet shield pool program ID: {}", e)),
+            Network::Testnet => Pubkey::from_str(TESTNET_SHIELD_POOL_PROGRAM_ID)
+                .map_err(|e| format!("Invalid testnet shield pool program ID: {}", e)),
+            Network::Localnet => {
+                let program_id_str = std::env::var("SHIELD_POOL_PROGRAM_ID")
+                    .unwrap_or_else(|_| LOCALNET_SHIELD_POOL_PROGRAM_ID.to_string());
+                Pubkey::from_str(&program_id_str)
+                    .map_err(|e| format!("Invalid localnet shield pool program ID: {}", e))
+            }
+        }
+    }
 }
 
 // Program IDs for different networks
@@ -77,7 +96,23 @@ const DEVNET_SCRAMBLE_PROGRAM_ID: &str = "11111111111111111111111111111111";
 const TESTNET_SCRAMBLE_PROGRAM_ID: &str = "EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6";
 
 /// Localnet scramble registry program ID (from build-sbf)
-const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "scramb1eReg1stryPoWM1n1ngSo1anaC1oak11111111";
+const LOCALNET_SCRAMBLE_PROGRAM_ID: &str = "9yoeUduVanEN5RGp144Czfa5GXNiLdGmDMAboM4vfqsm";
+
+// Shield Pool Program IDs
+
+/// Mainnet shield pool program ID
+/// TODO: Replace with actual program ID after mainnet deployment
+const MAINNET_SHIELD_POOL_PROGRAM_ID: &str = "11111111111111111111111111111111";
+
+/// Devnet shield pool program ID
+/// TODO: Replace with actual program ID after devnet deployment
+const DEVNET_SHIELD_POOL_PROGRAM_ID: &str = "11111111111111111111111111111111";
+
+/// Testnet shield pool program ID
+const TESTNET_SHIELD_POOL_PROGRAM_ID: &str = "11111111111111111111111111111111";
+
+/// Localnet shield pool program ID
+const LOCALNET_SHIELD_POOL_PROGRAM_ID: &str = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp";
 
 #[cfg(test)]
 mod tests {

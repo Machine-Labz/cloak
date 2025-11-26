@@ -31,3 +31,5 @@ pub const DEFAULT_TARGET_INTERVAL: u64 = 100;
 /// Difficulty adjustment clamp (±20% per epoch)
 pub const DIFFICULTY_CLAMP_MIN: f64 = 0.8;
 pub const DIFFICULTY_CLAMP_MAX: f64 = 1.2;
+
+pub const DECOY_MIN_INTERVAL: u64 = 100;

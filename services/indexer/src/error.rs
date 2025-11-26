@@ -157,7 +157,7 @@ impl IntoResponse for IndexerError {
         let error_response = ErrorResponse {
             error: error_type,
             message,
-            details: details.map(|v| v.clone()),
+            details,
             available_endpoints: None,
             timestamp: chrono::Utc::now(),
         };

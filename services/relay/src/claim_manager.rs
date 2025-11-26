@@ -146,7 +146,7 @@ impl ClaimFinder {
             }
 
             // Parse claim account
-            match parse_claim_account(&account) {
+            match parse_claim_account(account) {
                 Ok(claim) => {
                     // Check if batch_hash matches (or if claim is wildcard)
                     let is_wildcard = claim.batch_hash == [0u8; 32];
@@ -425,8 +425,9 @@ pub fn compute_batch_hash(job_id: &str) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use solana_sdk::pubkey::Pubkey;
+
+    use super::*;
 
     #[test]
     fn test_batch_hash_determinism() {

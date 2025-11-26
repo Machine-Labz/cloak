@@ -1,3 +1,5 @@
+use std::ptr::copy_nonoverlapping;
+
 use pinocchio::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
 /// ClaimStatus - Status of a PoW claim
@@ -114,6 +116,7 @@ impl ScrambleRegistry {
         unsafe { u64::from_le(*(self.0.add(180) as *const u64)) }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub fn initialize(
         &mut self,
@@ -185,14 +188,16 @@ impl ScrambleRegistry {
     }
 }
 
-/// Miner: PDA per authority (anti-key-grinding)
+/// Miner: PDA per authority (EXTENDED)
 ///
 /// Layout: [authority: 32][total_mined: 8][total_consumed: 8][registered_at_slot: 8]
-/// Total: 56 bytes
+///         [decoy_deposit_lamports: 8][decoy_withdrawal_lamports: 8]
+///         [last_decoy_slot: 8][reserved: 8]
+/// Total: 88 bytes
 pub struct Miner(*mut u8);
 
 impl Miner {
-    pub const SIZE: usize = 32 + 8 + 8 + 8;
+    pub const SIZE: usize = 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 
     #[inline(always)]
     pub fn from_account_info_unchecked(account_info: &AccountInfo) -> Self {
@@ -228,20 +233,6 @@ impl Miner {
     }
 
     #[inline(always)]
-    pub fn initialize(&mut self, authority: &Pubkey, current_slot: u64) {
-        unsafe {
-            // authority
-            core::ptr::copy_nonoverlapping(authority.as_ref().as_ptr(), self.0, 32);
-            // total_mined
-            *(self.0.add(32) as *mut u64) = 0u64.to_le();
-            // total_consumed
-            *(self.0.add(40) as *mut u64) = 0u64.to_le();
-            // registered_at_slot
-            *(self.0.add(48) as *mut u64) = current_slot.to_le();
-        }
-    }
-
-    #[inline(always)]
     pub fn record_mine(&mut self) {
         unsafe {
             let mined = self.total_mined();
@@ -254,6 +245,75 @@ impl Miner {
         unsafe {
             let consumed = self.total_consumed();
             *(self.0.add(40) as *mut u64) = consumed.saturating_add(1).to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn decoy_deposit_lamports(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(56) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn decoy_withdrawal_lamports(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(64) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn last_decoy_slot(&self) -> u64 {
+        unsafe { u64::from_le(*(self.0.add(72) as *const u64)) }
+    }
+
+    #[inline(always)]
+    pub fn add_decoy_deposit(&mut self, amount: u64) {
+        unsafe {
+            let current = self.decoy_deposit_lamports();
+            *(self.0.add(56) as *mut u64) = current.saturating_add(amount).to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn add_decoy_withdrawal(&mut self, amount: u64) {
+        unsafe {
+            let current = self.decoy_withdrawal_lamports();
+            *(self.0.add(64) as *mut u64) = current.saturating_add(amount).to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn update_last_decoy_slot(&mut self, slot: u64) {
+        unsafe {
+            *(self.0.add(72) as *mut u64) = slot.to_le();
+        }
+    }
+
+    #[inline(always)]
+    pub fn decoy_balance_imbalance(&self) -> i64 {
+        let deposits = self.decoy_deposit_lamports() as i64;
+        let withdrawals = self.decoy_withdrawal_lamports() as i64;
+        deposits - withdrawals
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub fn initialize(&mut self, authority: &Pubkey, current_slot: u64) {
+        unsafe {
+            // authority
+            copy_nonoverlapping(authority.as_ref().as_ptr(), self.0, 32);
+            // total_mined
+            *(self.0.add(32) as *mut u64) = 0u64.to_le();
+            // total_consumed
+            *(self.0.add(40) as *mut u64) = 0u64.to_le();
+            // registered_at_slot
+            *(self.0.add(48) as *mut u64) = current_slot.to_le();
+            // NEW FIELDS
+            // decoy_deposit_lamports
+            *(self.0.add(56) as *mut u64) = 0u64.to_le();
+            // decoy_withdrawal_lamports
+            *(self.0.add(64) as *mut u64) = 0u64.to_le();
+            // last_decoy_slot
+            *(self.0.add(72) as *mut u64) = 0u64.to_le();
+            // reserved
+            *(self.0.add(80) as *mut u64) = 0u64.to_le();
         }
     }
 }

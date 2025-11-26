@@ -1,8 +1,5 @@
-use crate::artifacts::ArtifactManager;
-use crate::database::PostgresTreeStorage;
-use crate::merkle::{MerkleTree, TreeStorage};
-use crate::solana::push_root_to_chain;
-use crate::sp1_tee_client::Sp1TeeClient;
+use std::{collections::HashMap, sync::Arc};
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -10,9 +7,15 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::{
+    artifacts::ArtifactManager,
+    database::PostgresTreeStorage,
+    merkle::{MerkleTree, TreeStorage},
+    solana::push_root_to_chain,
+    sp1_tee_client::Sp1TeeClient,
+};
 
 // Application state
 #[derive(Clone)]
@@ -185,14 +188,17 @@ pub async fn deposit(
     // Insert the leaf into the merkle tree and get the new root
     tracing::info!("🌳 Inserting leaf into Merkle tree");
     let mut tree = state.merkle_tree.lock().await;
-    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
+    match tree
+        .insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage)
+        .await
+    {
         Ok((new_root, _)) => {
             tracing::info!(
                 leaf_index = allocated_index,
                 new_root = new_root,
                 "✅ Successfully inserted leaf into Merkle tree"
             );
-            
+
             // Push new root to on-chain roots ring synchronously to prevent race conditions
             // The withdrawal proof depends on this root being on-chain before it can be verified
             tracing::info!("🔗 Pushing root to on-chain roots ring");
@@ -204,7 +210,7 @@ pub async fn deposit(
             } else {
                 tracing::info!("✅ Root successfully pushed to on-chain roots ring");
             }
-            
+
             tracing::info!("🎉 Deposit request completed successfully");
             (
                 StatusCode::CREATED,

@@ -1,6 +1,6 @@
-use crate::state::RootsRing;
-use crate::{constants::ADMIN_AUTHORITY, error::ShieldPoolError};
 use pinocchio::{account_info::AccountInfo, ProgramResult};
+
+use crate::{constants::ADMIN_AUTHORITY, error::ShieldPoolError, state::RootsRing};
 
 pub fn process_admin_push_root_instruction(
     accounts: &[AccountInfo],

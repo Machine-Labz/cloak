@@ -139,8 +139,9 @@ pub struct Output {
 
 // Custom serde for address field to handle both base58 and hex
 mod address_serde {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(address: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -168,8 +169,9 @@ pub struct MerklePath {
 
 // Custom serde for hex arrays
 mod hex_array_serde {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(elements: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
     where

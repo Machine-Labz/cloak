@@ -1,10 +1,15 @@
-use crate::error::ScrambleError;
-use crate::state::{Claim, Miner, ScrambleRegistry};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::program_error::ProgramError;
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    msg,
+    program_error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    ProgramResult,
+};
+
+use crate::{
+    error::ScrambleError,
+    state::{Claim, Miner, ScrambleRegistry},
+};
 
 #[inline(always)]
 pub fn process_consume_claim_instruction(

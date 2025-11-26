@@ -1,10 +1,14 @@
-use crate::config::Config;
-use crate::error::{IndexerError, Result};
+use std::path::PathBuf;
+
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use tokio::fs;
+
+use crate::{
+    config::Config,
+    error::{IndexerError, Result},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WithdrawArtifacts {

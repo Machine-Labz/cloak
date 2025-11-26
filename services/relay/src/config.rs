@@ -66,10 +66,8 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number(
-                    "RELAY_REQUEST_TIMEOUT_SECONDS",
-                    30,
-                ).unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
+                    .unwrap_or(30),
             },
             solana: SolanaConfig {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://localhost:8899").to_string(),
@@ -79,42 +77,77 @@ impl Config {
                     .to_string(),
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 priority_micro_lamports: get_env_var_as_number(
                     "SOLANA_PRIORITY_MICROLAMPORTS",
                     10000,
-                ).unwrap_or(10000),
-                jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000).unwrap_or(100000),
+                )
+                .unwrap_or(10000),
+                jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
+                    .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000).unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
+                    .unwrap_or(2000),
                 scramble_registry_program_id: {
-                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 pool_address: {
                     let val = get_env_var("CLOAK_POOL_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 treasury_address: {
                     let val = get_env_var("CLOAK_TREASURY_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 roots_ring_address: {
                     let val = get_env_var("ROOTS_RING_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 nullifier_shard_address: {
-                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "")
+                        .trim()
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
             },
             database: DatabaseConfig {
-                url: get_env_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db").to_string(),
+                url: get_env_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+                    .to_string(),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20).unwrap_or(20),
             },
             metrics: MetricsConfig {
-                enabled: get_env_var("RELAY_METRICS_ENABLED", "true").parse().unwrap_or(true),
+                enabled: get_env_var("RELAY_METRICS_ENABLED", "true")
+                    .parse()
+                    .unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
             },
@@ -235,7 +268,11 @@ impl Config {
                 program_id: get_env_var("CLOAK_PROGRAM_ID", "").to_string(),
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 priority_micro_lamports: get_env_var_as_number(
                     "SOLANA_PRIORITY_MICROLAMPORTS",
@@ -248,24 +285,49 @@ impl Config {
                 retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
                     .unwrap_or(2000),
                 scramble_registry_program_id: {
-                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 pool_address: {
                     let val = get_env_var("CLOAK_POOL_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 treasury_address: {
                     let val = get_env_var("CLOAK_TREASURY_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 roots_ring_address: {
                     let val = get_env_var("ROOTS_RING_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 nullifier_shard_address: {
-                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "")
+                        .trim()
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
             },
             metrics: MetricsConfig {

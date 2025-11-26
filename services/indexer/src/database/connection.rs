@@ -1,7 +1,11 @@
-use crate::config::Config;
-use crate::error::{IndexerError, Result};
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::time::Duration;
+
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+
+use crate::{
+    config::Config,
+    error::{IndexerError, Result},
+};
 #[derive(Clone)]
 
 pub struct Database {
@@ -13,9 +17,7 @@ impl Database {
     pub async fn new(config: &Config) -> Result<Self> {
         let database_url = config.database_url();
 
-        tracing::info!(
-            "Connecting to database"
-        );
+        tracing::info!("Connecting to database");
 
         // Add connection timeout to prevent hanging
         let connection_timeout = Duration::from_secs(10);
@@ -33,9 +35,7 @@ impl Database {
         .await
         .map_err(|_| {
             tracing::error!("Database connection timeout after {:?}", connection_timeout);
-            tracing::error!(
-                "Make sure PostgreSQL is running",
-            );
+            tracing::error!("Make sure PostgreSQL is running",);
             IndexerError::internal("Database connection timeout")
         })?
         .map_err(|e| {

@@ -1,3 +1,8 @@
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
 use anyhow::Result;
 use bincode;
 use cloak_proof_extract::extract_groth16_260_sp1;
@@ -8,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use shield_pool::CommitmentQueue;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::system_instruction;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
@@ -17,8 +21,6 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
-use std::str::FromStr;
-use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
     check_cluster_health, create_withdraw_instruction, ensure_user_funding, load_keypair,
     print_config, MerkleProof, TestConfig, SOL_TO_LAMPORTS,
@@ -220,7 +222,10 @@ async fn main() -> Result<()> {
         &user_keypair,
     )?;
 
-    println!("   ✅ Withdraw transaction submitted: {}", withdraw_signature);
+    println!(
+        "   ✅ Withdraw transaction submitted: {}",
+        withdraw_signature
+    );
 
     // Verify recipient balances
     let recipient_balance_after = client.get_balance(&recipient_keypair.pubkey())?;
@@ -249,8 +254,7 @@ async fn main() -> Result<()> {
     );
     println!(
         "   📊 Recipient delta: {} lamports (expected {})",
-        recipient_delta,
-        recipient_expected
+        recipient_delta, recipient_expected
     );
 
     println!(
@@ -263,8 +267,7 @@ async fn main() -> Result<()> {
     );
     println!(
         "   📊 Second recipient delta: {} lamports (expected {})",
-        miner_delta,
-        miner_expected
+        miner_delta, miner_expected
     );
 
     if recipient_delta != recipient_expected {
@@ -329,10 +332,7 @@ async fn main() -> Result<()> {
         };
         println!(
             "   - Output #{} -> {}: {} lamports (delta {})",
-            index,
-            pk,
-            amount, 
-            delta
+            index, pk, amount, delta
         );
     }
 
@@ -607,7 +607,10 @@ fn prepare_proof_inputs(
 
     println!("   - Amount: {} lamports", test_data.amount);
     println!("   - Fee: {} lamports", fee);
-    println!("   - Distributable amount: {} lamports", distributable_amount);
+    println!(
+        "   - Distributable amount: {} lamports",
+        distributable_amount
+    );
 
     // Use actual recipient keypairs
     let primary_pubkey = recipient_keypair.pubkey();
@@ -617,10 +620,19 @@ fn prepare_proof_inputs(
     let primary_amount = distributable_amount * 2 / 3;
     let secondary_amount = distributable_amount - primary_amount;
 
-    println!("   - Primary recipient: {} ({} lamports)", primary_pubkey, primary_amount);
-    println!("   - Secondary recipient: {} ({} lamports)", secondary_pubkey, secondary_amount);
+    println!(
+        "   - Primary recipient: {} ({} lamports)",
+        primary_pubkey, primary_amount
+    );
+    println!(
+        "   - Secondary recipient: {} ({} lamports)",
+        secondary_pubkey, secondary_amount
+    );
 
-    let outputs_details = vec![(primary_pubkey, primary_amount), (secondary_pubkey, secondary_amount)];
+    let outputs_details = vec![
+        (primary_pubkey, primary_amount),
+        (secondary_pubkey, secondary_amount),
+    ];
 
     // Create outputs JSON structure
     let outputs = serde_json::json!([
@@ -722,13 +734,19 @@ fn validate_circuit_constraints_local(
     let mut current_hash = commitment.as_bytes().to_vec();
     let root_hex = public_inputs["root"].as_str().unwrap();
 
-    println!("         Starting hash (commitment): {}", hex::encode(&current_hash));
+    println!(
+        "         Starting hash (commitment): {}",
+        hex::encode(&current_hash)
+    );
     println!("         Expected root: {}", root_hex);
     println!("         Number of path elements: {}", path_elements.len());
 
     for (i, (sibling_hex, &is_left)) in path_elements.iter().zip(path_indices.iter()).enumerate() {
         let sibling = hex::decode(sibling_hex)?;
-        println!("         Level {}: is_left={}, sibling={}", i, is_left, sibling_hex);
+        println!(
+            "         Level {}: is_left={}, sibling={}",
+            i, is_left, sibling_hex
+        );
         let mut hasher = Hasher::new();
         if is_left == 0 {
             // Current is left, sibling is right
@@ -1238,7 +1256,9 @@ fn create_program_accounts(
 
     println!("   Deriving PDA addresses...");
     // Use the exact same program ID as the program expects
-    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse::<Pubkey>().unwrap();
+    let program_id_bytes = "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp"
+        .parse::<Pubkey>()
+        .unwrap();
     let (pool_pda, commitments_pda, roots_ring_pda, nullifier_shard_pda, treasury_pda) =
         get_pda_addresses(&program_id_bytes);
 
@@ -1287,15 +1307,10 @@ fn create_program_accounts(
     println!("     Data length: {}", initialize_pool_ix.data.len());
 
     // Use only the initialize instruction - the program will create the accounts
-    let mut create_accounts_tx = Transaction::new_with_payer(
-        &[initialize_pool_ix],
-        Some(&admin_keypair.pubkey()),
-    );
+    let mut create_accounts_tx =
+        Transaction::new_with_payer(&[initialize_pool_ix], Some(&admin_keypair.pubkey()));
 
-    create_accounts_tx.sign(
-        &[&admin_keypair],
-        client.get_latest_blockhash()?,
-    );
+    create_accounts_tx.sign(&[&admin_keypair], client.get_latest_blockhash()?);
 
     client.send_and_confirm_transaction(&create_accounts_tx)?;
 
@@ -1457,10 +1472,7 @@ fn execute_withdraw_direct(
     nullifier.copy_from_slice(&public_inputs_array[32..64]);
 
     for (index, (pk, amount)) in outputs.iter().enumerate() {
-        println!(
-            "   - Output #{} -> {} ({} lamports)", 
-            index, pk, amount
-        );
+        println!("   - Output #{} -> {} ({} lamports)", index, pk, amount);
     }
 
     let recipient_accounts: Vec<Pubkey> = outputs.iter().map(|(pk, _)| *pk).collect();

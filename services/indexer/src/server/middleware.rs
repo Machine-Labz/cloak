@@ -1,9 +1,10 @@
+use std::time::Instant;
+
 use axum::{
     http::{Request, StatusCode},
     middleware::Next,
     response::Response,
 };
-use std::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware

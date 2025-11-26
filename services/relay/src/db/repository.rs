@@ -2,8 +2,10 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use super::models::{CreateJob, Job, JobStatus, JobSummary, Nullifier};
-use super::DatabasePool;
+use super::{
+    models::{CreateJob, Job, JobStatus, JobSummary, Nullifier},
+    DatabasePool,
+};
 use crate::error::Error;
 
 #[async_trait]

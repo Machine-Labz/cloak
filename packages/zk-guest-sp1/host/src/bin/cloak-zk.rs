@@ -1,7 +1,8 @@
+use std::fs;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use sp1_sdk::{include_elf, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
-use std::fs;
 
 const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
 

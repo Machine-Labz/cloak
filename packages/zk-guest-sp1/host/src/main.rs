@@ -1,9 +1,9 @@
+use std::{fs, path::PathBuf};
+
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{ProverClient, SP1Stdin};
-use std::fs;
-use std::path::PathBuf;
 
 mod encoding;
 use encoding::*;
@@ -82,8 +82,9 @@ struct CircuitInputs {
 
 // Custom serde module for hex strings
 mod hex_string {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where

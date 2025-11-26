@@ -55,6 +55,18 @@ pub enum ScrambleError {
     BatchHashMismatch = 24,
     /// Invalid instruction discriminator
     InvalidTag = 25,
+    /// Decoy rate limited
+    DecoyRateLimited = 26,
+    /// Insufficient escrow balance
+    InsufficientEscrowBalance = 27,
+    /// Invalid decoy recipient
+    InvalidDecoyRecipient = 28,
+    /// Decoy balance imbalance
+    DecoyBalanceImbalance = 29,
+    /// Claim not consumable
+    ClaimNotConsumable = 30,
+    /// Miner already registered
+    MinerAlreadyRegistered = 31,
 }
 
 impl From<ScrambleError> for ProgramError {
