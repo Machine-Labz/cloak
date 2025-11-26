@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::planner::{build_public_inputs_104, calculate_fee};
 use crate::{
-    db::models::CreateJob,
-    db::repository::{JobRepository, NullifierRepository},
+    db::{
+        models::CreateJob,
+        repository::{JobRepository, NullifierRepository},
+    },
     error::Error,
+    planner::{build_public_inputs_104, calculate_fee},
     AppState,
 };
 

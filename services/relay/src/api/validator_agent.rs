@@ -1,20 +1,18 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use base64::Engine;
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
+use solana_client::{rpc_client::RpcClient, rpc_config::RpcSendTransactionConfig};
+use solana_sdk::{
+    commitment_config::CommitmentLevel, signature::Signature, transaction::VersionedTransaction,
+};
 use uuid::Uuid;
 
-use blake3::Hasher;
-
-use crate::error::Error;
 use crate::{
     db::repository::{JobRepository, NullifierRepository},
+    error::Error,
     AppState,
 };
-use base64::Engine;
-use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::RpcSendTransactionConfig;
-use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::signature::Signature;
-use solana_sdk::transaction::VersionedTransaction;
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawJobRequest {
@@ -285,7 +283,7 @@ pub async fn submit_tx(Json(req): Json<SubmitRequest>) -> Result<impl IntoRespon
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_secs(10) {
         if let Ok(sts) = rpc.get_signature_statuses(&[sig]) {
-            if let Some(Some(st)) = sts.value.get(0) {
+            if let Some(Some(st)) = sts.value.first() {
                 if st.err.is_none() {
                     break;
                 }
@@ -297,7 +295,7 @@ pub async fn submit_tx(Json(req): Json<SubmitRequest>) -> Result<impl IntoRespon
     // 6) Fetch slot (best-effort)
     let mut slot = None;
     if let Ok(statuses) = rpc.get_signature_statuses(&[sig]) {
-        if let Some(Some(st)) = statuses.value.get(0) {
+        if let Some(Some(st)) = statuses.value.first() {
             slot = Some(st.slot);
         }
     }

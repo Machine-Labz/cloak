@@ -1,12 +1,12 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
+
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::db::models::Job;
-use crate::db::repository::JobRepository;
-use crate::AppState;
+use crate::{
+    db::{models::Job, repository::JobRepository},
+    AppState,
+};
 
 /// Configuration for withdrawal window timing
 #[derive(Clone, Debug)]
@@ -25,9 +25,9 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             slot_patterns: vec![0, 5], // Process every 5 slots (~2.5s)
-            min_batch_size: None,       // No minimum
-            max_batch_size: 50,         // Safety limit
-            poll_interval_secs: 1,      // Check every second
+            min_batch_size: None,      // No minimum
+            max_batch_size: 50,        // Safety limit
+            poll_interval_secs: 1,     // Check every second
         }
     }
 }
@@ -95,7 +95,10 @@ impl WindowScheduler {
 
             // Don't overfill the buffer
             if buffer_size >= self.config.max_batch_size {
-                debug!("Buffer full ({} jobs), waiting for window to process", buffer_size);
+                debug!(
+                    "Buffer full ({} jobs), waiting for window to process",
+                    buffer_size
+                );
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
@@ -111,7 +114,11 @@ impl WindowScheduler {
                             buffer.push_back(job);
                         }
 
-                        debug!("📦 Collected {} jobs into buffer (now {} total)", count, buffer.len());
+                        debug!(
+                            "📦 Collected {} jobs into buffer (now {} total)",
+                            count,
+                            buffer.len()
+                        );
                     }
                 }
                 Err(e) => {
@@ -149,8 +156,10 @@ impl WindowScheduler {
             // Check minimum batch size requirement
             if let Some(min_size) = self.config.min_batch_size {
                 if count < min_size {
-                    debug!("Slot {} - only {} jobs buffered, waiting for {} (min batch)",
-                        current_slot, count, min_size);
+                    debug!(
+                        "Slot {} - only {} jobs buffered, waiting for {} (min batch)",
+                        current_slot, count, min_size
+                    );
                     return Ok(());
                 }
             }
@@ -171,8 +180,11 @@ impl WindowScheduler {
         drop(last_slot); // Release lock
 
         // Process the batch
-        info!("🪟 Window opened at slot {} - processing {} jobs",
-            current_slot, jobs_to_process.len());
+        info!(
+            "🪟 Window opened at slot {} - processing {} jobs",
+            current_slot,
+            jobs_to_process.len()
+        );
 
         self.process_batch(jobs_to_process).await;
 
@@ -209,6 +221,9 @@ impl WindowScheduler {
         }
 
         let duration = start_time.elapsed();
-        info!("✅ Batch complete: {} jobs processed in {:?}", batch_size, duration);
+        info!(
+            "✅ Batch complete: {} jobs processed in {:?}",
+            batch_size, duration
+        );
     }
 }

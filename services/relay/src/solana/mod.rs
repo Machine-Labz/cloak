@@ -2,26 +2,25 @@ pub mod client;
 pub mod submit;
 pub mod transaction_builder;
 
+use std::{str::FromStr, sync::Arc, time::Duration};
+
 use async_trait::async_trait;
-use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signature, Signer},
+    signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-use crate::claim_manager::{compute_batch_hash, ClaimFinder};
-use crate::config::SolanaConfig;
-use crate::db::models::Job;
-use crate::error::Error;
-use serde_json;
+use crate::{
+    claim_manager::{compute_batch_hash, ClaimFinder},
+    config::SolanaConfig,
+    db::models::Job,
+    error::Error,
+};
 // Removed external TransactionResult dependency; we return Signature to callers.
 
 // Helper function to parse keypair from environment variable
@@ -30,9 +29,8 @@ fn parse_keypair_from_env(keypair_str: &str) -> Result<Keypair, Error> {
     let bytes: Vec<u8> = serde_json::from_str(keypair_str).map_err(|e| {
         Error::ValidationError(format!("Failed to parse keypair JSON array: {}", e))
     })?;
-    Ok(Keypair::try_from(bytes.as_slice()).map_err(|e| {
-        Error::ValidationError(format!("Failed to create keypair from bytes: {}", e))
-    })?)
+    Keypair::try_from(bytes.as_slice())
+        .map_err(|e| Error::ValidationError(format!("Failed to create keypair from bytes: {}", e)))
 }
 
 #[async_trait]
@@ -45,7 +43,11 @@ pub trait SolanaClient: Send + Sync {
     async fn get_block_height(&self) -> Result<u64, Error>;
     async fn get_slot(&self) -> Result<u64, Error>;
     async fn get_account_balance(&self, pubkey: &Pubkey) -> Result<u64, Error>;
-    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error>;
+    async fn check_nullifier_exists(
+        &self,
+        nullifier_shard: &Pubkey,
+        nullifier: &[u8],
+    ) -> Result<bool, Error>;
 }
 
 pub struct SolanaService {
@@ -98,7 +100,9 @@ impl SolanaService {
         let (_, _, _, nullifier_shard_pda) =
             transaction_builder::derive_shield_pool_pdas(&self.program_id);
 
-        self.client.check_nullifier_exists(&nullifier_shard_pda, nullifier).await
+        self.client
+            .check_nullifier_exists(&nullifier_shard_pda, nullifier)
+            .await
     }
 
     /// Submit a withdraw transaction to Solana
@@ -175,7 +179,7 @@ impl SolanaService {
         let recent_blockhash = self.client.get_latest_blockhash().await?;
 
         // Validate outputs (1-10 allowed)
-        if outputs.len() == 0 || outputs.len() > 10 {
+        if outputs.is_empty() || outputs.len() > 10 {
             return Err(Error::ValidationError(
                 "Number of outputs must be between 1 and 10".into(),
             ));
@@ -555,8 +559,9 @@ impl Output {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_parse_outputs() {

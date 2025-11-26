@@ -1,8 +1,7 @@
 pub mod encoding;
 
 use anyhow::Result;
-use sp1_sdk::Prover;
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
 
 pub const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
 

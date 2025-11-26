@@ -1,12 +1,16 @@
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+use solana_client::{rpc_client::RpcClient, rpc_config::RpcSendTransactionConfig};
+use solana_sdk::{
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+    signature::Signature,
+    transaction::VersionedTransaction,
+};
 
 use crate::error::Error;
-use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::RpcSendTransactionConfig;
-use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
-use solana_sdk::signature::Signature;
-use solana_sdk::transaction::VersionedTransaction;
 
 /// Transaction submission interface.
 pub trait Submit {
@@ -57,7 +61,7 @@ pub fn confirm(
         let statuses = rpc
             .get_signature_statuses(&[*signature])
             .map_err(|e| Error::InternalServerError(format!("status fetch failed: {}", e)))?;
-        if let Some(Some(status)) = statuses.value.get(0) {
+        if let Some(Some(status)) = statuses.value.first() {
             if let Some(err) = &status.err {
                 return Err(Error::InternalServerError(format!(
                     "transaction failed: {:?}",

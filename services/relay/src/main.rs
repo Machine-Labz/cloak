@@ -8,24 +8,25 @@ mod planner;
 mod solana;
 mod worker;
 
-use planner::orchestrator;
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use axum::{
     response::Json,
     routing::{get, post},
     Router,
 };
+use planner::orchestrator;
 use serde_json::{json, Value};
-use std::{net::SocketAddr, sync::Arc};
+use solana_sdk::pubkey::Pubkey;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
-use crate::claim_manager::ClaimFinder;
-use crate::config::Config as RelayConfig;
-use crate::db::repository::{PostgresJobRepository, PostgresNullifierRepository};
-use crate::solana::SolanaService;
-use solana_sdk::pubkey::Pubkey;
-use std::str::FromStr;
+use crate::{
+    claim_manager::ClaimFinder,
+    config::Config as RelayConfig,
+    db::repository::{PostgresJobRepository, PostgresNullifierRepository},
+    solana::SolanaService,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -171,10 +172,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         // Configure windowing: process when slot ends in 0 or 5
         let window_config = worker::window_scheduler::WindowConfig {
-            slot_patterns: vec![0, 5],  // Every ~5 slots (~2.5s)
-            min_batch_size: None,        // No minimum - process whatever is ready
-            max_batch_size: 50,          // Safety limit
-            poll_interval_secs: 1,       // Check slot every second
+            slot_patterns: vec![0, 5], // Every ~5 slots (~2.5s)
+            min_batch_size: None,      // No minimum - process whatever is ready
+            max_batch_size: 50,        // Safety limit
+            poll_interval_secs: 1,     // Check slot every second
         };
 
         let scheduler = Arc::new(worker::window_scheduler::WindowScheduler::new(

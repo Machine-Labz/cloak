@@ -1,18 +1,17 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use base64::Engine;
+use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
 use crate::{
     api::{ApiResponse, WithdrawResponse},
-    db::models::CreateJob,
-    db::repository::JobRepository,
+    db::{models::CreateJob, repository::JobRepository},
     error::Error,
     planner::calculate_fee,
     AppState,
 };
-use cloak_proof_extract::extract_groth16_260_sp1;
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawRequest {
@@ -75,32 +74,47 @@ pub async fn handle_withdraw(
 
     // Parse public inputs
     // Strip "0x" prefix if present
-    let root_str = payload.public_inputs.root.strip_prefix("0x").unwrap_or(&payload.public_inputs.root);
-    let nf_str = payload.public_inputs.nf.strip_prefix("0x").unwrap_or(&payload.public_inputs.nf);
-    let outputs_hash_str = payload.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&payload.public_inputs.outputs_hash);
-    
+    let root_str = payload
+        .public_inputs
+        .root
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.root);
+    let nf_str = payload
+        .public_inputs
+        .nf
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.nf);
+    let outputs_hash_str = payload
+        .public_inputs
+        .outputs_hash
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.outputs_hash);
+
     let root_hash = hex::decode(root_str)
         .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
     let nullifier = hex::decode(nf_str)
         .map_err(|e| Error::ValidationError(format!("Invalid nullifier hex: {}", e)))?;
     let outputs_hash = hex::decode(outputs_hash_str)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
-    
+
     // Validate lengths
     if root_hash.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Root must be 32 bytes, got {}", root_hash.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Root must be 32 bytes, got {}",
+            root_hash.len()
+        )));
     }
     if nullifier.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Nullifier must be 32 bytes, got {}", nullifier.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Nullifier must be 32 bytes, got {}",
+            nullifier.len()
+        )));
     }
     if outputs_hash.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Outputs hash must be 32 bytes, got {}", outputs_hash.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Outputs hash must be 32 bytes, got {}",
+            outputs_hash.len()
+        )));
     }
 
     // Note: We no longer check for nullifier double-spend at queueing time.
@@ -121,8 +135,7 @@ pub async fn handle_withdraw(
         0
     } else {
         let expected_fee = calculate_fee(payload.public_inputs.amount);
-        ((expected_fee.saturating_mul(10_000)) + payload.public_inputs.amount - 1)
-            / payload.public_inputs.amount
+        (expected_fee.saturating_mul(10_000)).div_ceil(payload.public_inputs.amount)
     };
 
     let create_job = CreateJob {
@@ -206,8 +219,7 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     let expected_fee_bps = if request.public_inputs.amount == 0 {
         0
     } else {
-        ((expected_fee.saturating_mul(10_000)) + request.public_inputs.amount - 1)
-            / request.public_inputs.amount
+        (expected_fee.saturating_mul(10_000)).div_ceil(request.public_inputs.amount)
     };
 
     if expected_fee_bps > 10_000 {
@@ -231,10 +243,22 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     }
 
     // Validate hex strings (strip 0x prefix if present for validation)
-    let root_str = request.public_inputs.root.strip_prefix("0x").unwrap_or(&request.public_inputs.root);
-    let nf_str = request.public_inputs.nf.strip_prefix("0x").unwrap_or(&request.public_inputs.nf);
-    let outputs_hash_str = request.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&request.public_inputs.outputs_hash);
-    
+    let root_str = request
+        .public_inputs
+        .root
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.root);
+    let nf_str = request
+        .public_inputs
+        .nf
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.nf);
+    let outputs_hash_str = request
+        .public_inputs
+        .outputs_hash
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.outputs_hash);
+
     if root_str.len() != 64 {
         return Err(Error::ValidationError(
             "Root must be 64 hex characters (or 66 with 0x prefix)".to_string(),
@@ -275,8 +299,9 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_validate_request() {

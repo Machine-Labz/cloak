@@ -1,10 +1,11 @@
-use crate::instructions::ShieldPoolInstruction;
 use five8_const::decode_32_const;
 use instructions::*;
 use pinocchio::{
     account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
+
+use crate::instructions::ShieldPoolInstruction;
 
 mod constants;
 mod error;
@@ -48,6 +49,12 @@ pub fn process_instruction(
         }
         ShieldPoolInstruction::Initialize => {
             initialize::process_initialize_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::WithdrawMinerDecoy => {
+            withdraw_miner_decoy::process_withdraw_miner_decoy_instruction(
+                accounts,
+                instruction_data,
+            )
         }
     }
 }

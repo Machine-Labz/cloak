@@ -1,24 +1,27 @@
-use crate::artifacts::ArtifactManager;
-use crate::config::Config;
-use crate::database::{Database, PostgresTreeStorage};
-use crate::error::{not_found_with_endpoints, IndexerError};
-use crate::merkle::{MerkleTree, TreeStorage};
-use crate::server::final_handlers::{AppState, *};
-use crate::server::middleware::{
-    cors_layer, logging_middleware, request_size_limit, timeout_middleware,
-};
-use crate::server::prover_handler::generate_proof;
-use crate::sp1_tee_client::create_tee_client;
+use std::{net::SocketAddr, sync::Arc};
+
 use axum::{
     middleware,
     routing::{get, post},
     Router,
 };
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+
+use crate::{
+    artifacts::ArtifactManager,
+    config::Config,
+    database::{Database, PostgresTreeStorage},
+    error::{not_found_with_endpoints, IndexerError},
+    merkle::{MerkleTree, TreeStorage},
+    server::{
+        final_handlers::{AppState, *},
+        middleware::{cors_layer, logging_middleware, request_size_limit, timeout_middleware},
+        prover_handler::generate_proof,
+    },
+    sp1_tee_client::create_tee_client,
+};
 
 pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerError> {
     tracing::info!("Initializing Cloak Indexer application components");

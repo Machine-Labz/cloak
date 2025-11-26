@@ -1,12 +1,17 @@
+use std::time::{Duration, Instant};
+
 use blake3::Hasher;
 use bs58;
-use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-use crate::db::models::{Job, JobStatus};
-use crate::db::repository::{JobRepository, NullifierRepository};
-use crate::error::Error;
-use crate::AppState;
+use crate::{
+    db::{
+        models::{Job, JobStatus},
+        repository::{JobRepository, NullifierRepository},
+    },
+    error::Error,
+    AppState,
+};
 
 /// Process a single job directly from database
 pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> {
@@ -92,7 +97,9 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
     tracing::info!("🔍 Checking if nullifier already exists on-chain");
     match state.solana.check_nullifier_exists(&job.nullifier).await {
         Ok(true) => {
-            tracing::info!("✅ Nullifier already exists on-chain - transaction was already processed");
+            tracing::info!(
+                "✅ Nullifier already exists on-chain - transaction was already processed"
+            );
             // Mark job as completed since the transaction was already successfully processed
             if let Err(e) = state
                 .job_repo
@@ -119,7 +126,10 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
             tracing::info!("✓ Nullifier not found on-chain, proceeding with withdraw");
         }
         Err(e) => {
-            tracing::warn!("⚠️ Failed to check nullifier on-chain: {}, proceeding anyway", e);
+            tracing::warn!(
+                "⚠️ Failed to check nullifier on-chain: {}, proceeding anyway",
+                e
+            );
             // Continue with transaction - the on-chain program will reject if duplicate
         }
     }
@@ -169,7 +179,10 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                 error_str.contains("custom program error: 0x1020");
 
             if already_processed {
-                info!("✅ Job {} - Transaction already processed, marking as completed", job_id);
+                info!(
+                    "✅ Job {} - Transaction already processed, marking as completed",
+                    job_id
+                );
 
                 // Mark job as completed since transaction was successful (just duplicate attempt)
                 if let Err(e) = state

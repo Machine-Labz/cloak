@@ -1,14 +1,18 @@
-use crate::error::ScrambleError;
-use crate::state::{Miner, ScrambleRegistry};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::instruction::Signer;
-use pinocchio::program_error::ProgramError;
-use pinocchio::pubkey::{find_program_address, Pubkey};
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::rent::Rent;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{seeds, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    instruction::Signer,
+    program_error::ProgramError,
+    pubkey::{find_program_address, Pubkey},
+    seeds,
+    sysvars::{clock::Clock, rent::Rent, Sysvar},
+    ProgramResult,
+};
 use pinocchio_system::instructions::CreateAccount;
+
+use crate::{
+    error::ScrambleError,
+    state::{Miner, ScrambleRegistry},
+};
 
 /// Derive the registry PDA
 fn derive_registry_pda(program_id: &Pubkey) -> (Pubkey, u8) {
@@ -121,17 +125,18 @@ pub fn process_initialize_registry_instruction(
         max_k,
     );
 
-
     Ok(())
 }
 
 #[inline(always)]
 pub fn process_register_miner_instruction(
     accounts: &[AccountInfo],
-    _instruction_data: &[u8],
+    instruction_data: &[u8],
 ) -> ProgramResult {
     // Parse accounts
-    let [miner_account, miner_authority, _system_program, _clock_sysvar, ..] = accounts else {
+    let [miner_account, miner_escrow, miner_authority, _system_program, _clock_sysvar, _remaining @ ..] =
+        accounts
+    else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
@@ -145,26 +150,49 @@ pub fn process_register_miner_instruction(
         return Err(ProgramError::InvalidAccountData);
     }
 
+    // Parse initial escrow amount (8 bytes)
+    let initial_escrow = if instruction_data.len() >= 8 {
+        u64::from_le_bytes(
+            instruction_data[0..8]
+                .try_into()
+                .map_err(|_| ProgramError::InvalidInstructionData)?,
+        )
+    } else {
+        0 // Default to 0 if not provided (backwards compatible)
+    };
+
     // Derive miner PDA
     let (miner_pda, bump) =
         find_program_address(&[b"miner", miner_authority.key().as_ref()], &crate::ID);
+
+    let (escrow_pda, escrow_bump) = find_program_address(
+        &[b"miner_escrow", miner_authority.key().as_ref()],
+        &crate::ID,
+    );
 
     // Verify provided account matches PDA
     if miner_account.key() != &miner_pda {
         return Err(ProgramError::InvalidSeeds);
     }
 
-    // Get current slot
+    if miner_escrow.key() != &escrow_pda {
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    // Get utilities
     let clock = Clock::get()?;
     let current_slot = clock.slot;
-
-    // Calculate space and rent
-    let space = Miner::SIZE;
     let rent = Rent::get()?;
-    let lamports = rent.minimum_balance(space);
 
-    // Create PDA account if it doesn't exist
-    if miner_account.data_is_empty() {
+    // Re-initialization protection: check if miner already exists
+    if !miner_account.data_is_empty() {
+        return Err(ScrambleError::MinerAlreadyRegistered.into());
+    }
+
+    // Create miner PDA account
+    {
+        let space = Miner::SIZE;
+        let lamports = rent.minimum_balance(space);
 
         // Create PDA account via system program CPI
         let bump_ref = &[bump];
@@ -176,6 +204,26 @@ pub fn process_register_miner_instruction(
             to: miner_account,
             lamports,
             space: space as u64,
+            owner: &crate::ID,
+        }
+        .invoke_signed(&[signer])?;
+    }
+
+    // ALWAYS create escrow PDA account (needed for decoy operations)
+    // Even if initial_escrow is 0, create the account for future top-ups
+    if miner_escrow.data_is_empty() {
+        let rent_lamports = rent.minimum_balance(0);
+        let total_lamports = rent_lamports + initial_escrow;
+        let bump_ref = &[escrow_bump];
+
+        let escrow_seeds = seeds!(b"miner_escrow", miner_authority.key().as_ref(), bump_ref);
+        let signer = Signer::from(&escrow_seeds);
+
+        CreateAccount {
+            from: miner_authority,
+            to: miner_escrow,
+            lamports: total_lamports,
+            space: 0,
             owner: &crate::ID,
         }
         .invoke_signed(&[signer])?;

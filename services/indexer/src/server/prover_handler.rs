@@ -1,4 +1,5 @@
-use crate::server::final_handlers::AppState;
+use std::{net::SocketAddr, time::Instant};
+
 use axum::{
     extract::{ConnectInfo, State},
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -6,7 +7,8 @@ use axum::{
 };
 use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, time::Instant};
+
+use crate::server::final_handlers::AppState;
 
 /// Helper function to create deprecation headers
 fn create_deprecation_headers() -> HeaderMap {
@@ -14,9 +16,7 @@ fn create_deprecation_headers() -> HeaderMap {
     headers.insert("Deprecation", HeaderValue::from_static("true"));
     headers.insert(
         "Link",
-        HeaderValue::from_static(
-            "<https://docs.cloaklabz.xyz/zk>; rel=\"deprecation\"",
-        ),
+        HeaderValue::from_static("<https://docs.cloaklabz.xyz/zk>; rel=\"deprecation\""),
     );
     headers
 }
@@ -158,7 +158,10 @@ pub async fn generate_proof(
                 execution_report: None,
                 proof_method: None,
                 wallet_address: None,
-                error: Some("TEE client not configured. Proof generation is only available via TEE.".to_string()),
+                error: Some(
+                    "TEE client not configured. Proof generation is only available via TEE."
+                        .to_string(),
+                ),
             }),
         )
             .into_response();
