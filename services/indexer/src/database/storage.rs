@@ -329,6 +329,35 @@ impl PostgresTreeStorage {
         Ok(note)
     }
 
+    /// Update transaction signature for a pending deposit
+    pub async fn update_note_signature(
+        &self,
+        leaf_commit: &str,
+        tx_signature: &str,
+        slot: i64,
+    ) -> Result<()> {
+        let clean_commit = leaf_commit
+            .strip_prefix("0x")
+            .unwrap_or(leaf_commit)
+            .to_lowercase();
+
+        sqlx::query(
+            r#"
+            UPDATE notes 
+            SET tx_signature = $1, slot = $2
+            WHERE leaf_commit = $3 AND (tx_signature = '' OR tx_signature = 'pending')
+            "#,
+        )
+        .bind(tx_signature)
+        .bind(slot)
+        .bind(&clean_commit)
+        .execute(&self.pool)
+        .await
+        .map_err(IndexerError::Database)?;
+
+        Ok(())
+    }
+
     /// Update indexer metadata
     pub async fn update_metadata(&self, key: &str, value: &str) -> Result<()> {
         let start = std::time::Instant::now();

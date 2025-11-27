@@ -159,8 +159,10 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
 
 fn create_api_v1_routes() -> Router<AppState> {
     Router::new()
-        // Core endpoints with general rate limiting
-        .route("/deposit", post(deposit))
+        // Core endpoints
+        .route("/deposit", post(deposit)) // Legacy endpoint (still supported)
+        .route("/deposit/prepare", post(deposit_prepare)) // New: prepare deposit (atomic)
+        .route("/deposit/confirm", post(deposit_confirm)) // New: confirm deposit
         .route("/merkle/root", get(get_merkle_root))
         .route("/merkle/proof/:index", get(get_merkle_proof))
         .route("/notes/range", get(get_notes_range))

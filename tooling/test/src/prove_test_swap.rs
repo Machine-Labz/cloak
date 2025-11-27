@@ -401,7 +401,7 @@ async fn main() -> Result<()> {
     // Step 4.5: Get Jupiter quote for SOL → USDC swap
     println!("\n💱 Step 4.5: Getting Jupiter quote for SOL → USDC swap...");
     let slippage_bps: u16 = 100; // 1%
-                                 // Calculate total fee: fixed + variable (must match circuit calculation)
+    // Calculate total fee: fixed + variable (must match circuit calculation)
     let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (deposit_amount * 5) / 1_000; // 0.5%
     let total_fee = fixed_fee + variable_fee;
@@ -633,7 +633,7 @@ async fn main() -> Result<()> {
                     println!("\n  🎉 Swap withdrawal completed!");
                     println!("  Transaction: {}", tx_sig);
                     println!(
-                        "  View on Solscan: https://solscan.io/tx/{}?cluster=testnet",
+                        "  View on Orb: https://orb.helius.dev/tx/{}?cluster=testnet",
                         tx_sig
                     );
                     completed = true;

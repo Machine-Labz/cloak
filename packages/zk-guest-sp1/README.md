@@ -226,6 +226,86 @@ Failed to run rustc --version
 - Try `cargo clean` and rebuild
 - Verify SP1 installation with `sp1 --version`
 
+**4. Different VKey Hash Between Developers (Same Branch):**
+```
+SP1 Withdraw Circuit VKey Hash: 0x<different_hash>
+```
+**Problem:** The vkey_hash is computed by `ProverClient::setup()` which depends on **BOTH**:
+1. The compiled ELF binary
+2. **The SP1 SDK version** used to compute the hash
+
+Even with identical source code and ELF, different SP1 SDK versions will produce different vkey_hashes!
+
+**Root Causes:**
+- Different SP1 SDK versions in `Cargo.lock` (even if `Cargo.toml` matches)
+- Different SP1 toolchain versions (`sp1 --version`)
+- Different Rust toolchain versions in the `succinct` toolchain
+- Different pre-built ELF artifacts
+
+**Solution - Ensure Consistent VKey Hash:**
+
+1. **Verify SP1 SDK versions match:**
+   ```bash
+   # Check resolved SP1 SDK version in Cargo.lock
+   cargo tree -p sp1-sdk
+   
+   # Check SP1 toolchain version
+   sp1 --version
+   
+   # Compare with your friend - these MUST match!
+   ```
+
+2. **Sync Cargo.lock (CRITICAL):**
+   ```bash
+   # Ensure Cargo.lock is committed and synced
+   git add Cargo.lock
+   git commit -m "Lock SP1 SDK version"
+   git push
+   
+   # Friend should pull and use exact same Cargo.lock
+   git pull
+   cargo build --locked  # Use --locked to prevent updates
+   ```
+
+3. **Use the same pre-built ELF (Recommended):**
+   ```bash
+   # Share the pre-built ELF from .artifacts/zk-guest-sp1-guest
+   # Ensure everyone uses the exact same binary file
+   # Verify with: sha256sum packages/zk-guest-sp1/.artifacts/zk-guest-sp1-guest
+   ```
+
+4. **Or build from source with identical environment:**
+   ```bash
+   # Clean all build artifacts
+   cargo clean -p zk-guest-sp1-guest
+   cargo clean -p zk-guest-sp1-host
+   rm -rf packages/zk-guest-sp1/.artifacts
+   rm -rf packages/zk-guest-sp1/host/target
+   rm -rf packages/zk-guest-sp1/guest/target
+   
+   # Ensure same Cargo.lock (git pull)
+   # Ensure same SP1 toolchain (sp1up)
+   
+   # Force rebuild from source with locked dependencies
+   ZK_GUEST_FORCE_BUILD=1 cargo build -p zk-guest-sp1-host --release --locked
+   
+   # Verify vkey_hash
+   cargo run -p zk-guest-sp1-host --release --bin get_vkey_hash -- --capability
+   ```
+
+5. **Diagnostic checklist:**
+   ```bash
+   # Run diagnostic to compare with friend
+   cargo run -p zk-guest-sp1-host --release --bin get_vkey_hash -- --capability
+   
+   # Compare:
+   # - ELF SHA256 (must match)
+   # - SP1 SDK version from Cargo.lock (must match)
+   # - SP1 toolchain version (must match)
+   ```
+
+**Important:** The vkey_hash must match between all parties (provers and verifiers) for proofs to be valid. The most common cause of mismatched vkey_hashes on the same branch is **different SP1 SDK versions in Cargo.lock** - always commit and sync Cargo.lock!
+
 ### Environment Variables
 
 **Optional SP1 configuration:**
