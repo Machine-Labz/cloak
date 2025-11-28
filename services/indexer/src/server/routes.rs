@@ -207,4 +207,3 @@ async fn shutdown_signal() {
     crate::logging::log_shutdown();
 }
 
-// Integration tests would require a test database

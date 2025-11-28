@@ -1,5 +1,4 @@
 use anyhow::Result;
-use hex;
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,6 +61,12 @@ impl Sp1TeeClient {
 
         info!("✅ TEE ProverClient built successfully at startup");
 
+        // Compute and print VKEY hash at startup
+        let (_, vk) = prover_client.setup(ELF);
+        let vkey_hash = vk.bytes32();
+        info!("SP1 VKEY hash: {}", vkey_hash);
+        eprintln!("VKEY hash: {}", vkey_hash);
+
         Ok(Self {
             config,
             prover_client: Arc::new(prover_client),
@@ -92,7 +97,7 @@ impl Sp1TeeClient {
 
         // Setup the program (this should be cached in production)
         let (pk, vk) = client.setup(ELF);
-        info!("SP1 verifying key hash: 0x{}", hex::encode(vk.bytes32()));
+        info!("SP1 verifying key hash: {}", vk.bytes32());
 
         // Prepare the combined input, optionally including swap_params
         // Parse the JSON strings into Values first, then construct the final JSON properly
