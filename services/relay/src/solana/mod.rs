@@ -399,8 +399,8 @@ impl SolanaService {
         // This replaces the old flow: ReleaseSwapFunds → off-chain swap → ExecuteSwap
         // The swap happens atomically via CPI, and the program handles everything
         // Apply additional slippage tolerance for devnet pools (they have poor liquidity)
-        // Use 50% of the expected output as minimum to account for devnet pool imbalances
-        let adjusted_min_output = min_output_amount / 2;
+        // Use 10% of the expected output as minimum to account for devnet pool imbalances
+        let adjusted_min_output = min_output_amount / 10;
         
         info!(
             "🔄 Executing ON-CHAIN CPI swap: {} lamports SOL → minimum {} tokens of {} (adjusted from {} for devnet)",
