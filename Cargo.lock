@@ -4850,6 +4850,7 @@ dependencies = [
  "blake3",
  "bs58 0.5.1",
  "chrono",
+ "clap",
  "cloak-proof-extract",
  "config 0.14.1",
  "dotenvy",

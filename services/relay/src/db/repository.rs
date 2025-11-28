@@ -28,6 +28,9 @@ pub trait JobRepository: Send + Sync {
     ) -> Result<(), Error>;
     async fn increment_retry_count(&self, id: Uuid) -> Result<(), Error>;
     async fn get_queued_jobs(&self, limit: i64) -> Result<Vec<Job>, Error>;
+    /// Atomically claim a job by updating status from Queued to Processing
+    /// Returns true if successfully claimed, false if already claimed by another worker
+    async fn try_claim_job(&self, id: Uuid) -> Result<bool, Error>;
     async fn get_jobs_by_status(&self, status: JobStatus) -> Result<Vec<JobSummary>, Error>;
 }
 
@@ -119,6 +122,22 @@ impl JobRepository for PostgresJobRepository {
             .map_err(|e| Error::DatabaseError(format!("Failed to update job status: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Atomically update job status from Queued to Processing
+    /// Returns true if the update was successful (job was in Queued state)
+    /// Returns false if the job was already in a different state (another worker got it)
+    async fn try_claim_job(&self, id: Uuid) -> Result<bool, Error> {
+        let rows_affected = sqlx::query(
+            "UPDATE jobs SET status = 'processing', started_at = NOW() WHERE id = $1 AND status = 'queued'"
+        )
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::DatabaseError(format!("Failed to claim job: {}", e)))?
+            .rows_affected();
+
+        Ok(rows_affected > 0)
     }
 
     async fn update_job_processing(&self, id: Uuid, tx_id: Option<String>) -> Result<(), Error> {
