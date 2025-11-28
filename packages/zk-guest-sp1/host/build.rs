@@ -8,7 +8,9 @@ fn main() {
     let force_build = std::env::var("ZK_GUEST_FORCE_BUILD").map_or(false, |v| v == "1");
 
     // Check if pre-built ELF exists (for Docker builds without SP1 toolchain)
-    let prebuilt_elf = Path::new("../.artifacts/zk-guest-sp1-guest");
+    // Use CARGO_MANIFEST_DIR to ensure correct path resolution
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let prebuilt_elf = Path::new(&manifest_dir).parent().unwrap().join(".artifacts/zk-guest-sp1-guest");
 
     if prebuilt_elf.exists() && !force_build {
         println!("cargo:warning=Using pre-built ELF from .artifacts directory");

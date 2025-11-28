@@ -5,13 +5,24 @@ use std::fs;
 use std::path::Path;
 
 fn find_guest_elf() -> Result<(Vec<u8>, String)> {
-    let paths = [
-        "target/elf-compilation/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest",
-        "../guest/target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest",
-        "target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest",
-        "guest/target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest",
-        "../.artifacts/zk-guest-sp1-guest",
-    ];
+    // Try to find the ELF in build output first (where build.rs copies it)
+    let out_dir = std::env::var("OUT_DIR").ok();
+    let build_elf_path = out_dir.as_ref().map(|d| {
+        std::path::Path::new(d)
+            .join("elf-compilation/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest")
+    });
+    
+    let mut paths = Vec::new();
+    if let Some(ref p) = build_elf_path {
+        paths.push(p.to_string_lossy().to_string());
+    }
+    paths.extend([
+        "target/elf-compilation/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest".to_string(),
+        "../guest/target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest".to_string(),
+        "target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest".to_string(),
+        "guest/target/riscv32im-succinct-zkvm-elf/release/zk-guest-sp1-guest".to_string(),
+        "../.artifacts/zk-guest-sp1-guest".to_string(),
+    ]);
 
     for path in &paths {
         if Path::new(path).exists() {
