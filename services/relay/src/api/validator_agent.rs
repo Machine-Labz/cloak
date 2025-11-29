@@ -287,7 +287,7 @@ pub async fn submit_tx(Json(req): Json<SubmitRequest>) -> Result<impl IntoRespon
     let rpc = RpcClient::new(rpc_url.clone());
     // best-effort confirm: poll statuses briefly
     let start = std::time::Instant::now();
-    while start.elapsed() < std::time::Duration::from_secs(10) {
+    while start.elapsed() < std::time::Duration::from_secs(20) {
         if let Ok(sts) = rpc.get_signature_statuses(&[sig]) {
             if let Some(Some(st)) = sts.value.get(0) {
                 if st.err.is_none() {

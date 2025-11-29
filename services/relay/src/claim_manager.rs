@@ -246,7 +246,7 @@ impl ClaimFinder {
 
         // Check registry account with timeout
         match timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             self.rpc_client.get_account(registry_pda),
         )
         .await
@@ -269,7 +269,7 @@ impl ClaimFinder {
             }
             Err(_) => {
                 return Err(Error::ValidationError(format!(
-                    "Registry account {} fetch timed out after 5s",
+                    "Registry account {} fetch timed out after 10s",
                     registry_pda
                 )));
             }
@@ -289,7 +289,7 @@ impl ClaimFinder {
 
         // Check miner account with timeout
         match timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             self.rpc_client.get_account(miner_pda),
         )
         .await
@@ -312,7 +312,7 @@ impl ClaimFinder {
             }
             Err(_) => {
                 return Err(Error::ValidationError(format!(
-                    "Miner account {} fetch timed out after 5s",
+                    "Miner account {} fetch timed out after 10s",
                     miner_pda
                 )));
             }
@@ -320,7 +320,7 @@ impl ClaimFinder {
 
         // Check registry account with timeout
         match timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             self.rpc_client.get_account(registry_pda),
         )
         .await
@@ -343,7 +343,7 @@ impl ClaimFinder {
             }
             Err(_) => {
                 return Err(Error::ValidationError(format!(
-                    "Registry account {} fetch timed out after 5s",
+                    "Registry account {} fetch timed out after 10s",
                     registry_pda
                 )));
             }

@@ -133,7 +133,7 @@ impl JupiterService {
 
         // Build HTTP client with optional DNS override for environments where
         // container DNS cannot resolve external hosts (e.g., quote-api.jup.ag)
-        let mut builder = Client::builder().timeout(std::time::Duration::from_secs(30));
+        let mut builder = Client::builder().timeout(std::time::Duration::from_secs(60));
 
         // If JUPITER_DNS_OVERRIDE_IP is set, force-resolve the API host to this IP.
         // This preserves TLS/SNI while bypassing container DNS.

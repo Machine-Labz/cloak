@@ -85,8 +85,8 @@ impl SolanaClient for RpcSolanaClient {
 
         // Then confirm it with retries
         let mut retries = 0;
-        const MAX_CONFIRMATION_RETRIES: u32 = 30; // 30 * 2s = 60s max wait
-        const CONFIRMATION_DELAY: Duration = Duration::from_secs(2);
+        const MAX_CONFIRMATION_RETRIES: u32 = 30; // 30 * 4s = 120s max wait
+        const CONFIRMATION_DELAY: Duration = Duration::from_secs(4);
 
         while retries < MAX_CONFIRMATION_RETRIES {
             let blockhash = self

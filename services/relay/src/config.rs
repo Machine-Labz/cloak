@@ -78,8 +78,8 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
-                    .unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
                 cors_origins: get_cors_origins(),
             },
             solana: SolanaConfig {
@@ -104,8 +104,8 @@ impl Config {
                 jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
                     .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
-                    .unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
                         .trim()
@@ -318,8 +318,8 @@ impl Config {
                 jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
                     .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
-                    .unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
                         .trim()
@@ -383,8 +383,8 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
-                    .unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
                 cors_origins: get_cors_origins(),
             },
         };
