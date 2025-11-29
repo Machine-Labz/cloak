@@ -128,9 +128,9 @@ pub async fn timeout_middleware(
     
     // Use longer timeout for slow endpoints
     let timeout_duration = if path == "/api/v1/deposit" {
-        std::time::Duration::from_secs(60) // 60 seconds for deposit (Merkle tree insertion)
+        std::time::Duration::from_secs(120) // 120 seconds for deposit (Merkle tree insertion)
     } else {
-        std::time::Duration::from_secs(10) // 10 seconds for other endpoints
+        std::time::Duration::from_secs(20) // 20 seconds for other endpoints
     };
 
     match tokio::time::timeout(timeout_duration, next.run(request)).await {
@@ -158,8 +158,8 @@ pub fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(SmartIpKeyExtractor)
-            .per_millisecond(600u64) // 100 per minute = 1 per 600ms
-            .burst_size(200u32)
+            .per_millisecond(1200u64) // 100 per 2 minutes = 1 per 1200ms
+            .burst_size(400u32)
             .finish()
             .unwrap(),
     );
