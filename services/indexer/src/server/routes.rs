@@ -5,9 +5,12 @@ use crate::error::{not_found_with_endpoints, IndexerError};
 use crate::merkle::{MerkleTree, TreeStorage};
 use crate::server::final_handlers::{AppState, *};
 use crate::server::middleware::{
-    cors_layer, logging_middleware, request_size_limit, timeout_middleware,
+    cors_layer, logging_middleware, rate_limit_general,
+    request_size_limit, timeout_middleware,
 };
-use crate::server::prover_handler::generate_proof;
+use crate::server::tee_artifact_handler::{
+    create_artifact, get_proof_status, request_proof, upload_stdin,
+};
 use crate::sp1_tee_client::create_tee_client;
 use axum::{
     middleware,
@@ -18,7 +21,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer,
+    set_header::SetResponseHeaderLayer,
+    trace::TraceLayer,
+};
 
 pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerError> {
     tracing::info!("Initializing Cloak Indexer application components");
@@ -99,10 +106,11 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
 
     // Create the router
     tracing::info!("Setting up HTTP routes and middleware");
+    
     let app = Router::new()
         // Root endpoint
         .route("/", get(api_info))
-        // Health endpoint (outside API versioning)
+        // Health endpoint (outside API versioning, no auth required)
         .route("/health", get(health_check))
         // API v1 routes
         .nest("/api/v1", create_api_v1_routes())
@@ -115,6 +123,23 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
             ServiceBuilder::new()
                 // Outermost layer - compression
                 .layer(CompressionLayer::new())
+                // Security headers
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                    axum::http::HeaderValue::from_static("nosniff"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::X_FRAME_OPTIONS,
+                    axum::http::HeaderValue::from_static("DENY"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::X_XSS_PROTECTION,
+                    axum::http::HeaderValue::from_static("1; mode=block"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::REFERRER_POLICY,
+                    axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+                ))
                 // CORS
                 .layer(cors_layer(&config.server.cors_origins))
                 // Request timeout
@@ -141,10 +166,15 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/merkle/root", get(get_merkle_root))
         .route("/merkle/proof/:index", get(get_merkle_proof))
         .route("/notes/range", get(get_notes_range))
-        // Proof generation endpoint
-        .route("/prove", post(generate_proof))
+        // TEE artifact-based proof generation endpoints
+        .route("/tee/artifact", post(create_artifact))
+        .route("/tee/artifact/:artifact_id/upload", post(upload_stdin))
+        .route("/tee/request-proof", post(request_proof))
+        .route("/tee/proof-status", get(get_proof_status))
         // Admin endpoints
         .route("/admin/reset", post(reset_database))
+        // Apply general rate limiting to all routes
+        .layer(rate_limit_general())
 }
 
 /// Start the HTTP server

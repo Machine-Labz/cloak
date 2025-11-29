@@ -9,7 +9,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use base64::Engine;
+use base64::{Engine as _, engine::general_purpose};
 use serde::Deserialize;
 use solana_sdk::transaction::VersionedTransaction;
 use std::collections::HashMap;
@@ -65,8 +65,11 @@ pub async fn api_info() -> impl IntoResponse {
         ("merkle_root", "/api/v1/merkle/root"),
         ("merkle_proof", "/api/v1/merkle/proof/:index"),
         ("notes_range", "/api/v1/notes/range"),
-        ("prove", "/api/v1/prove"),
         ("artifacts", "/api/v1/artifacts/withdraw/:version"),
+        ("tee_artifact", "/api/v1/tee/artifact"),
+        ("tee_artifact_upload", "/api/v1/tee/artifact/:artifact_id/upload"),
+        ("tee_request_proof", "/api/v1/tee/request-proof"),
+        ("tee_proof_status", "/api/v1/tee/proof-status"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -78,14 +81,6 @@ pub async fn api_info() -> impl IntoResponse {
         "description": "Merkle tree indexer for Cloak privacy protocol",
         "endpoints": endpoints,
         "documentation": "https://docs.cloaklabz.xyz/offchain/indexer",
-        "deprecated_endpoints": {
-            "prove": {
-                "endpoint": "/api/v1/prove",
-                "reason": "Server-side proof generation will be removed. Use client-side proof generation instead.",
-                "sunset_date": "2025-06-01",
-                "migration_guide": "https://docs.cloaklabz.xyz/offchain/indexer"
-            }
-        },
         "timestamp": chrono::Utc::now()
     }))
 }
@@ -129,6 +124,27 @@ pub async fn deposit(
         slot = request.slot,
         "Processing deposit request"
     );
+
+    // Validate encrypted output format (base64 JSON with encryption fields)
+    if request.encrypted_output.len() > 100 {
+        if let Ok(decoded) = general_purpose::STANDARD.decode(&request.encrypted_output) {
+            if let Ok(json_str) = String::from_utf8(decoded) {
+                if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(obj) = json_value.as_object() {
+                        let has_ephemeral_pk = obj.contains_key("ephemeral_pk");
+                        let has_ciphertext = obj.contains_key("ciphertext");
+                        let has_nonce = obj.contains_key("nonce");
+                        
+                        if !has_ephemeral_pk || !has_ciphertext || !has_nonce {
+                            tracing::warn!(
+                                "Encrypted output missing required encryption fields"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Basic validation
     if request.leaf_commit.len() != 64 {
@@ -195,6 +211,57 @@ pub async fn deposit(
             (index, was_existing)
         }
         Err(e) => {
+            // Check if this is a duplicate key error (commitment already exists)
+            let error_msg = e.to_string();
+            if error_msg.contains("duplicate key value violates unique constraint") 
+                && error_msg.contains("notes_leaf_commit_key") {
+                tracing::warn!(
+                    leaf_commit = request.leaf_commit,
+                    "⚠️ Deposit already registered. This commitment was already processed."
+                );
+                
+                // Get the existing note to return its index
+                match state.storage.get_note_by_commitment(&request.leaf_commit).await {
+                    Ok(Some(existing_note)) => {
+                        tracing::info!(
+                            leaf_index = existing_note.leaf_index,
+                            "Found existing note with same commitment"
+                        );
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(serde_json::json!({
+                                "success": false,
+                                "error": "Deposit already registered. This commitment was already processed.",
+                                "duplicate": true,
+                                "leaf_index": existing_note.leaf_index,
+                                "tx_signature": existing_note.tx_signature,
+                            })),
+                        );
+                    }
+                    Ok(None) => {
+                        // Should not happen, but handle gracefully
+                        tracing::error!("Duplicate key error but note not found in database");
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Database inconsistency detected",
+                                "details": "Commitment marked as duplicate but not found"
+                            })),
+                        );
+                    }
+                    Err(db_err) => {
+                        tracing::error!("Failed to query existing note: {}", db_err);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Failed to verify existing deposit",
+                                "details": db_err.to_string()
+                            })),
+                        );
+                    }
+                }
+            }
+            
             tracing::error!("❌ Failed to allocate index and store note: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,

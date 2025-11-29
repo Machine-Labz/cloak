@@ -1,6 +1,8 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
 use tracing::info;
 use uuid::Uuid;
 
@@ -49,6 +51,7 @@ pub async fn handle_withdraw(
     State(state): State<AppState>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
+    // Note: Not logging payload details for security (contains sensitive proof data)
     info!("Received withdraw request");
 
     // Determine decimals based on MINT_ADDRESS environment variable
@@ -74,7 +77,12 @@ pub async fn handle_withdraw(
     }
 
     let request_id = Uuid::new_v4();
-    info!("Processing withdraw request with ID: {}", request_id);
+    info!(
+        request_id = %request_id,
+        outputs_count = payload.outputs.len(),
+        // Note: Not logging amounts, addresses, or proof data for security
+        "Processing withdraw request"
+    );
 
     // Decode and validate proof bytes
     let proof_bundle = base64::engine::general_purpose::STANDARD
@@ -113,6 +121,34 @@ pub async fn handle_withdraw(
         .strip_prefix("0x")
         .unwrap_or(&payload.public_inputs.outputs_hash);
 
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
+        return Err(Error::ValidationError("Nullifier cannot be empty".to_string()));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError("Outputs hash cannot be empty".to_string()));
+    }
+
+    // Validate hex string lengths before decoding
+    if root_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Root must be 64 hex characters, got {}", root_str.len())
+        ));
+    }
+    if nf_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Nullifier must be 64 hex characters, got {}", nf_str.len())
+        ));
+    }
+    if outputs_hash_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Outputs hash must be 64 hex characters, got {}", outputs_hash_str.len())
+        ));
+    }
+
     let root_hash = hex::decode(root_str)
         .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
     let nullifier = hex::decode(nf_str)
@@ -120,7 +156,7 @@ pub async fn handle_withdraw(
     let outputs_hash = hex::decode(outputs_hash_str)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
 
-    // Validate lengths
+    // Validate decoded lengths (should always be 32 after validation above, but double-check)
     if root_hash.len() != 32 {
         return Err(Error::ValidationError(format!(
             "Root must be 32 bytes, got {}",
@@ -191,7 +227,10 @@ pub async fn handle_withdraw(
     // It will be created by the worker AFTER the transaction succeeds on-chain
     // (see services/relay/src/worker/processor.rs:113-120)
 
-    info!("Withdraw request queued successfully: {}", request_id);
+    info!(
+        request_id = %request_id,
+        "Withdraw request queued successfully"
+    );
 
     // Create successful response
     let response = WithdrawResponse {
@@ -206,28 +245,35 @@ pub async fn handle_withdraw(
 fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error> {
     // Validate outputs
     if request.outputs.is_empty() {
-        return Err(Error::ValidationError("No outputs specified".to_string()));
+        return Err(Error::ValidationError("At least one output is required".to_string()));
     }
 
     if request.outputs.len() > 10 {
         return Err(Error::ValidationError(
-            "Too many outputs (max 10)".to_string(),
+            format!("Too many outputs: {} (max 10)", request.outputs.len())
         ));
     }
 
-    // Validate amounts
-    for output in &request.outputs {
+    // Validate amounts and recipient addresses
+    for (i, output) in request.outputs.iter().enumerate() {
         if output.amount == 0 {
             return Err(Error::ValidationError(
-                "Output amount cannot be zero".to_string(),
+                format!("Output {} amount cannot be zero", i)
             ));
         }
 
-        if output.recipient.len() < 32 {
+        // Validate recipient address using Solana Pubkey validation
+        if output.recipient.is_empty() {
             return Err(Error::ValidationError(
-                "Invalid recipient address".to_string(),
+                format!("Output {} recipient address cannot be empty", i)
             ));
         }
+        
+        // Use Pubkey::from_str to validate the address format (base58 encoding)
+        Pubkey::from_str(&output.recipient)
+            .map_err(|e| Error::ValidationError(
+                format!("Output {} invalid Solana address '{}': {}", i, output.recipient, e)
+            ))?;
     }
 
     // Validate public inputs
@@ -311,21 +357,33 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
         .strip_prefix("0x")
         .unwrap_or(&request.public_inputs.outputs_hash);
 
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
+        return Err(Error::ValidationError("Nullifier cannot be empty".to_string()));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError("Outputs hash cannot be empty".to_string()));
+    }
+
+    // Validate hex string lengths
     if root_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Root must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Root must be 64 hex characters (or 66 with 0x prefix), got {}", root_str.len())
         ));
     }
 
     if nf_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Nullifier must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Nullifier must be 64 hex characters (or 66 with 0x prefix), got {}", nf_str.len())
         ));
     }
 
     if outputs_hash_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Outputs hash must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Outputs hash must be 64 hex characters (or 66 with 0x prefix), got {}", outputs_hash_str.len())
         ));
     }
 

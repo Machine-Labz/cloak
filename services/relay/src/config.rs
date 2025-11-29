@@ -25,6 +25,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub host: String,
     pub request_timeout_seconds: u64,
+    pub cors_origins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -77,8 +78,9 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
-                    .unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
+                cors_origins: get_cors_origins(),
             },
             solana: SolanaConfig {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://localhost:8899").to_string(),
@@ -102,8 +104,8 @@ impl Config {
                 jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
                     .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
-                    .unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
                         .trim()
@@ -316,8 +318,8 @@ impl Config {
                 jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
                     .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
-                    .unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
                     let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
                         .trim()
@@ -381,8 +383,9 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
-                    .unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
+                cors_origins: get_cors_origins(),
             },
         };
 
@@ -406,3 +409,26 @@ where
         Err(_) => Ok(default),
     }
 }
+
+fn get_cors_origins() -> Vec<String> {
+    match std::env::var("CORS_ORIGINS") {
+        Ok(origins) => origins
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Err(_) => {
+            // Default CORS origins based on environment
+            let node_env = get_env_var("NODE_ENV", "development");
+            if node_env == "production" {
+                vec![
+                    "https://cloaklabz.xyz".to_string(),
+                    "https://www.cloaklabz.xyz".to_string(),
+                ]
+            } else {
+                vec!["*".to_string()] // Allow all origins in development
+            }
+        }
+    }
+}
+
