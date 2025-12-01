@@ -11,7 +11,7 @@
  * Make sure the output token mint exists on devnet.
  */
 
-import { CloakSDK, formatAmount, calculateFee } from "@cloak/sdk";
+import { CloakSDK, formatAmount, calculateFee, generateNote } from "@cloaklabz/sdk";
 import { Connection, Keypair } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import * as path from "path";
@@ -33,8 +33,6 @@ async function main() {
     keypairBytes: keypair.secretKey,
   });
 
-  console.log("✅ Cloak client initialized");
-  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
 
   // Note: @solana/spl-token is required for swap functionality
   // The SDK will attempt to import it dynamically when needed
@@ -50,7 +48,7 @@ async function main() {
   console.log(`   Amount to swap: ${formatAmount(swapableAmount)} SOL`);
 
   // Generate a new note
-  const note = client.generateNote(swapAmount);
+  const note = generateNote(swapAmount);
   console.log(`\n📝 Generated note (will be deposited automatically)`);
 
   // Output token configuration

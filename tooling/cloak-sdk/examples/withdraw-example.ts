@@ -5,7 +5,7 @@
  * You can withdraw the full amount (minus fees) or a specific amount.
  */
 
-import { CloakSDK, formatAmount, calculateFee } from "@cloak/sdk";
+import { CloakSDK, formatAmount, calculateFee, generateNote } from "@cloaklabz/sdk";
 import { Connection, Keypair } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import * as path from "path";
@@ -27,14 +27,12 @@ async function main() {
     keypairBytes: keypair.secretKey,
   });
 
-  console.log("✅ Cloak client initialized");
-  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
 
   // For this example, we'll create and deposit a note first
   // In practice, you'd load a previously saved note
   console.log(`\n📝 Creating and depositing a note first...`);
   const depositAmount = 10_000_000; // 0.01 SOL
-  const note = client.generateNote(depositAmount);
+  const note = generateNote(depositAmount);
 
   const depositResult = await client.deposit(connection, note, {
     onProgress: (status: string) => console.log(`   ${status}`),

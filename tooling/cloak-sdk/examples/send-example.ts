@@ -5,7 +5,7 @@
  * Use this when you want a cleaner interface for sending SOL to multiple recipients.
  */
 
-import { CloakSDK, formatAmount, calculateFee } from "@cloak/sdk";
+import { CloakSDK, formatAmount, calculateFee, generateNote } from "@cloaklabz/sdk";
 import { Connection, Keypair } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import * as path from "path";
@@ -27,8 +27,6 @@ async function main() {
     keypairBytes: keypair.secretKey,
   });
 
-  console.log("✅ Cloak client initialized");
-  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
 
   // Amount to send
   const sendAmount = 10_000_000; // 0.01 SOL in lamports
@@ -41,7 +39,7 @@ async function main() {
   console.log(`   Distributable: ${formatAmount(distributable)} SOL`);
 
   // Generate a new note
-  const note = client.generateNote(sendAmount);
+  const note = generateNote(sendAmount);
   console.log(`\n📝 Generated note (will be deposited automatically)`);
 
   // Define recipients
@@ -75,7 +73,7 @@ async function main() {
   console.log(`   Transaction: ${sendResult.signature}`);
   console.log(`   Outputs: ${sendResult.outputs.length} recipients`);
   console.log(`\n📤 Sent:`);
-  sendResult.outputs.forEach((output, i) => {
+  sendResult.outputs.forEach((output: { recipient: string; amount: number }, i: number) => {
     console.log(`   ${i + 1}. ${output.recipient.slice(0, 8)}... → ${formatAmount(output.amount)} SOL`);
   });
 }

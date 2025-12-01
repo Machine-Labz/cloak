@@ -5,7 +5,7 @@
  * The note can then be used for private transfers, withdrawals, or swaps.
  */
 
-import { CloakSDK, formatAmount, calculateFee, getShieldPoolPDAs } from "@cloak/sdk";
+import { CloakSDK, formatAmount, calculateFee, getShieldPoolPDAs, exportNote } from "@cloaklabz/sdk";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import * as path from "path";
@@ -27,10 +27,6 @@ async function main() {
     keypairBytes: keypair.secretKey,
   });
 
-  console.log("✅ Cloak client initialized");
-  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
-  console.log(`   API URL: http://localhost (local Docker)`);
-  console.log(`   Network: devnet`);
 
   // Check if pool is initialized
   const programId = new PublicKey("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
@@ -81,7 +77,7 @@ async function main() {
   // Save the note securely!
   const note = depositResult.note;
   console.log(`\n💾 Save this note securely - you'll need it to withdraw:`);
-  console.log(client.exportNote(note, true));
+  console.log(exportNote(note, true));
 
   console.log(`\n📝 Next steps:`);
   console.log(`   - Use this note with withdraw-example.ts to withdraw funds`);

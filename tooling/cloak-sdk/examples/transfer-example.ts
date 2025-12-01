@@ -5,7 +5,7 @@
  * This uses privateTransfer() which handles the complete flow: deposit + withdraw.
  */
 
-import { CloakSDK, formatAmount, calculateFee } from "@cloak/sdk";
+import { CloakSDK, formatAmount, calculateFee, generateNote } from "@cloaklabz/sdk";
 import { Connection, Keypair } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import * as path from "path";
@@ -27,8 +27,6 @@ async function main() {
     keypairBytes: keypair.secretKey,
   });
 
-  console.log("✅ Cloak client initialized");
-  console.log(`   Using keypair: ${keypair.publicKey.toBase58()}`);
 
   // Amount to transfer
   const transferAmount = 10_000_000; // 0.01 SOL in lamports
@@ -41,7 +39,7 @@ async function main() {
   console.log(`   Distributable: ${formatAmount(distributable)} SOL`);
 
   // Generate a new note (not deposited yet - privateTransfer handles it!)
-  const note = client.generateNote(transferAmount);
+  const note = generateNote(transferAmount);
   console.log(`\n📝 Generated note (will be deposited automatically)`);
   console.log(`   Commitment: ${note.commitment.slice(0, 16)}...`);
 
@@ -86,7 +84,7 @@ async function main() {
   console.log(`   Nullifier: ${transferResult.nullifier.slice(0, 16)}...`);
   console.log(`   Root: ${transferResult.root.slice(0, 16)}...`);
   console.log(`\n📤 Outputs:`);
-  transferResult.outputs.forEach((output, i) => {
+  transferResult.outputs.forEach((output: { recipient: string; amount: number }, i: number) => {
     console.log(`   ${i + 1}. ${output.recipient.slice(0, 8)}... → ${formatAmount(output.amount)} SOL`);
   });
 }
