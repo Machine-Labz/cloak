@@ -1,6 +1,4 @@
 use anyhow::Result;
-use bincode;
-use cloak_proof_extract::extract_groth16_260_sp1;
 use hex;
 use rand;
 use reqwest;
@@ -14,16 +12,11 @@ use solana_sdk::{
     signer::Signer,
     transaction::Transaction,
 };
-use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
     check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
     SOL_TO_LAMPORTS,
-};
-use tokio::time::timeout;
-use zk_guest_sp1_host::{
-    generate_proof as generate_proof_local, ProofResult as LocalProofResult, ELF,
 };
 
 // Relay API structures
@@ -74,18 +67,6 @@ struct DepositRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct MerkleRootResponse {
     root: String,
-}
-
-#[derive(Debug, Clone)]
-struct ProofArtifacts {
-    proof_hex: String,
-    public_inputs_hex: String,
-    generation_time_ms: u64,
-    total_cycles: Option<u64>,
-    total_syscalls: Option<u64>,
-    execution_report: Option<String>,
-    proof_method: String,
-    wallet_address: Option<String>,
 }
 
 #[tokio::main]
@@ -235,20 +216,115 @@ async fn main() -> Result<()> {
         &miner_keypair,
     )?;
 
-    // Generate proof locally or via TEE
-    println!("\n🚀 Step 9: Generating Proof Client-Side...");
-    let prove_result =
-        generate_proof_client_side(&private_inputs, &public_inputs, &outputs).await?;
+    // Generate proof via indexer /prove endpoint (same as swap test)
+    println!("\n🚀 Step 9: Generating ZK Proof via Indexer /prove endpoint...");
+    let proof_start = Instant::now();
+
+    let http_client = reqwest::Client::new();
+
+    // Call indexer's /prove endpoint (swap_params is null for non-swap mode)
+    let prove_request = serde_json::json!({
+        "private_inputs": private_inputs,
+        "public_inputs": public_inputs,
+        "outputs": outputs,
+        "swap_params": serde_json::json!(null)
+    });
+
+    println!("  📡 Calling indexer /prove endpoint...");
+    println!("  🔍 DEBUG: Prove request structure:");
+    println!(
+        "     - private_inputs (first 100 chars): {}",
+        private_inputs.chars().take(100).collect::<String>()
+    );
+    println!(
+        "     - public_inputs (first 100 chars): {}",
+        public_inputs.chars().take(100).collect::<String>()
+    );
+    println!("     - outputs: {}", outputs);
+    println!("     - swap_params: null");
+
+    let prove_response = http_client
+        .post(format!("{}/api/v1/prove", config.indexer_url))
+        .json(&prove_request)
+        .send()
+        .await?;
+
+    let proof_result: serde_json::Value = prove_response.json().await?;
+
+    // Check if proof generation succeeded
+    let success = proof_result["success"].as_bool().unwrap_or(false);
+    if !success {
+        let error_msg = proof_result["error"].as_str().unwrap_or("Unknown error");
+        println!("  ❌ Proof generation failed: {}", error_msg);
+        return Err(anyhow::anyhow!("Proof generation failed: {}", error_msg));
+    }
+
+    let proof_duration = proof_start.elapsed();
+
+    println!(
+        "  ✅ Proof generated in {:.2}s",
+        proof_duration.as_secs_f64()
+    );
+    if let Some(cycles) = proof_result["total_cycles"].as_u64() {
+        println!("     Cycles: {}", cycles);
+    }
+    if let Some(method) = proof_result["proof_method"].as_str() {
+        println!("     Method: {}", method);
+    }
+
+    // Extract proof and public_inputs from response
+    let proof_hex = proof_result["proof"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing proof in response"))?
+        .to_string();
+
+    let public_inputs_hex = proof_result["public_inputs"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing public_inputs in response"))?
+        .to_string();
+
+    println!(
+        "  Proof: {}...",
+        &proof_hex[..std::cmp::min(16, proof_hex.len())]
+    );
+    println!(
+        "  Public inputs: {}...",
+        &public_inputs_hex[..std::cmp::min(16, public_inputs_hex.len())]
+    );
 
     // Validate proof artifacts
     println!("\n✅ Step 10: Validating Proof Artifacts...");
-    validate_proof_artifacts(&prove_result)?;
+    println!("   🔍 Validating proof artifacts...");
+    if proof_hex.is_empty() {
+        return Err(anyhow::anyhow!("Proof is missing from response"));
+    }
+
+    let proof_bytes_len = proof_hex.len() / 2;
+    if proof_bytes_len != 260 {
+        println!(
+            "   ⚠️  Warning: Expected 260-byte proof, got {} bytes",
+            proof_bytes_len
+        );
+    } else {
+        println!("   ✅ Proof size is correct (260 bytes)");
+    }
+
+    let public_inputs_bytes_len = public_inputs_hex.len() / 2;
+    if public_inputs_bytes_len != 104 {
+        return Err(anyhow::anyhow!(
+            "Invalid public inputs length: expected 104 bytes, got {}",
+            public_inputs_bytes_len
+        ));
+    } else {
+        println!("   ✅ Public inputs size is correct (104 bytes)");
+    }
 
     // Submit withdraw request to relay
     println!("\n💸 Step 11: Submitting Withdraw Request to Relay...");
     let (withdraw_signature, request_id) = execute_withdraw_via_relay(
         &config.relay_url,
-        &prove_result,
+        &proof_hex,
+        &public_inputs_hex,
         &output_details,
         &merkle_root,
         &test_data.nullifier,
@@ -333,26 +409,28 @@ async fn main() -> Result<()> {
     println!("   - Merkle root: {}", merkle_root);
     println!("   - Nullifier: {}", test_data.nullifier);
     println!("   - Leaf index: {}", leaf_index);
-    println!("   - Proof method: {}", prove_result.proof_method);
-    if let Some(wallet) = &prove_result.wallet_address {
+    if let Some(method) = proof_result["proof_method"].as_str() {
+        println!("   - Proof method: {}", method);
+    }
+    if let Some(wallet) = proof_result["wallet_address"].as_str() {
         println!("   - TEE wallet: {}", wallet);
     }
     println!(
         "   - Proof size: {} bytes",
-        prove_result.proof_hex.len() / 2
+        proof_hex.len() / 2
     );
     println!(
         "   - Public inputs size: {} bytes",
-        prove_result.public_inputs_hex.len() / 2
+        public_inputs_hex.len() / 2
     );
     println!(
-        "   - Proof generation time: {}ms",
-        prove_result.generation_time_ms
+        "   - Proof generation time: {:.2}s",
+        proof_duration.as_secs_f64()
     );
-    if let Some(cycles) = prove_result.total_cycles {
+    if let Some(cycles) = proof_result["total_cycles"].as_u64() {
         println!("   - Total SP1 cycles: {}", cycles);
     }
-    if let Some(syscalls) = prove_result.total_syscalls {
+    if let Some(syscalls) = proof_result["total_syscalls"].as_u64() {
         println!("   - Total syscalls: {}", syscalls);
     }
 
@@ -372,7 +450,7 @@ async fn main() -> Result<()> {
     }
 
     // Print full execution report if available
-    if let Some(ref report) = prove_result.execution_report {
+    if let Some(report) = proof_result["execution_report"].as_str() {
         println!("\n📊 Full SP1 Execution Report:");
         println!("{}", report);
     }
@@ -898,270 +976,6 @@ fn validate_circuit_constraints_local(
     Ok(())
 }
 
-async fn generate_proof_client_side(
-    private_inputs: &str,
-    public_inputs: &str,
-    outputs: &str,
-) -> Result<ProofArtifacts> {
-    println!("   🔨 Preparing proof generation request...");
-
-    println!("\n   📋 DEBUG: Proof Inputs Being Used:");
-    println!("   ═══════════════════════════════════════════");
-    println!("   🔒 Private Inputs:");
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(private_inputs)?)?
-    );
-    println!("\n   🌍 Public Inputs:");
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(public_inputs)?)?
-    );
-    println!("\n   💰 Outputs:");
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(outputs)?)?
-    );
-    println!("   ═══════════════════════════════════════════\n");
-
-    let tee_config = TeeClientConfig::from_env();
-    if tee_config.is_ready() {
-        match generate_proof_via_tee(&tee_config, private_inputs, public_inputs, outputs).await {
-            Ok(artifacts) => return Ok(artifacts),
-            Err(e) => {
-                println!(
-                    "   ⚠️  TEE proof generation failed ({}). Falling back to local prover...",
-                    e
-                );
-            }
-        }
-    } else if tee_config.enabled {
-        println!(
-            "   ⚠️  TEE proving enabled but configuration is incomplete. Falling back to local prover."
-        );
-    } else {
-        println!("   🏠 TEE proving disabled. Using local prover.");
-    }
-
-    generate_proof_locally(private_inputs, public_inputs, outputs)
-}
-
-fn validate_proof_artifacts(artifacts: &ProofArtifacts) -> Result<()> {
-    println!("   🔍 Validating proof artifacts...");
-
-    if artifacts.proof_hex.is_empty() {
-        return Err(anyhow::anyhow!("Proof is missing from artifacts"));
-    }
-    if artifacts.public_inputs_hex.is_empty() {
-        return Err(anyhow::anyhow!("Public inputs are missing from artifacts"));
-    }
-
-    let proof_bytes_len = artifacts.proof_hex.len() / 2;
-    if proof_bytes_len != 260 {
-        println!(
-            "   ⚠️  Warning: Expected 260-byte proof, got {} bytes",
-            proof_bytes_len
-        );
-    } else {
-        println!("   ✅ Proof size is correct (260 bytes)");
-        println!(
-            "   🔎 Proof prefix: {}",
-            &artifacts.proof_hex[..8.min(artifacts.proof_hex.len())]
-        );
-    }
-
-    let public_inputs_len = artifacts.public_inputs_hex.len() / 2;
-    if public_inputs_len != 104 {
-        return Err(anyhow::anyhow!(
-            "Invalid public inputs length: expected 104 bytes, got {}",
-            public_inputs_len
-        ));
-    } else {
-        println!("   ✅ Public inputs size is correct (104 bytes)");
-    }
-
-    println!(
-        "   ✅ Proof generation time: {}ms",
-        artifacts.generation_time_ms
-    );
-
-    if let Some(cycles) = artifacts.total_cycles {
-        println!("   ✅ Total SP1 cycles: {}", cycles);
-    }
-    if let Some(syscalls) = artifacts.total_syscalls {
-        println!("   ✅ Total SP1 syscalls: {}", syscalls);
-    }
-
-    if let Some(ref report) = artifacts.execution_report {
-        println!("\n📊 Execution Report Summary:");
-        println!("{}", report);
-    }
-
-    Ok(())
-}
-
-struct TeeClientConfig {
-    enabled: bool,
-    wallet_address: String,
-    private_key: Option<String>,
-    timeout_seconds: u64,
-}
-
-impl TeeClientConfig {
-    fn from_env() -> Self {
-        let enabled = std::env::var("SP1_TEE_ENABLED")
-            .unwrap_or_else(|_| "false".to_string())
-            .parse()
-            .unwrap_or(false);
-        let wallet_address = std::env::var("SP1_TEE_WALLET_ADDRESS").unwrap_or_default();
-        let timeout_seconds = std::env::var("SP1_TEE_TIMEOUT_SECONDS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(300);
-        let private_key = std::env::var("NETWORK_PRIVATE_KEY").ok();
-
-        Self {
-            enabled,
-            wallet_address,
-            private_key,
-            timeout_seconds,
-        }
-    }
-
-    fn is_ready(&self) -> bool {
-        self.enabled
-            && !self.wallet_address.is_empty()
-            && self
-                .private_key
-                .as_ref()
-                .map(|p| !p.is_empty())
-                .unwrap_or(false)
-    }
-}
-
-async fn generate_proof_via_tee(
-    cfg: &TeeClientConfig,
-    private_inputs: &str,
-    public_inputs: &str,
-    outputs: &str,
-) -> Result<ProofArtifacts> {
-    println!("   🔐 TEE client available - attempting TEE proof generation");
-    println!("   Wallet: {}", cfg.wallet_address);
-    println!("   Timeout: {} seconds", cfg.timeout_seconds);
-
-    let private_key = cfg
-        .private_key
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("NETWORK_PRIVATE_KEY is required for TEE proving"))?;
-
-    let start_time = Instant::now();
-
-    let prover_client = ProverClient::builder()
-        .network()
-        .private()
-        .private_key(private_key)
-        .build();
-
-    let (pk, vk) = prover_client.setup(ELF);
-    println!("   SP1 verifying key hash: 0x{}", hex::encode(vk.bytes32()));
-
-    let combined_input = format!(
-        r#"{{
-                "private": {},
-                "public": {},
-                "outputs": {}
-            }}"#,
-        private_inputs, public_inputs, outputs
-    );
-
-    let mut stdin = SP1Stdin::new();
-    stdin.write(&combined_input);
-
-    let (_, report) = prover_client.execute(ELF, &stdin).run()?;
-    let total_cycles = report.total_instruction_count();
-    let total_syscalls = report.total_syscall_count();
-    let execution_report = format!("{}", report);
-
-    println!("   📊 SP1 TEE Execution Report:");
-    println!("      - Total cycles: {}", total_cycles);
-    println!("      - Total syscalls: {}", total_syscalls);
-
-    let prove_future = async {
-        prover_client
-            .prove(&pk, &stdin)
-            .groth16()
-            .strategy(FulfillmentStrategy::Reserved)
-            .run()
-    };
-
-    let proof_result = timeout(Duration::from_secs(cfg.timeout_seconds), prove_future)
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "TEE proof generation timed out after {} seconds",
-                cfg.timeout_seconds
-            )
-        })?
-        .map_err(|e| anyhow::anyhow!("TEE proof generation failed: {}", e))?;
-
-    let proof_bundle = bincode::serialize(&proof_result)?;
-    let public_inputs_bytes = proof_result.public_values.to_vec();
-
-    let canonical_proof = extract_groth16_260_sp1(&proof_bundle)?;
-    let proof_hex = hex::encode(&canonical_proof);
-    let public_inputs_hex = hex::encode(&public_inputs_bytes);
-
-    println!("   ✅ TEE proof generation completed");
-    println!("      - Proof size: {} bytes", canonical_proof.len());
-    println!(
-        "      - Public inputs size: {} bytes",
-        public_inputs_bytes.len()
-    );
-
-    Ok(ProofArtifacts {
-        proof_hex,
-        public_inputs_hex,
-        generation_time_ms: start_time.elapsed().as_millis() as u64,
-        total_cycles: Some(total_cycles),
-        total_syscalls: Some(total_syscalls),
-        execution_report: Some(execution_report),
-        proof_method: "tee".to_string(),
-        wallet_address: Some(cfg.wallet_address.clone()),
-    })
-}
-
-fn generate_proof_locally(
-    private_inputs: &str,
-    public_inputs: &str,
-    outputs: &str,
-) -> Result<ProofArtifacts> {
-    println!("   🏠 Using local SP1 prover (CPU)");
-
-    let LocalProofResult {
-        proof_bytes,
-        public_inputs,
-        generation_time_ms,
-        total_cycles,
-        total_syscalls,
-        execution_report,
-    } = generate_proof_local(private_inputs, public_inputs, outputs)?;
-
-    let canonical_proof = extract_groth16_260_sp1(&proof_bytes)?;
-    let proof_hex = hex::encode(&canonical_proof);
-    let public_inputs_hex = hex::encode(&public_inputs);
-
-    Ok(ProofArtifacts {
-        proof_hex,
-        public_inputs_hex,
-        generation_time_ms,
-        total_cycles: Some(total_cycles),
-        total_syscalls: Some(total_syscalls),
-        execution_report: Some(execution_report),
-        proof_method: "local".to_string(),
-        wallet_address: None,
-    })
-}
-
 // Data structures
 #[derive(Debug)]
 struct TestData {
@@ -1478,7 +1292,8 @@ fn push_root_to_program(
 
 async fn execute_withdraw_via_relay(
     relay_url: &str,
-    prove_result: &ProofArtifacts,
+    proof_hex: &str,
+    public_inputs_hex: &str,
     outputs: &[(Pubkey, u64)],
     merkle_root: &str,
     nullifier: &str,
@@ -1506,7 +1321,7 @@ async fn execute_withdraw_via_relay(
     };
 
     // Extract outputs_hash from the public inputs
-    let public_inputs_bytes = hex::decode(&prove_result.public_inputs_hex)
+    let public_inputs_bytes = hex::decode(public_inputs_hex)
         .map_err(|e| anyhow::anyhow!("Failed to decode public_inputs hex: {}", e))?;
 
     if public_inputs_bytes.len() != 104 {
@@ -1521,7 +1336,7 @@ async fn execute_withdraw_via_relay(
     let outputs_hash = hex::encode(outputs_hash_bytes);
 
     // Convert proof from hex to base64 (relay expects base64)
-    let proof_bytes_vec = hex::decode(&prove_result.proof_hex)
+    let proof_bytes_vec = hex::decode(proof_hex)
         .map_err(|e| anyhow::anyhow!("Failed to decode proof hex: {}", e))?;
     let proof_base64 = base64::engine::general_purpose::STANDARD.encode(&proof_bytes_vec);
 
