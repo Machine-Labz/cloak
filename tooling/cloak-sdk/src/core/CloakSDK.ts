@@ -20,6 +20,8 @@ import {
   CloakError,
   ScanNotesOptions,
   ScannedNote,
+  SwapOptions,
+  SwapResult,
 } from "./types";
 import { 
   generateNote, 
@@ -38,6 +40,7 @@ import {
 import {
   computeNullifier,
   computeOutputsHash,
+  computeSwapOutputsHash,
   hexToBytes,
   bytesToHex,
   isValidHex,
@@ -54,7 +57,6 @@ import { prepareEncryptedOutput, prepareEncryptedOutputForRecipient, encodeNoteS
 
 export const CLOAK_PROGRAM_ID = new PublicKey("c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp");
 const CLOAK_API_URL = 
-  // "http://localhost:80"; 
   "https://api.cloaklabz.xyz";
 
 /**
@@ -62,34 +64,6 @@ const CLOAK_API_URL =
  *
  * Provides high-level API for interacting with the Cloak protocol,
  * including deposits, withdrawals, and private transfers.
- *
- * @example
- * ```typescript
- * const client = new CloakSDK({
- *   network: "devnet",
- *   keypairBytes: [...],
- * });
- *
- * // Option 1: Deposit only (save note for later)
- * const depositResult = await client.deposit(connection, 1_000_000_000);
- * console.log("Note saved:", depositResult.note);
- * 
- * // Then withdraw using the saved note
- * const withdrawResult = await client.withdraw(connection, depositResult.note, recipientAddress);
- * console.log("Withdrawal complete:", withdrawResult.signature);
- *
- * // Option 2: Private transfer (complete flow: deposit + withdraw)
- * const note = client.generateNote(1_000_000_000);
- * const txResult = await client.privateTransfer(
- *   connection,
- *   note,
- *   [
- *     { recipient: addr1, amount: 500_000_000 },
- *     { recipient: addr2, amount: 492_500_000 }
- *   ]
- * );
- * // privateTransfer automatically deposits if needed, then transfers!
- * ```
  */
 export class CloakSDK {
   private config: CloakConfig;
@@ -127,14 +101,14 @@ export class CloakSDK {
     keypairBytes: Uint8Array;
     network?: Network;
     cloakKeys?: CloakKeyPair;
-    apiUrl?: string;
     storage?: StorageAdapter;
+    programId?: PublicKey;
   }) {
     this.keypair = Keypair.fromSecretKey(config.keypairBytes);
     this.cloakKeys = config.cloakKeys;
     this.storage = config.storage || new MemoryStorageAdapter();
 
-    const apiUrl = config.apiUrl || CLOAK_API_URL;
+    const apiUrl = CLOAK_API_URL;
     this.indexer = new IndexerService(apiUrl);
     this.prover = new ProverService(apiUrl, 5 * 60 * 1000);
     this.relay = new RelayService(apiUrl);
@@ -148,13 +122,16 @@ export class CloakSDK {
       }
     }
 
-    const { pool, commitments, rootsRing, nullifierShard, treasury } = getShieldPoolPDAs();
+    // Use programId from config if provided, otherwise use default
+    const programId = config.programId || CLOAK_PROGRAM_ID;
+    const { pool, commitments, rootsRing, nullifierShard, treasury } = getShieldPoolPDAs(programId);
 
     this.config = {
       network: config.network || "devnet",
       keypairBytes: config.keypairBytes,
       cloakKeys: config.cloakKeys,
       apiUrl,
+      programId: programId,
       poolAddress: pool,
       commitmentsAddress: commitments,
       rootsRingAddress: rootsRing,
@@ -247,8 +224,9 @@ export class CloakSDK {
 
     // Create deposit instruction
     const commitmentBytes = hexToBytes(note.commitment);
+    const programId = this.config.programId || CLOAK_PROGRAM_ID;
     const depositIx = createDepositInstruction({
-      programId: CLOAK_PROGRAM_ID,
+      programId: programId,
       payer: this.keypair.publicKey,
       pool: this.config.poolAddress!,
       commitments: this.config.commitmentsAddress!,
@@ -658,6 +636,288 @@ export class CloakSDK {
       [{ recipient, amount }],
       options
     );
+  }
+
+  /**
+   * Send SOL privately to multiple recipients
+   *
+   * Convenience method that wraps privateTransfer with a simpler API.
+   * Handles the complete flow: deposits if needed, then sends to recipients.
+   *
+   * @param connection - Solana connection
+   * @param note - Note to spend
+   * @param recipients - Array of 1-5 recipients with amounts
+   * @param options - Optional configuration
+   * @returns Transfer result
+   *
+   * @example
+   * ```typescript
+   * const note = client.generateNote(1_000_000_000);
+   * const result = await client.send(
+   *   connection,
+   *   note,
+   *   [
+   *     { recipient: new PublicKey("..."), amount: 500_000_000 },
+   *     { recipient: new PublicKey("..."), amount: 492_500_000 }
+   *   ]
+   * );
+   * ```
+   */
+  async send(
+    connection: Connection,
+    note: CloakNote,
+    recipients: MaxLengthArray<Transfer, 5>,
+    options?: TransferOptions
+  ): Promise<TransferResult> {
+    return this.privateTransfer(connection, note, recipients, options);
+  }
+
+  /**
+   * Swap SOL for tokens privately
+   *
+   * Withdraws SOL from a note and swaps it for tokens via the relay service.
+   * Handles the complete flow: deposits if needed, generates proof, and submits swap.
+   *
+   * @param connection - Solana connection
+   * @param note - Note to spend
+   * @param recipient - Recipient address (will receive tokens)
+   * @param options - Swap configuration
+   * @returns Swap result with transaction signature
+   *
+   * @example
+   * ```typescript
+   * const note = client.generateNote(1_000_000_000);
+   * const result = await client.swap(
+   *   connection,
+   *   note,
+   *   new PublicKey("..."), // recipient
+   *   {
+   *     outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
+   *     slippageBps: 100, // 1%
+   *     getQuote: async (amount, mint, slippage) => {
+   *       // Fetch quote from your swap API
+   *       const quote = await fetchSwapQuote(amount, mint, slippage);
+   *       return {
+   *         outAmount: quote.outAmount,
+   *         minOutputAmount: quote.minOutputAmount
+   *       };
+   *     }
+   *   }
+   * );
+   * ```
+   */
+  async swap(
+    connection: Connection,
+    note: CloakNote,
+    recipient: PublicKey,
+    options: SwapOptions
+  ): Promise<SwapResult> {
+    try {
+      // Check if note needs to be deposited first
+      if (!isWithdrawable(note)) {
+        options.onProgress?.("Note not deposited yet - depositing first...");
+
+        const depositResult = await this.deposit(connection, note, {
+          onProgress: options.onProgress,
+          skipPreflight: false,
+        });
+
+        note = depositResult.note;
+        options.onProgress?.("Deposit complete - proceeding with swap...");
+      }
+
+      // Calculate fee_bps for swap-mode withdrawals
+      // For swap-mode withdrawals, the relay expects ONLY the variable fee (0.5%) in fee_bps,
+      // not the total fee (fixed + variable). The fixed fee is still taken but not encoded in fee_bps.
+      // This matches the Rust test implementation in prove_test_swap.rs and services/relay/src/api/withdraw.rs
+      const variableFee = Math.floor((note.amount * 5) / 1_000); // 0.5% = 5/1000
+      const feeBps = note.amount === 0 
+        ? 0 
+        : Math.min(Math.floor(((variableFee * 10_000) + note.amount - 1) / note.amount), 65535); // Cap at u16::MAX
+
+      // Calculate withdraw amount (after fees)
+      const withdrawAmountLamports = getDistributableAmount(note.amount);
+      if (withdrawAmountLamports <= 0) {
+        throw new Error("Amount too small after fees");
+      }
+
+      // Get swap quote if not provided
+      let minOutputAmount: number;
+      if (options.minOutputAmount !== undefined) {
+        minOutputAmount = options.minOutputAmount;
+      } else if (options.getQuote) {
+        options.onProgress?.("Fetching swap quote...");
+        const quote = await options.getQuote(
+          withdrawAmountLamports,
+          options.outputMint,
+          options.slippageBps || 100
+        );
+        minOutputAmount = quote.minOutputAmount;
+      } else {
+        throw new Error(
+          "Must provide either minOutputAmount or getQuote function"
+        );
+      }
+
+      // Get recipient's associated token account
+      // Note: This requires @solana/spl-token, but we'll make it optional
+      // Users can pass the ATA directly if needed
+      let recipientAta: PublicKey;
+      try {
+        // Try to import getAssociatedTokenAddress dynamically
+        // Using type assertion to avoid TypeScript errors during build
+        const splTokenModule = await import(
+          "@solana/spl-token" as any
+        ) as any;
+        const getAssociatedTokenAddress = splTokenModule.getAssociatedTokenAddress;
+        if (!getAssociatedTokenAddress) {
+          throw new Error("getAssociatedTokenAddress not found");
+        }
+        const outputMint = new PublicKey(options.outputMint);
+        recipientAta = await getAssociatedTokenAddress(outputMint, recipient);
+      } catch (error) {
+        throw new Error(
+          `Failed to get associated token account: ${error instanceof Error ? error.message : String(error)}. Please install @solana/spl-token or provide recipientAta in options.`
+        );
+      }
+
+      options.onProgress?.("Fetching Merkle proof...");
+
+      // Use historical Merkle proof from note if available
+      let merkleProof: MerkleProof;
+      let merkleRoot: string;
+
+      if (note.merkleProof && note.root) {
+        merkleProof = {
+          pathElements: note.merkleProof.pathElements,
+          pathIndices: note.merkleProof.pathIndices,
+        };
+        merkleRoot = note.root;
+      } else {
+        merkleProof = await this.indexer.getMerkleProof(note.leafIndex!);
+        merkleRoot =
+          merkleProof.root || (await this.indexer.getMerkleRoot()).root;
+      }
+
+      options.onProgress?.("Computing cryptographic values...");
+
+      // Compute nullifier
+      const skSpendBytes = hexToBytes(note.sk_spend);
+      const nullifierBytes = computeNullifier(skSpendBytes, note.leafIndex!);
+      const nullifierHex = bytesToHex(nullifierBytes);
+
+      // Compute swap outputs hash
+      const outputMint = new PublicKey(options.outputMint);
+      const outputsHashBytes = computeSwapOutputsHash(
+        outputMint,
+        recipientAta,
+        minOutputAmount,
+        note.amount
+      );
+      const outputsHashHex = bytesToHex(outputsHashBytes);
+
+      options.onProgress?.("Generating zero-knowledge proof...");
+
+      // Validate required fields
+      if (!note.leafIndex && note.leafIndex !== 0) {
+        throw new Error("Note must have a leaf index (note must be deposited)");
+      }
+      if (!merkleProof.pathElements || merkleProof.pathElements.length === 0) {
+        throw new Error("Merkle proof is invalid: missing path elements");
+      }
+
+      // Prepare proof inputs with swap parameters
+      const proofInputs: SP1ProofInputs = {
+        privateInputs: {
+          amount: note.amount,
+          r: note.r,
+          sk_spend: note.sk_spend,
+          leaf_index: note.leafIndex!,
+          merkle_path: {
+            path_elements: merkleProof.pathElements,
+            path_indices: merkleProof.pathIndices,
+          },
+        },
+        publicInputs: {
+          root: merkleRoot,
+          nf: nullifierHex,
+          outputs_hash: outputsHashHex,
+          amount: note.amount,
+        },
+        outputs: [], // Empty for swaps
+        swapParams: {
+          output_mint: options.outputMint,
+          recipient_ata: recipientAta.toBase58(),
+          min_output_amount: minOutputAmount,
+        },
+      };
+
+      // Generate proof
+      const proofResult = await this.prover.generateProof(proofInputs, {
+        onProgress: options.onProofProgress,
+        onStart: () => options.onProgress?.("Starting proof generation..."),
+        onSuccess: () => options.onProgress?.("Proof generated successfully"),
+        onError: (error) => {
+          console.error("[CloakSDK] Proof generation error:", error);
+          options.onProgress?.(`Proof generation error: ${error}`);
+        },
+      });
+
+      if (!proofResult.success || !proofResult.proof || !proofResult.publicInputs) {
+        let errorMessage = proofResult.error || "Proof generation failed";
+        if (errorMessage.startsWith("Proof generation failed: ")) {
+          errorMessage = errorMessage.substring("Proof generation failed: ".length);
+        }
+        errorMessage += `\nNote details: leafIndex=${note.leafIndex}, root=${merkleRoot.slice(0, 16)}..., nullifier=${nullifierHex.slice(0, 16)}...`;
+        throw new Error(errorMessage);
+      }
+
+      options.onProgress?.("Submitting swap to relay service...");
+
+      // Submit swap via relay
+      const signature = await this.relay.submitSwap(
+        {
+          proof: proofResult.proof,
+          publicInputs: {
+            root: merkleRoot,
+            nf: nullifierHex,
+            outputs_hash: outputsHashHex,
+            amount: note.amount,
+          },
+          outputs: [
+            {
+              recipient: recipient.toBase58(),
+              amount: withdrawAmountLamports,
+            },
+          ],
+          feeBps: feeBps,
+          swap: {
+            output_mint: options.outputMint,
+            slippage_bps: options.slippageBps || 100,
+            min_output_amount: minOutputAmount,
+          },
+        },
+        options.onProgress
+      );
+
+      options.onProgress?.("Swap complete!");
+
+      return {
+        signature,
+        outputs: [
+          {
+            recipient: recipient.toBase58(),
+            amount: withdrawAmountLamports,
+          },
+        ],
+        nullifier: nullifierHex,
+        root: merkleRoot,
+        outputMint: options.outputMint,
+        minOutputAmount: minOutputAmount,
+      };
+    } catch (error) {
+      throw this.wrapError(error, "Swap failed");
+    }
   }
 
   /**

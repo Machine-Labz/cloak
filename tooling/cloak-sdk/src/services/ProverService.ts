@@ -82,11 +82,18 @@ export class ProverService {
     
     try {
       // Prepare request body with snake_case field names for backend
-      const requestBody = {
+      const requestBody: any = {
         private_inputs: JSON.stringify(inputs.privateInputs),
         public_inputs: JSON.stringify(inputs.publicInputs),
         outputs: JSON.stringify(inputs.outputs),
       };
+
+      // Add swap_params if present (for swap transactions)
+      // Note: swap_params should be sent as a JSON object, not a stringified JSON string
+      // This matches the Rust test implementation in prove_test_swap.rs
+      if (inputs.swapParams) {
+        requestBody.swap_params = inputs.swapParams;
+      }
 
       // Create abort controller for timeout
       const controller = new AbortController();

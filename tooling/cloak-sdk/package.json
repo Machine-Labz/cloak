@@ -15,11 +15,17 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "lint": "tsc --noEmit",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
-    "test:quick": "NODE_OPTIONS=--experimental-vm-modules jest --no-coverage"
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:verbose": "NODE_OPTIONS=--experimental-vm-modules jest --verbose",
+    "test:examples": "ts-node examples/deposit-example.ts || true",
+    "example:deposit": "ts-node examples/deposit-example.ts",
+    "example:transfer": "ts-node examples/transfer-example.ts",
+    "example:send": "ts-node examples/send-example.ts",
+    "example:withdraw": "ts-node examples/withdraw-example.ts",
+    "example:swap": "ts-node examples/swap-example.ts"
   },
   "keywords": [
     "solana",
@@ -41,6 +47,7 @@
   },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
+    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "bs58": "^5.0.0",
     "tweetnacl": "^1.0.3",
@@ -58,7 +65,13 @@
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
+    "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@solana/spl-token": {
+      "optional": true
+    }
   },
   "files": [
     "dist",

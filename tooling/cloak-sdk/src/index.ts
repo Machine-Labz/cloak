@@ -28,6 +28,9 @@ export type {
   DepositStatus,
   ScanNotesOptions,
   ScannedNote,
+  SwapOptions,
+  SwapParams,
+  SwapResult,
 } from "./core/types";
 
 // Export CloakError
@@ -92,6 +95,7 @@ export {
   generateCommitment,
   computeNullifier,
   computeOutputsHash,
+  computeSwapOutputsHash,
   hexToBytes,
   bytesToHex,
   randomBytes,
@@ -166,6 +170,10 @@ export {
   validateDepositParams,
 } from "./solana/instructions";
 export type { DepositInstructionParams } from "./solana/instructions";
+
+// PDA utilities
+export { getShieldPoolPDAs } from "./utils/pda";
+export type { ShieldPoolPDAs } from "./utils/pda";
 
 // Version
 export const VERSION = "0.1.0";
