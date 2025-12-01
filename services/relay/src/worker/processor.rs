@@ -44,12 +44,41 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
     // Use the fresh job data for processing
     let job = current_job;
 
-    // Update status to processing
+    // CRITICAL: Double-check status one more time before updating to processing
+    // This prevents race conditions where the job was just marked as completed
+    let final_status_check = match state.job_repo.get_job_by_id(job_id).await {
+        Ok(Some(j)) => j.status,
+        Ok(None) => {
+            error!("❌ Job {} not found in database", job_id);
+            return Err(crate::error::Error::InternalServerError("Job not found".to_string()));
+        }
+        Err(e) => {
+            error!("❌ Failed to fetch job {} for final status check: {}", job_id, e);
+            return Err(e);
+        }
+    };
+
+    if final_status_check == JobStatus::Completed {
+        info!("✅ Job {} already completed (final check before processing), skipping", job_id);
+        return Ok(());
+    }
+
+    if final_status_check == JobStatus::Failed {
+        warn!("⚠️  Job {} already marked as failed (final check), skipping", job_id);
+        return Ok(());
+    }
+
+    // Update status to processing (database protection will prevent if already completed)
     if let Err(e) = state
         .job_repo
         .update_job_status(job_id, JobStatus::Processing)
         .await
     {
+        // If update failed because job is already completed, that's fine - just return
+        if e.to_string().contains("already be completed") || e.to_string().contains("no effect") {
+            info!("✅ Job {} was completed between checks, skipping", job_id);
+            return Ok(());
+        }
         error!(
             "❌ Failed to update job {} status to processing: {}",
             job_id, e
@@ -299,6 +328,7 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
             }
 
             // Check for double-spend errors (0x1020) - these are always completed
+            // 0x1020 = DoubleSpend (nullifier already used = transaction already succeeded)
             let double_spend = error_str.contains("already been processed")
                 || error_str.contains("0x1020")
                 || error_str.contains("DoubleSpend")
@@ -306,18 +336,39 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
 
             if double_spend {
                 info!(
-                    "✅ Job {} - Double spend detected, transaction was already processed",
+                    "✅ Job {} - Double spend detected (0x1020), transaction was already processed",
                     job_id
                 );
 
-                if let Err(e) = state
+                // Mark as completed - transaction already succeeded on-chain
+                // Try update_job_completed first, then fallback to update_job_status
+                let update_result = state
                     .job_repo
-                    .update_job_status(job_id, JobStatus::Completed)
-                    .await
-                {
-                    error!("❌ Failed to mark job {} as completed: {}", job_id, e);
+                    .update_job_completed(
+                        job_id,
+                        "double_spend_already_processed".to_string(),
+                        "double_spend_already_processed".to_string(),
+                    )
+                    .await;
+
+                if let Err(e) = update_result {
+                    warn!("⚠️  update_job_completed failed for job {}: {}, trying fallback", job_id, e);
+                    // Fallback to simple status update
+                    if let Err(e2) = state
+                        .job_repo
+                        .update_job_status(job_id, JobStatus::Completed)
+                        .await
+                    {
+                        error!("❌ Failed to mark job {} as completed: {} (fallback also failed: {})", job_id, e, e2);
+                        // Don't return error - continue to verification
+                    } else {
+                        info!("✅ Job {} marked as completed via fallback status update", job_id);
+                    }
+                } else {
+                    info!("✅ Job {} update_job_completed succeeded", job_id);
                 }
 
+                // Store nullifier to prevent double-spending (if not already in local DB)
                 if let Err(e) = state
                     .nullifier_repo
                     .create_nullifier(job.nullifier.clone(), job_id)
@@ -326,24 +377,124 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                     tracing::debug!("Nullifier storage: {}", e);
                 }
 
+                // Verify the status was updated (defensive check with retry)
+                // Use longer delays and more attempts to account for database replication lag
+                let mut verified = false;
+                for attempt in 0..5 {
+                    match state.job_repo.get_job_by_id(job_id).await {
+                        Ok(Some(updated_job)) => {
+                            if updated_job.status == JobStatus::Completed {
+                                info!("✅ Job {} confirmed as completed in database (attempt {})", job_id, attempt + 1);
+                                verified = true;
+                                break;
+                            } else {
+                                if attempt < 4 {
+                                    warn!(
+                                        "⚠️  Job {} status update not yet visible - current status: {:?} (attempt {}/5), retrying...",
+                                        job_id, updated_job.status, attempt + 1
+                                    );
+                                    tokio::time::sleep(Duration::from_millis(200 * (attempt + 1) as u64)).await;
+                                } else {
+                                    error!(
+                                        "❌ Job {} status update failed - still showing as {:?} after 5 attempts. This is a critical error!",
+                                        job_id, updated_job.status
+                                    );
+                                    // Force update one more time as last resort
+                                    if let Err(e3) = state
+                                        .job_repo
+                                        .update_job_status(job_id, JobStatus::Completed)
+                                        .await
+                                    {
+                                        error!("❌ Last resort status update also failed: {}", e3);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            error!("❌ Job {} not found in database during verification (attempt {})", job_id, attempt + 1);
+                            if attempt < 4 {
+                                tokio::time::sleep(Duration::from_millis(200 * (attempt + 1) as u64)).await;
+                            }
+                        }
+                        Err(e) => {
+                            error!("❌ Failed to fetch job {} for verification: {}", job_id, e);
+                            if attempt < 4 {
+                                tokio::time::sleep(Duration::from_millis(200 * (attempt + 1) as u64)).await;
+                            }
+                        }
+                    }
+                }
+
+                if !verified {
+                    error!("❌ CRITICAL: Job {} status update verification failed - job may be reprocessed!", job_id);
+                }
+
                 return Ok(());
             }
 
             // Check if we should retry based on error type
+            // Don't retry if job is already completed (defensive check)
+            let current_status = match state.job_repo.get_job_by_id(job_id).await {
+                Ok(Some(j)) => j.status,
+                _ => job.status, // Fallback to original status
+            };
+
+            if current_status == JobStatus::Completed {
+                info!(
+                    "✅ Job {} already completed (status check), skipping retry",
+                    job_id
+                );
+                return Ok(());
+            }
+
+            // Double-check status before retrying (defensive check against race conditions)
+            let final_status_check = match state.job_repo.get_job_by_id(job_id).await {
+                Ok(Some(j)) => j.status,
+                _ => current_status, // Use previous check result
+            };
+
+            if final_status_check == JobStatus::Completed {
+                info!(
+                    "✅ Job {} already completed (final status check), skipping retry",
+                    job_id
+                );
+                return Ok(());
+            }
+
+            // NEVER retry double-spend errors (0x1020) - transaction already succeeded
+            let is_double_spend = error_str.contains("0x1020")
+                || error_str.contains("DoubleSpend")
+                || error_str.contains("custom program error: 0x1020");
+            
+            if is_double_spend {
+                error!("🚫 CRITICAL: Double-spend (0x1020) reached retry logic - this should never happen! Job {} should have been marked completed earlier.", job_id);
+                // Force mark as completed and return - don't retry
+                if let Err(e) = state
+                    .job_repo
+                    .update_job_status(job_id, JobStatus::Completed)
+                    .await
+                {
+                    error!("❌ Failed to force-complete job {}: {}", job_id, e);
+                }
+                return Ok(());
+            }
+
             let should_retry = !error_str.contains("MissingAccounts") && // Don't retry account errors
                 !error_str.contains("ProofInvalid"); // Don't retry proof errors
 
             if should_retry {
                 warn!("🔄 Retrying job {} - Error: {}", job_id, e);
 
-                // Update status to queued (for retry)
+                // Update status to queued (for retry) - but only if not already completed
+                // Database protection will prevent this if job is already completed
                 if let Err(status_err) = state
                     .job_repo
                     .update_job_status(job_id, JobStatus::Queued)
                     .await
                 {
-                    error!(
-                        "❌ Failed to update job {} status for retry: {}",
+                    // If update failed because job is already completed, that's fine - don't retry
+                    warn!(
+                        "⚠️  Cannot re-queue job {} for retry: {} (job may already be completed)",
                         job_id, status_err
                     );
                 }

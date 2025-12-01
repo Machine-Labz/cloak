@@ -122,6 +122,24 @@ impl SolanaService {
         self.client.get_slot().await
     }
 
+    /// Get account data
+    pub async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error> {
+        self.client.get_account(pubkey).await
+    }
+
+    /// Get latest blockhash
+    pub async fn get_latest_blockhash(&self) -> Result<solana_sdk::hash::Hash, Error> {
+        self.client.get_latest_blockhash().await
+    }
+
+    /// Send and confirm transaction
+    pub async fn send_and_confirm_transaction(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Signature, Error> {
+        self.client.send_and_confirm_transaction(transaction).await
+    }
+
     /// Check if a nullifier already exists on-chain
     pub async fn check_nullifier_exists(&self, nullifier: &[u8]) -> Result<bool, Error> {
         // Parse mint address (use configured mint or default to native SOL)
@@ -1049,6 +1067,19 @@ impl SolanaService {
                             return Ok(signature);
                         }
                         Err(e) => {
+                            let err_str = e.to_string();
+                            
+                            // Check for double-spend (0x1020) - DO NOT RETRY, transaction already succeeded
+                            if err_str.contains("0x1020")
+                                || err_str.contains("DoubleSpend")
+                                || err_str.contains("custom program error: 0x1020")
+                            {
+                                error!(
+                                    "🚫 Double-spend detected (0x1020) via Jito - transaction already processed, NOT retrying"
+                                );
+                                return Err(Error::InternalServerError(e.to_string()));
+                            }
+                            
                             retries += 1;
                             if retries >= max_retries {
                                 error!("Jito submit failed after {} attempts: {}", max_retries, e);
@@ -1092,6 +1123,20 @@ impl SolanaService {
                     return Ok(signature);
                 }
                 Err(e) => {
+                    let err_str = e.to_string();
+                    
+                    // Check for double-spend (0x1020) - DO NOT RETRY, transaction already succeeded
+
+                    if err_str.contains("0x1020")
+                        || err_str.contains("DoubleSpend")
+                        || err_str.contains("custom program error: 0x1020")
+                    {
+                        error!(
+                            "🚫 Double-spend detected (0x1020) - transaction already processed, NOT retrying"
+                        );
+                        return Err(e); // Return immediately, don't waste fees on retries
+                    }
+                    
                     retries += 1;
                     if retries >= max_retries {
                         error!("Transaction failed after {} attempts: {}", max_retries, e);

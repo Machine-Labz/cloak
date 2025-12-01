@@ -15,6 +15,10 @@ regexes = [
     '''vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
     '''VKey Hash["\s:=]+0x[a-fA-F0-9]{64}''',
     '''sp1_vkey_hash["\s:=]+0x[a-fA-F0-9]{64}''',
+    # Solana pubkeys (public addresses, not secrets)
+    '''Pubkey\s*=\s*"[A-Za-z0-9]{32,44}"''',
+    '''mint_address.*Pubkey.*=.*"[A-Za-z0-9]{32,44}"''',
+    '''let\s+\w+:\s*Pubkey\s*=\s*"[A-Za-z0-9]{32,44}"\.parse\(\)''',
 ]
 
 # Paths to ignore
@@ -25,4 +29,6 @@ paths = [
     '''example.*\.json$''',
     # Ignore documentation about keys
     '''docs/.*VKEY.*\.md$''',
+    # ORE round manager (contains public Solana pubkeys)
+    '''services/relay/src/worker/ore_round_manager\.rs$''',
 ]

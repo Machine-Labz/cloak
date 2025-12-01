@@ -111,12 +111,29 @@ impl JobRepository for PostgresJobRepository {
     }
 
     async fn update_job_status(&self, id: Uuid, status: JobStatus) -> Result<(), Error> {
-        sqlx::query("UPDATE jobs SET status = $1 WHERE id = $2")
-            .bind(status)
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| Error::DatabaseError(format!("Failed to update job status: {}", e)))?;
+        // Prevent re-queuing or changing status of completed jobs
+        // This is a critical safeguard against race conditions
+        let result = if status == JobStatus::Queued || status == JobStatus::Processing {
+            sqlx::query("UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 AND status != 'completed'")
+                .bind(status)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+        } else {
+            sqlx::query("UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2")
+                .bind(status)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| Error::DatabaseError(format!("Failed to update job status: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(Error::DatabaseError(format!(
+                "Job {} not found or update had no effect (job may already be completed)",
+                id
+            )));
+        }
 
         Ok(())
     }
@@ -140,15 +157,24 @@ impl JobRepository for PostgresJobRepository {
         tx_id: String,
         signature: String,
     ) -> Result<(), Error> {
-        sqlx::query(
-            "UPDATE jobs SET status = 'completed', completed_at = NOW(), tx_id = $1, solana_signature = $2 WHERE id = $3"
+        use super::models::JobStatus;
+        let result = sqlx::query(
+            "UPDATE jobs SET status = $1, completed_at = NOW(), updated_at = NOW(), tx_id = $2, solana_signature = $3 WHERE id = $4"
         )
+        .bind(JobStatus::Completed)
         .bind(tx_id)
         .bind(signature)
         .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to update job completed: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(Error::DatabaseError(format!(
+                "Job {} not found or update had no effect",
+                id
+            )));
+        }
 
         Ok(())
     }
@@ -202,7 +228,10 @@ impl JobRepository for PostgresJobRepository {
                 tx_id, solana_signature, error_message, retry_count, max_retries,
                 created_at, updated_at, started_at, completed_at
             FROM jobs
-            WHERE status = 'queued' AND retry_count < max_retries
+            WHERE status = 'queued' 
+                AND retry_count < max_retries
+                AND completed_at IS NULL
+                AND status != 'completed'
             ORDER BY created_at ASC
             LIMIT $1
             FOR UPDATE SKIP LOCKED",

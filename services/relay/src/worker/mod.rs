@@ -1,3 +1,4 @@
+pub mod ore_round_manager;
 pub mod processor;
 pub mod window_scheduler;
 

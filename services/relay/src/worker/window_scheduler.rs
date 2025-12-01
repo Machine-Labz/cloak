@@ -107,11 +107,21 @@ impl WindowScheduler {
             match self.state.job_repo.get_queued_jobs(10).await {
                 Ok(jobs) => {
                     if !jobs.is_empty() {
-                        let count = jobs.len();
                         let mut buffer = self.job_buffer.lock().await;
                         let mut added = 0;
 
                         for job in jobs {
+                            // Skip jobs that are already completed or failed
+                            if job.status == crate::db::models::JobStatus::Completed
+                                || job.status == crate::db::models::JobStatus::Failed
+                            {
+                                debug!(
+                                    "Job {} has status {:?}, skipping collection",
+                                    job.id, job.status
+                                );
+                                continue;
+                            }
+
                             // Check if job is already in buffer to avoid duplicates
                             let already_buffered = buffer.iter().any(|j| j.id == job.id);
                             if !already_buffered {
@@ -160,34 +170,77 @@ impl WindowScheduler {
 
         // Get buffered jobs
         let jobs_to_process = {
-            let mut buffer = self.job_buffer.lock().await;
-            let count = buffer.len();
+            let buffer = self.job_buffer.lock().await;
+            let buffer_count = buffer.len();
 
-            // Check minimum batch size requirement
-            if let Some(min_size) = self.config.min_batch_size {
-                if count < min_size {
-                    debug!(
-                        "Slot {} - only {} jobs buffered, waiting for {} (min batch)",
-                        current_slot, count, min_size
-                    );
-                    return Ok(());
-                }
-            }
-
-            // No jobs to process
-            if count == 0 {
+            // No jobs in buffer
+            if buffer_count == 0 {
                 debug!("Slot {} - no jobs in buffer", current_slot);
                 return Ok(());
             }
 
-            // Take all jobs from buffer
-            let jobs: Vec<Job> = buffer.drain(..).collect();
-            jobs
+            // Collect job IDs first, then release the lock before making DB calls
+            let job_ids: Vec<_> = buffer.iter().map(|j| j.id).collect();
+            drop(buffer); // Release lock before async DB calls
+            
+            // Re-fetch from database to get latest status (jobs might have been completed)
+            let mut jobs_to_process = Vec::new();
+            for job_id in job_ids {
+                match self.state.job_repo.get_job_by_id(job_id).await {
+                    Ok(Some(fresh_job)) => {
+                        // Only process if not already completed or failed
+                        if fresh_job.status != crate::db::models::JobStatus::Completed
+                            && fresh_job.status != crate::db::models::JobStatus::Failed
+                        {
+                            jobs_to_process.push(fresh_job);
+                        } else {
+                            debug!(
+                                "Job {} has status {:?} in database, skipping processing",
+                                job_id, fresh_job.status
+                            );
+                        }
+                    }
+                    Ok(None) => {
+                        debug!("Job {} not found in database, skipping", job_id);
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch job {} from database: {}", job_id, e);
+                        // Skip this job if we can't fetch it - it will be picked up again later
+                    }
+                }
+            }
+            
+            // Check minimum batch size requirement after filtering
+            if let Some(min_size) = self.config.min_batch_size {
+                if jobs_to_process.len() < min_size {
+                    debug!(
+                        "Slot {} - only {} valid jobs after filtering, waiting for {} (min batch)",
+                        current_slot, jobs_to_process.len(), min_size
+                    );
+                    // Put jobs back in buffer (re-acquire lock)
+                    let mut buffer = self.job_buffer.lock().await;
+                    for job in jobs_to_process {
+                        buffer.push_back(job);
+                    }
+                    return Ok(());
+                }
+            }
+            
+            // Clear the buffer since we've processed all jobs
+            self.job_buffer.lock().await.clear();
+            
+            jobs_to_process
         };
 
         // Update last processed slot
         *last_slot = current_slot;
         drop(last_slot); // Release lock
+
+        // Skip if no jobs to process after filtering
+        if jobs_to_process.is_empty() {
+            debug!("Slot {} - no valid jobs to process after filtering", current_slot);
+            return Ok(());
+        }
 
         // Process the batch
         info!(

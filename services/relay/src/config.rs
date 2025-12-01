@@ -10,7 +10,16 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub metrics: MetricsConfig,
     pub jupiter: JupiterConfig,
+    pub ore_round_manager: OreRoundManagerConfig,
     // Note: No miner config - relay queries on-chain for claims from independent miners
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct OreRoundManagerConfig {
+    pub enabled: bool,
+    pub auto_reset_enabled: bool,
+    pub poll_interval_secs: u64,
+    pub authority_keypair_path: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -176,6 +185,16 @@ impl Config {
                     .unwrap_or(false),
                 api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
                 slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
+            },
+            ore_round_manager: OreRoundManagerConfig {
+                enabled: get_env_var("ORE_ROUND_MANAGER_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                auto_reset_enabled: get_env_var("ORE_AUTO_RESET_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                poll_interval_secs: get_env_var_as_number("ORE_POLL_INTERVAL_SECS", 10).unwrap_or(10),
+                authority_keypair_path: get_env_var("ORE_AUTHORITY_KEYPAIR_PATH", "").to_string(),
             },
         };
 
@@ -377,6 +396,16 @@ impl Config {
                     .unwrap_or(false),
                 api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
                 slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
+            },
+            ore_round_manager: OreRoundManagerConfig {
+                enabled: get_env_var("ORE_ROUND_MANAGER_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                auto_reset_enabled: get_env_var("ORE_AUTO_RESET_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                poll_interval_secs: get_env_var_as_number("ORE_POLL_INTERVAL_SECS", 10).unwrap_or(10),
+                authority_keypair_path: get_env_var("ORE_AUTHORITY_KEYPAIR_PATH", "").to_string(),
             },
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),

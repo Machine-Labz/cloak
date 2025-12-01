@@ -10,4 +10,7 @@ f2c19f15163ebe04318f26fa6945773643693f33:docs/development/VKEY_FILE_SYSTEM.md:ge
 134e67430a41762f717128f73f744dd756819931:.context/sp1-solana/verifier/src/lib.rs:generic-api-key:20
 134e67430a41762f717128f73f744dd756819931:.context/sp1-solana/verifier/src/test.rs:generic-api-key:71
 
+# ORE mint address (public Solana pubkey, not a secret)
+a69655ebe94b1cf1e4e280a74aefe6060d454ef8:services/relay/src/worker/ore_round_manager.rs:generic-api-key:297
+
 

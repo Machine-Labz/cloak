@@ -19,7 +19,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::claim_manager::ClaimFinder;
 use crate::config::Config as RelayConfig;
@@ -185,6 +185,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         scheduler.run().await;
     });
+
+    // Load relay config for Ore Round Manager
+    let relay_config = config::Config::load()?;
+
+    // Spawn the Ore Round Manager to monitor and manage Ore rounds (if enabled)
+    if relay_config.ore_round_manager.enabled {
+        let ore_manager_state = app_state.clone();
+        let ore_cfg = relay_config.ore_round_manager.clone();
+
+        tokio::spawn(async move {
+            // Load authority keypair if auto-reset is enabled
+            let authority_keypair = if ore_cfg.auto_reset_enabled {
+                match solana_sdk::signature::read_keypair_file(&ore_cfg.authority_keypair_path) {
+                    Ok(kp) => {
+                        info!("✓ Loaded authority keypair from: {}", ore_cfg.authority_keypair_path);
+                        Some(Arc::new(kp))
+                    }
+                    Err(e) => {
+                        error!("❌ Failed to load authority keypair: {}", e);
+                        error!("   Auto-reset will be DISABLED");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let auto_reset_enabled = ore_cfg.auto_reset_enabled && authority_keypair.is_some();
+
+            let ore_config = worker::ore_round_manager::OreRoundManagerConfig {
+                program_id: "3xkMEM9BsKo3gS9PBkKHHfjcQ1VDHV8eSyGfsi5LmqHB"
+                    .parse()
+                    .expect("Invalid Ore program ID"),
+                poll_interval_secs: ore_cfg.poll_interval_secs,
+                authority_keypair,
+                auto_reset_enabled,
+        };
+
+            let ore_manager = Arc::new(worker::ore_round_manager::OreRoundManager::new(
+                ore_manager_state,
+                ore_config,
+            ));
+
+            ore_manager.run().await;
+        });
+
+        info!("✓ Ore Round Manager spawned and running");
+    } else {
+        info!("Ore Round Manager disabled in config");
+    }
 
     // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
