@@ -35,16 +35,13 @@
     "zkp",
     "private-transactions"
   ],
-  "author": "Cloak Labs",
-  "license": "MIT",
+  "author": "Cloak",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cloak-protocol/sdk.git"
+    "url": "https://github.com/Machine-Labz/cloak"
   },
   "homepage": "https://cloaklabz.xyz",
-  "bugs": {
-    "url": "https://github.com/cloak-protocol/sdk/issues"
-  },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@solana/spl-token": "^0.4.14",
