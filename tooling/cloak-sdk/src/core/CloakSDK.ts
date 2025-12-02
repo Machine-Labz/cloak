@@ -47,7 +47,7 @@ import {
 } from "../utils/crypto";
 import { getDistributableAmount } from "../utils/fees";
 import { IndexerService } from "../services/IndexerService";
-import { ProverService } from "../services/ProverService";
+import { ArtifactProverService } from "../services/ArtifactProverService";
 import { RelayService } from "../services/RelayService";
 import { DepositRecoveryService } from "../services/DepositRecoveryService";
 import { createDepositInstruction } from "../solana/instructions";
@@ -70,7 +70,7 @@ export class CloakSDK {
   private keypair: Keypair;
   private cloakKeys?: CloakKeyPair;
   private indexer: IndexerService;
-  private prover: ProverService;
+  private artifactProver: ArtifactProverService;
   private relay: RelayService;
   private depositRecovery: DepositRecoveryService;
   private storage: StorageAdapter;
@@ -110,7 +110,8 @@ export class CloakSDK {
 
     const apiUrl = CLOAK_API_URL;
     this.indexer = new IndexerService(apiUrl);
-    this.prover = new ProverService(apiUrl, 5 * 60 * 1000);
+    // Use artifact-based prover for privacy (private inputs never pass through backend)
+    this.artifactProver = new ArtifactProverService(apiUrl, 5 * 60 * 1000, 2000);
     this.relay = new RelayService(apiUrl);
     this.depositRecovery = new DepositRecoveryService(this.indexer, apiUrl);
     
@@ -529,8 +530,8 @@ export class CloakSDK {
       })),
     };
 
-    // Generate proof
-    const proofResult = await this.prover.generateProof(proofInputs, {
+    // Generate proof using artifact-based flow (private inputs never pass through backend)
+    const proofResult = await this.artifactProver.generateProof(proofInputs, {
       onProgress: options?.onProofProgress,
       onStart: () => options?.onProgress?.("Starting proof generation..."),
       onSuccess: () => options?.onProgress?.("Proof generated successfully"),
@@ -853,7 +854,7 @@ export class CloakSDK {
       };
 
       // Generate proof
-      const proofResult = await this.prover.generateProof(proofInputs, {
+      const proofResult = await this.artifactProver.generateProof(proofInputs, {
         onProgress: options.onProofProgress,
         onStart: () => options.onProgress?.("Starting proof generation..."),
         onSuccess: () => options.onProgress?.("Proof generated successfully"),

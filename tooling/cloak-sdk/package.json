@@ -25,7 +25,9 @@
     "example:transfer": "ts-node examples/transfer-example.ts",
     "example:send": "ts-node examples/send-example.ts",
     "example:withdraw": "ts-node examples/withdraw-example.ts",
-    "example:swap": "ts-node examples/swap-example.ts"
+    "example:swap": "ts-node examples/swap-example.ts",
+    "test:artifact": "npx tsx test-artifact-flow.ts",
+    "test:artifact-structure": "npx tsx test-artifact-structure.ts"
   },
   "keywords": [
     "solana",
