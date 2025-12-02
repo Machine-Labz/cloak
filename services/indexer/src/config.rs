@@ -290,8 +290,8 @@ fn get_cors_origins() -> Vec<String> {
             let node_env = get_env_var("NODE_ENV", "development");
             if node_env == "production" {
                 vec![
-                    "https://cloak.network".to_string(),
-                    "https://app.cloak.network".to_string(),
+                    "https://www.cloaklabz.xyz".to_string(),
+                    "https://cloaklabz.xyz".to_string(),
                 ]
             } else {
                 vec!["*".to_string()] // Allow all origins in development
