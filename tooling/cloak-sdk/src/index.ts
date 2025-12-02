@@ -141,6 +141,10 @@ export {
 
 // Service clients
 export { IndexerService } from "./services/IndexerService";
+// Artifact-based prover (recommended - private inputs never pass through backend)
+export { ArtifactProverService } from "./services/ArtifactProverService";
+export type { ArtifactProofGenerationOptions } from "./services/ArtifactProverService";
+// Legacy prover (deprecated - sends private inputs to backend)
 export { ProverService } from "./services/ProverService";
 export type { ProofGenerationOptions } from "./services/ProverService";
 export { RelayService } from "./services/RelayService";

@@ -1,6 +1,6 @@
 {
   "name": "@cloaklabz/sdk",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "TypeScript SDK for Cloak Protocol - Private transactions on Solana",
   "type": "module",
   "main": "dist/index.cjs",
@@ -25,7 +25,9 @@
     "example:transfer": "ts-node examples/transfer-example.ts",
     "example:send": "ts-node examples/send-example.ts",
     "example:withdraw": "ts-node examples/withdraw-example.ts",
-    "example:swap": "ts-node examples/swap-example.ts"
+    "example:swap": "ts-node examples/swap-example.ts",
+    "test:artifact": "npx tsx test-artifact-flow.ts",
+    "test:artifact-structure": "npx tsx test-artifact-structure.ts"
   },
   "keywords": [
     "solana",
@@ -35,16 +37,13 @@
     "zkp",
     "private-transactions"
   ],
-  "author": "Cloak Labs",
-  "license": "MIT",
+  "author": "Cloak",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cloak-protocol/sdk.git"
+    "url": "https://github.com/Machine-Labz/cloak"
   },
   "homepage": "https://cloaklabz.xyz",
-  "bugs": {
-    "url": "https://github.com/cloak-protocol/sdk/issues"
-  },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@solana/spl-token": "^0.4.14",

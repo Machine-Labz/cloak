@@ -65,7 +65,7 @@ const note = generateNote(1_000_000_000); // 1 SOL
 // privateTransfer handles EVERYTHING:
 // - Deposits the note if not already deposited
 // - Waits for confirmation
-// - Generates ZK proof
+// - Generates ZK proof using artifact-based flow (private inputs never pass through backend)
 // - Transfers to recipients
 const transferResult = await client.privateTransfer(
   connection,
@@ -488,10 +488,11 @@ await client.privateTransfer(
 Use service clients directly for lower-level operations:
 
 ```typescript
-import { IndexerService, ProverService, RelayService } from "@cloaklabz/sdk";
+import { IndexerService, ArtifactProverService, RelayService } from "@cloaklabz/sdk";
 
 const indexer = new IndexerService("https://indexer.example.com");
-const prover = new ProverService("https://prover.example.com");
+// Use ArtifactProverService for privacy (private inputs never pass through backend)
+const prover = new ArtifactProverService("https://indexer.example.com");
 const relay = new RelayService("https://relay.example.com");
 
 // Get Merkle root
@@ -500,7 +501,7 @@ const { root, next_index } = await indexer.getMerkleRoot();
 // Get Merkle proof
 const proof = await indexer.getMerkleProof(leafIndex);
 
-// Generate proof
+// Generate proof using artifact-based flow (private inputs uploaded directly to TEE)
 const proofResult = await prover.generateProof(inputs);
 
 // Submit withdrawal
@@ -538,7 +539,7 @@ import type {
 
 5. **Network isolation**: Don't mix notes from different networks (devnet/mainnet).
 
-6. **Proof privacy**: This SDK sends private inputs to a backend prover. For full privacy in production, consider client-side proof generation.
+6. **Proof privacy**: This SDK uses artifact-based proof generation where private inputs are uploaded directly to TEE, never passing through the backend in plaintext. This provides true privacy-preserving withdrawals.
 
 ## Error Handling
 

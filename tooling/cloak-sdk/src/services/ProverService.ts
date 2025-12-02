@@ -17,12 +17,16 @@ export interface ProofGenerationOptions {
 }
 
 /**
- * Prover Service Client
+ * Prover Service Client (Legacy)
  *
  * Handles zero-knowledge proof generation via the backend prover service.
  *
- * ⚠️ PRIVACY WARNING: This implementation sends private inputs to a backend service.
- * For production use with full privacy, consider client-side proof generation.
+ * ⚠️ DEPRECATED: This implementation sends private inputs to a backend service.
+ * 
+ * **Use ArtifactProverService instead** for privacy-preserving proof generation
+ * where private inputs are uploaded directly to TEE, never passing through backend.
+ * 
+ * This class is kept for backward compatibility but is not used by CloakSDK anymore.
  */
 export class ProverService {
   private indexerUrl: string;
