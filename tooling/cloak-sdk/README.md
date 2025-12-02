@@ -88,6 +88,44 @@ const transferResult = await client.privateTransfer(
 console.log("Transfer complete:", transferResult.signature);
 ```
 
+// ==================================================================
+// OPTION 3: Private Staking (stake SOL to validators privately)
+// ==================================================================
+// Stake SOL to a validator without revealing the source of funds
+
+// Generate a note (or use existing deposited note)
+const note = client.generateNote(10_000_000_000); // 10 SOL
+
+// Setup stake configuration
+const stakeAccount = new PublicKey("..."); // Your stake account
+const stakeAuthority = new PublicKey("..."); // Authority that controls stake
+const validatorVoteAccount = new PublicKey("..."); // Validator to delegate to
+
+// privateStake handles EVERYTHING:
+// - Deposits the note if not already deposited
+// - Waits for confirmation
+// - Generates ZK proof with stake parameters
+// - Transfers SOL to stake account
+const stakeResult = await client.privateStake(
+  connection,
+  note,
+  {
+    stakeAccount,
+    stakeAuthority,
+    validatorVoteAccount,
+  },
+  {
+    onProgress: (status) => console.log(status),
+    onProofProgress: (progress) => console.log(`Proof: ${progress}%`),
+  }
+);
+
+console.log("Staking complete:", stakeResult.signature);
+console.log("Stake account:", stakeResult.stakeAccount);
+console.log("Amount staked:", stakeResult.stakeAmount, "lamports");
+console.log("Validator:", stakeResult.validatorVoteAccount);
+```
+
 Note on API configuration:
 - Provide a single `apiUrl` when your deployment proxies both indexer and relay behind the same origin (recommended).
 - If `apiUrl` is not provided, you must provide both `indexerUrl` and `relayUrl`.
@@ -259,6 +297,52 @@ const result = await client.withdraw(
 );
 ```
 
+##### `privateStake()`
+
+Stake SOL privately to a validator.
+
+**Handles the full flow**: Deposits if needed, generates ZK proof with stake parameters, and transfers SOL to a stake account.
+
+```typescript
+async privateStake(
+  connection: Connection,
+  note: CloakNote,
+  stakeConfig: StakeConfig,
+  options?: StakeOptions
+): Promise<StakeResult>
+```
+
+**StakeConfig:**
+```typescript
+interface StakeConfig {
+  stakeAccount: PublicKey;        // Stake account address
+  stakeAuthority: PublicKey;      // Authority that controls the stake
+  validatorVoteAccount: PublicKey; // Validator to delegate to
+}
+```
+
+**Example:**
+```typescript
+const note = client.generateNote(10_000_000_000); // 10 SOL
+
+const result = await client.privateStake(
+  connection,
+  note,
+  {
+    stakeAccount: new PublicKey("..."),
+    stakeAuthority: new PublicKey("..."),
+    validatorVoteAccount: new PublicKey("..."),
+  },
+  {
+    onProgress: (status) => console.log(status),
+    onProofProgress: (pct) => console.log(`Proof: ${pct}%`),
+  }
+);
+
+console.log("Staked! TX:", result.signature);
+console.log("Amount staked:", result.stakeAmount);
+```
+
 ##### `generateNote()`
 
 Generate a new note without depositing (for testing or pre-generation).
@@ -282,6 +366,38 @@ Export a note to JSON string.
 ```typescript
 exportNote(note: CloakNote, pretty?: boolean): string
 ```
+
+### Staking
+
+**Private Staking:**
+```typescript
+import { CloakSDK, StakeConfig } from "@cloak/sdk";
+import { PublicKey } from "@solana/web3.js";
+
+const sdk = new CloakSDK({ /* config */ });
+
+// Create stake account (or use existing)
+const stakeAccount = new PublicKey("...");
+const stakeAuthority = new PublicKey("...");
+const validatorVoteAccount = new PublicKey("...");
+
+// Stake privately
+const result = await sdk.privateStake(
+  connection,
+  note,
+  { stakeAccount, stakeAuthority, validatorVoteAccount }
+);
+
+// Result includes:
+// - signature: Transaction signature
+// - stakeAccount: Stake account that received funds
+// - validatorVoteAccount: Validator delegated to
+// - stakeAmount: Amount staked (after fees)
+// - nullifier: Nullifier used (prevents double-spending)
+// - root: Merkle root proven against
+```
+
+**Note:** The stake account must exist before the withdraw transaction. You can create it beforehand or the relay may create it if configured.
 
 ### Fee Calculation
 

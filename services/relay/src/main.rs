@@ -6,6 +6,7 @@ mod db;
 mod error;
 mod planner;
 mod solana;
+mod stake;
 mod swap;
 mod worker;
 

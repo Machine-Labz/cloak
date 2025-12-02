@@ -69,6 +69,11 @@ pub enum ShieldPoolError {
     PreparingInputsG1MulFailed = 0x1074,
     PreparingInputsG1AdditionFailed = 0x1075,
     ProofVerificationFailed = 0x1076,
+
+    // Staking errors
+    InvalidStakeAccount = 0x1080,
+    InvalidValidator = 0x1081,
+    StakeAccountNotWritable = 0x1082,
 }
 
 impl From<ShieldPoolError> for ProgramError {

@@ -82,11 +82,21 @@ export class ProverService {
     
     try {
       // Prepare request body with snake_case field names for backend
-      const requestBody = {
+      const requestBody: any = {
         private_inputs: JSON.stringify(inputs.privateInputs),
         public_inputs: JSON.stringify(inputs.publicInputs),
         outputs: JSON.stringify(inputs.outputs),
       };
+
+      // Add optional swap_params if present (as JSON Value, not stringified)
+      if (inputs.swap_params) {
+        requestBody.swap_params = inputs.swap_params;
+      }
+
+      // Add optional stake_params if present (as JSON Value, not stringified)
+      if (inputs.stake_params) {
+        requestBody.stake_params = inputs.stake_params;
+      }
 
       // Create abort controller for timeout
       const controller = new AbortController();

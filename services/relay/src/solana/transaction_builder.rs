@@ -391,6 +391,42 @@ pub(crate) fn derive_shield_pool_pdas(
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
 }
 
+/// Back-compat helpers used by SolanaService / older callsites ---------------------------------
+///
+/// These helpers mirror the on-chain PDA seeds and accept an optional mint. When `mint` is `None`
+/// we default to `Pubkey::default()`, which is how the native SOL pool is addressed.
+pub(crate) fn derive_pool_pda(
+    program_id: &Pubkey,
+    mint: Option<&Pubkey>,
+) -> (Pubkey, u8) {
+    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
+    Pubkey::find_program_address(&[b"pool", mint_key.as_ref()], program_id)
+}
+
+pub(crate) fn derive_roots_ring_pda(
+    program_id: &Pubkey,
+    mint: Option<&Pubkey>,
+) -> (Pubkey, u8) {
+    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
+    Pubkey::find_program_address(&[b"roots_ring", mint_key.as_ref()], program_id)
+}
+
+pub(crate) fn derive_nullifier_shard_pda(
+    program_id: &Pubkey,
+    mint: Option<&Pubkey>,
+) -> (Pubkey, u8) {
+    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
+    Pubkey::find_program_address(&[b"nullifier_shard", mint_key.as_ref()], program_id)
+}
+
+pub(crate) fn derive_treasury_pda(
+    program_id: &Pubkey,
+    mint: Option<&Pubkey>,
+) -> (Pubkey, u8) {
+    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
+    Pubkey::find_program_address(&[b"treasury", mint_key.as_ref()], program_id)
+}
+
 /// Derive the swap state PDA for a given nullifier
 pub(crate) fn derive_swap_state_pda(program_id: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"swap_state", nullifier.as_ref()], program_id)
@@ -1300,4 +1336,156 @@ pub fn build_execute_swap_via_orca_instruction(
         accounts,
         data,
     })
+}
+
+/// Build the withdraw_stake instruction body
+/// Layout: [proof][public:104][nf-dup:32][stake_account:32][batch_hash:32?]
+pub fn build_withdraw_stake_ix_body(
+    proof: &[u8],
+    public_104: &[u8; PUBLIC_INPUTS_LEN],
+    stake_account: &Pubkey,
+    batch_hash: Option<&[u8; POW_BATCH_HASH_LEN]>,
+) -> Result<Vec<u8>, Error> {
+    if proof.is_empty() {
+        return Err(Error::ValidationError("proof must be non-empty".into()));
+    }
+
+    let mut data = Vec::with_capacity(
+        proof.len()
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + 32
+            + if batch_hash.is_some() { POW_BATCH_HASH_LEN } else { 0 },
+    );
+    data.extend_from_slice(proof);
+    data.extend_from_slice(public_104);
+    data.extend_from_slice(&public_104[32..64]); // duplicate nullifier
+    data.extend_from_slice(stake_account.as_ref()); // stake_account (32 bytes)
+    if let Some(batch_hash) = batch_hash {
+        data.extend_from_slice(batch_hash);
+    }
+
+    Ok(data)
+}
+
+/// Build an Instruction for shield-pool::WithdrawStake (discriminant = 9)
+///
+/// Accounts layout:
+/// 0. pool_pda (writable)
+/// 1. treasury (writable)
+/// 2. roots_ring_pda (readonly)
+/// 3. nullifier_shard_pda (writable)
+/// 4. stake_account (writable)
+/// 5. system_program (readonly)
+/// PoW mode adds: [scramble_program, claim_pda, miner_pda, registry_pda, clock_sysvar, miner_authority, shield_pool_program]
+pub fn build_withdraw_stake_instruction(
+    program_id: Pubkey,
+    body: &[u8],
+    pool_pda: Pubkey,
+    treasury: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    stake_account: Pubkey,
+    scramble_registry_program: Option<Pubkey>,
+    claim_pda: Option<Pubkey>,
+    miner_pda: Option<Pubkey>,
+    registry_pda: Option<Pubkey>,
+    miner_authority: Option<Pubkey>,
+) -> Instruction {
+    use solana_sdk::sysvar;
+
+    let mut data = Vec::with_capacity(1 + body.len());
+    data.push(ShieldPoolInstruction::WithdrawStake as u8);
+    data.extend_from_slice(body);
+
+    let mut accounts = Vec::with_capacity(13);
+    accounts.push(AccountMeta::new(pool_pda, false)); // pool (writable)
+    accounts.push(AccountMeta::new(treasury, false)); // treasury (writable)
+    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false)); // roots ring (readonly)
+    accounts.push(AccountMeta::new(nullifier_shard_pda, false)); // nullifier shard (writable)
+    accounts.push(AccountMeta::new(stake_account, false)); // stake_account (writable)
+    accounts.push(AccountMeta::new_readonly(system_program::id(), false)); // system_program (readonly)
+
+    // Add PoW accounts if provided
+    if let (Some(scramble_prog), Some(claim), Some(miner), Some(registry), Some(miner_auth)) = (
+        scramble_registry_program,
+        claim_pda,
+        miner_pda,
+        registry_pda,
+        miner_authority,
+    ) {
+        accounts.push(AccountMeta::new_readonly(scramble_prog, false));
+        accounts.push(AccountMeta::new(claim, false));
+        accounts.push(AccountMeta::new(miner, false));
+        accounts.push(AccountMeta::new(registry, false));
+        accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
+        accounts.push(AccountMeta::new(miner_auth, false));
+        accounts.push(AccountMeta::new_readonly(program_id, false)); // shield_pool_program
+    }
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+/// Build a full Transaction for WithdrawStake
+/// Note: The stake account should be created and initialized before calling this function.
+/// This function only builds the withdraw_stake instruction that transfers lamports to the stake account.
+pub fn build_withdraw_stake_transaction(
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    stake_account: Pubkey,
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    treasury: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+    batch_hash: Option<[u8; POW_BATCH_HASH_LEN]>,
+    scramble_registry_program: Option<Pubkey>,
+    claim_pda: Option<Pubkey>,
+    miner_pda: Option<Pubkey>,
+    registry_pda: Option<Pubkey>,
+    miner_authority: Option<Pubkey>,
+) -> Result<Transaction, Error> {
+    // Build withdraw_stake instruction body
+    let body = build_withdraw_stake_ix_body(
+        proof_bytes.as_slice(),
+        &public_104,
+        &stake_account,
+        batch_hash.as_ref(),
+    )?;
+
+    // Build withdraw_stake instruction
+    let withdraw_stake_ix = build_withdraw_stake_instruction(
+        program_id,
+        &body,
+        pool_pda,
+        treasury,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        stake_account,
+        scramble_registry_program,
+        claim_pda,
+        miner_pda,
+        registry_pda,
+        miner_authority,
+    );
+
+    // Compute budget instructions
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(500_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+
+    // Build transaction
+    let mut msg = Message::new(
+        &[cu_ix, pri_ix, withdraw_stake_ix],
+        Some(&fee_payer),
+    );
+    msg.recent_blockhash = recent_blockhash;
+    let tx = Transaction::new_unsigned(msg);
+    Ok(tx)
 }

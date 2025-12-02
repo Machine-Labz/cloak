@@ -259,6 +259,44 @@ export interface WithdrawOptions extends TransferOptions {
 }
 
 /**
+ * Staking configuration for private staking
+ */
+export interface StakeConfig {
+  /** Stake account address (where SOL will be staked) */
+  stakeAccount: PublicKey;
+  /** Stake authority (who controls the stake account) */
+  stakeAuthority: PublicKey;
+  /** Validator vote account to delegate to */
+  validatorVoteAccount: PublicKey;
+}
+
+/**
+ * Options for private staking operation
+ */
+export interface StakeOptions extends TransferOptions {
+  /** Optional: Stake configuration (if not provided, will be derived) */
+  stakeConfig?: StakeConfig;
+}
+
+/**
+ * Result from a private staking operation
+ */
+export interface StakeResult {
+  /** Solana transaction signature */
+  signature: string;
+  /** Stake account that received the funds */
+  stakeAccount: string;
+  /** Validator vote account that was delegated to */
+  validatorVoteAccount: string;
+  /** Amount staked (after fees) */
+  stakeAmount: number;
+  /** Nullifier used (prevents double-spending) */
+  nullifier: string;
+  /** Merkle root that was proven against */
+  root: string;
+}
+
+/**
  * SP1 proof inputs for zero-knowledge proof generation
  */
 export interface SP1ProofInputs {
@@ -282,6 +320,16 @@ export interface SP1ProofInputs {
     address: string;
     amount: number;
   }>;
+  /** Optional swap parameters for swap-mode withdrawals */
+  swap_params?: {
+    output_mint: string;
+    recipient_ata: string;
+    min_output_amount: number;
+  };
+  /** Optional stake parameters for stake-mode withdrawals */
+  stake_params?: {
+    stake_account: string;
+  };
 }
 
 /**

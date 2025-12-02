@@ -64,5 +64,8 @@ pub fn process_instruction(
         ShieldPoolInstruction::PrepareSwapSol => {
             prepare_swap_sol::process_prepare_swap_sol(program_id, accounts)
         }
+        ShieldPoolInstruction::WithdrawStake => {
+            withdraw_stake::process_withdraw_stake_instruction(accounts, instruction_data)
+        }
     }
 }

@@ -173,6 +173,110 @@ export class RelayService {
   }
 
   /**
+   * Submit a staking transaction via relay
+   *
+   * The relay service will validate the proof, pay for transaction fees,
+   * and submit the transaction on-chain to stake SOL.
+   *
+   * @param params - Staking parameters
+   * @param onStatusUpdate - Optional callback for status updates
+   * @returns Transaction signature when completed
+   *
+   * @example
+   * ```typescript
+   * const signature = await relay.submitStake({
+   *   proof: proofHex,
+   *   publicInputs: { root, nf, outputs_hash, amount },
+   *   stakeConfig: {
+   *     stakeAccount: stakeAccountPubkey,
+   *     stakeAuthority: authorityPubkey,
+   *     validatorVoteAccount: validatorPubkey
+   *   },
+   *   feeBps: 60
+   * }, (status) => console.log(`Status: ${status}`));
+   * console.log(`Transaction: ${signature}`);
+   * ```
+   */
+  async submitStake(
+    params: {
+      proof: string;
+      publicInputs: {
+        root: string;
+        nf: string;
+        outputs_hash: string;
+        amount: number;
+      };
+      stakeConfig: {
+        stakeAccount: string;
+        stakeAuthority: string;
+        validatorVoteAccount: string;
+      };
+      feeBps: number;
+    },
+    onStatusUpdate?: (status: string) => void
+  ): Promise<string> {
+    // Convert proof from hex to base64
+    const proofBytes = hexToBytes(params.proof);
+    const proofBase64 = this.bytesToBase64(proofBytes);
+
+    // Prepare request body
+    const requestBody = {
+      outputs: [], // Empty outputs for staking mode
+      policy: {
+        fee_bps: params.feeBps,
+      },
+      public_inputs: {
+        root: params.publicInputs.root,
+        nf: params.publicInputs.nf,
+        amount: params.publicInputs.amount,
+        fee_bps: params.feeBps,
+        outputs_hash: params.publicInputs.outputs_hash,
+      },
+      proof_bytes: proofBase64,
+      stake: {
+        stake_account: params.stakeConfig.stakeAccount,
+        stake_authority: params.stakeConfig.stakeAuthority,
+        validator_vote_account: params.stakeConfig.validatorVoteAccount,
+      },
+    };
+
+    // Submit staking request
+    const response = await fetch(`${this.baseUrl}/withdraw`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `${response.status} ${response.statusText}`;
+      try {
+        const errorText = await response.text();
+        errorMessage = errorText || errorMessage;
+      } catch {
+        // Ignore parse errors
+      }
+      throw new Error(`Relay stake failed: ${errorMessage}`);
+    }
+
+    const json = (await response.json()) as any;
+
+    if (!json.success) {
+      throw new Error(json.error || "Relay stake failed");
+    }
+
+    const requestId: string | undefined = json.data?.request_id;
+
+    if (!requestId) {
+      throw new Error("Relay response missing request_id");
+    }
+
+    // Poll for completion
+    return this.pollForCompletion(requestId, onStatusUpdate);
+  }
+
+  /**
    * Get transaction status
    *
    * @param requestId - Request ID from previous submission

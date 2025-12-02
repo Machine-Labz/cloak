@@ -83,22 +83,30 @@ impl Sp1TeeClient {
         public_inputs: &str,
         outputs: &str,
         swap_params: Option<&str>,
+        stake_params: Option<&str>,
     ) -> Result<TeeProofResult> {
         let start_time = std::time::Instant::now();
+        
+        tracing::error!("🔴 TEE generate_proof CALLED! stake_params.is_some() = {}", stake_params.is_some());
+        if let Some(ref stp) = stake_params {
+            tracing::error!("🔴 stake_params value: {}", stp);
+        }
 
-        info!(
+        tracing::info!(
             "Starting SP1 TEE proof generation for wallet: {}",
             self.config.wallet_address
         );
 
         // Use the pre-built ProverClient (no need to rebuild)
-        info!("Using pre-built TEE ProverClient");
+        tracing::error!("🔴 Using pre-built TEE ProverClient");
         let client = &*self.prover_client;
 
         // Setup the program (this should be cached in production)
         let (pk, vk) = client.setup(ELF);
-        info!("SP1 verifying key hash: {}", vk.bytes32());
+        tracing::error!("🔴 SP1 verifying key hash: {}", vk.bytes32());
 
+        tracing::error!("🔴 Building combined JSON, stake_params.is_some() = {}", stake_params.is_some());
+        
         // Prepare the combined input, optionally including swap_params
         // Parse the JSON strings into Values first, then construct the final JSON properly
         let private_val: serde_json::Value = serde_json::from_str(private_inputs)
@@ -108,7 +116,14 @@ impl Sp1TeeClient {
         let outputs_val: serde_json::Value = serde_json::from_str(outputs)
             .map_err(|e| anyhow::anyhow!("Invalid outputs JSON: {}", e))?;
         
-        let combined_json = if let Some(sp) = swap_params {
+        // Build combined JSON with optional swap_params or stake_params
+        let mut json_obj = serde_json::json!({
+            "private": private_val,
+            "public": public_val,
+            "outputs": outputs_val
+        });
+
+        if let Some(sp) = swap_params {
             // Parse swap_params to ensure it's valid JSON
             let swap_params_val: serde_json::Value = serde_json::from_str(sp)
                 .map_err(|e| anyhow::anyhow!(
@@ -119,12 +134,7 @@ impl Sp1TeeClient {
             
             info!("📋 Parsed swap_params_val: {}", serde_json::to_string(&swap_params_val).unwrap_or_else(|_| "error".to_string()));
             
-            let json_obj = serde_json::json!({
-                "private": private_val,
-                "public": public_val,
-                "outputs": outputs_val,
-                "swap_params": swap_params_val
-            });
+            json_obj["swap_params"] = swap_params_val;
             
             // Verify swap_params is present in the final JSON
             if let Some(sp_in_json) = json_obj.get("swap_params") {
@@ -132,18 +142,56 @@ impl Sp1TeeClient {
             } else {
                 tracing::error!("❌ swap_params is MISSING from combined_json!");
             }
+        }
+
+        if let Some(stp) = stake_params {
+            // Parse stake_params to ensure it's valid JSON
+            let stake_params_val: serde_json::Value = serde_json::from_str(stp)
+                .map_err(|e| anyhow::anyhow!(
+                    "Invalid stake_params JSON: {}. Raw: {}",
+                    e,
+                    &stp[..std::cmp::min(200, stp.len())]
+                ))?;
             
-            json_obj
-        } else {
-            serde_json::json!({
-                "private": private_val,
-                "public": public_val,
-                "outputs": outputs_val
-            })
-        };
+            info!("📋 Parsed stake_params_val: {}", serde_json::to_string(&stake_params_val).unwrap_or_else(|_| "error".to_string()));
+            
+            json_obj["stake_params"] = stake_params_val;
+            
+            // Verify stake_params is present in the final JSON
+            if let Some(stp_in_json) = json_obj.get("stake_params") {
+                info!("✅ stake_params is present in combined_json: {}", serde_json::to_string(stp_in_json).unwrap_or_else(|_| "error".to_string()));
+            } else {
+                tracing::error!("❌ stake_params is MISSING from combined_json!");
+            }
+        }
+
+        let combined_json = json_obj;
         
         let combined_input = serde_json::to_string(&combined_json)
             .map_err(|e| anyhow::anyhow!("Failed to serialize combined input: {}", e))?;
+        
+        // Log full JSON for debugging stake_params
+        if stake_params.is_some() {
+            info!("📋 Full combined JSON length: {} chars", combined_input.len());
+            // Check if stake_params appears in the string
+            if combined_input.contains("stake_params") {
+                info!("✅ 'stake_params' key found in serialized JSON string");
+                // Try to extract the stake_params section
+                if let Some(start) = combined_input.find("\"stake_params\"") {
+                    let end = std::cmp::min(start + 200, combined_input.len());
+                    info!("📋 stake_params section: {}", &combined_input[start..end]);
+                }
+                // Also check the end of the JSON to see the full structure
+                let json_end = std::cmp::min(500, combined_input.len());
+                let json_start = combined_input.len().saturating_sub(json_end);
+                info!("📋 JSON end (last {} chars): {}", json_end, &combined_input[json_start..]);
+            } else {
+                tracing::error!("❌ 'stake_params' key NOT found in serialized JSON string!");
+                // Log a sample to see what's actually in there
+                let sample = std::cmp::min(1000, combined_input.len());
+                info!("📋 JSON sample (first {} chars): {}", sample, &combined_input[..sample]);
+            }
+        }
         
         if let Some(sp) = swap_params {
             info!(
@@ -157,15 +205,53 @@ impl Sp1TeeClient {
             } else {
                 tracing::error!("❌ 'swap_params' key NOT found in serialized JSON!");
             }
+        } else if let Some(_stp) = stake_params {
+            info!(
+                "📋 Combined input WITH stake_params (first 1000 chars): {}",
+                &combined_input[..std::cmp::min(1000, combined_input.len())]
+            );
+            info!("📋 Full stake_params string: {}", _stp);
+            // Verify stake_params appears in the serialized string
+            if combined_input.contains("stake_params") {
+                info!("✅ 'stake_params' key found in serialized JSON");
+            } else {
+                tracing::error!("❌ 'stake_params' key NOT found in serialized JSON!");
+            }
         } else {
             info!(
-                "📋 Combined input WITHOUT swap_params (first 400 chars): {}",
+                "📋 Combined input WITHOUT swap_params or stake_params (first 400 chars): {}",
                 &combined_input[..std::cmp::min(400, combined_input.len())]
             );
         }
 
+        // Log the full JSON that will be sent to the circuit - FORCE ERROR LEVEL
+        eprintln!("🔴🔴🔴 ABOUT TO WRITE JSON TO STDIN, LENGTH: {}", combined_input.len());
+        eprintln!("🔴🔴🔴 STAKE_PARAMS.IS_SOME() = {}", stake_params.is_some());
+        
+        if stake_params.is_some() {
+            eprintln!("🔴🔴🔴 Full JSON being sent to circuit (first 500 chars): {}", &combined_input[..std::cmp::min(500, combined_input.len())]);
+            // Check if stake_params is in the JSON
+            if combined_input.contains("stake_params") {
+                eprintln!("🔴🔴🔴 'stake_params' FOUND in JSON sent to circuit");
+                // Extract the stake_params section
+                if let Some(start) = combined_input.find("\"stake_params\"") {
+                    let end = std::cmp::min(start + 150, combined_input.len());
+                    eprintln!("🔴🔴🔴 stake_params section in JSON: {}", &combined_input[start..end]);
+                }
+            } else {
+                eprintln!("🔴🔴🔴 'stake_params' NOT FOUND in JSON sent to circuit!");
+                // Log the end of the JSON to see what's there
+                let json_end = std::cmp::min(500, combined_input.len());
+                let json_start = combined_input.len().saturating_sub(json_end);
+                eprintln!("🔴🔴🔴 JSON end (last {} chars): {}", json_end, &combined_input[json_start..]);
+            }
+        } else {
+            eprintln!("🔴🔴🔴 STAKE_PARAMS IS NONE!");
+        }
+        
         let mut stdin = SP1Stdin::new();
         stdin.write(&combined_input);
+        eprintln!("🔴🔴🔴 JSON WRITTEN TO STDIN");
 
         // Execute the program to get execution metrics
         let (_, report) = client.execute(ELF, &stdin).run()?;

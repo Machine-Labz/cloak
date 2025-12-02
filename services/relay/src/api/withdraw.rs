@@ -10,6 +10,7 @@ use crate::{
     db::repository::JobRepository,
     error::Error,
     planner::calculate_fee,
+    stake::StakeConfig,
     swap::SwapConfig,
     AppState,
 };
@@ -23,6 +24,8 @@ pub struct WithdrawRequest {
     pub proof_bytes: String, // base64 encoded
     #[serde(skip_serializing_if = "Option::is_none")]
     pub swap: Option<SwapConfig>, // optional swap configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stake: Option<StakeConfig>, // optional staking configuration
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -71,6 +74,23 @@ pub async fn handle_withdraw(
             swap_config.output_mint,
             swap_config.slippage_bps
         );
+    }
+
+    // Validate stake config if present
+    if let Some(ref stake_config) = payload.stake {
+        stake_config.validate().map_err(Error::ValidationError)?;
+        info!(
+            "Staking requested: stake_account={}, validator={}",
+            stake_config.stake_account,
+            stake_config.validator_vote_account
+        );
+    }
+
+    // Ensure only one of swap or stake is specified
+    if payload.swap.is_some() && payload.stake.is_some() {
+        return Err(Error::ValidationError(
+            "Cannot specify both swap and stake configurations".to_string(),
+        ));
     }
 
     let request_id = Uuid::new_v4();
@@ -162,7 +182,7 @@ pub async fn handle_withdraw(
             / payload.public_inputs.amount
     };
 
-    // Create metadata object with outputs and optional swap config
+    // Create metadata object with outputs and optional swap/stake config
     let mut metadata = serde_json::json!({
         "outputs": payload.outputs
     });
@@ -170,6 +190,12 @@ pub async fn handle_withdraw(
     if let Some(swap_config) = &payload.swap {
         metadata["swap"] = serde_json::to_value(swap_config).map_err(|e| {
             Error::InternalServerError(format!("Failed to serialize swap config: {}", e))
+        })?;
+    }
+
+    if let Some(stake_config) = &payload.stake {
+        metadata["stake"] = serde_json::to_value(stake_config).map_err(|e| {
+            Error::InternalServerError(format!("Failed to serialize stake config: {}", e))
         })?;
     }
 
@@ -204,9 +230,15 @@ pub async fn handle_withdraw(
 }
 
 fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error> {
-    // Validate outputs
-    if request.outputs.is_empty() {
-        return Err(Error::ValidationError("No outputs specified".to_string()));
+    // For swap and stake modes, outputs can be empty
+    // For regular mode, outputs are required
+    let is_special_mode = request.swap.is_some() || request.stake.is_some();
+
+    if !is_special_mode {
+        // Regular mode: validate outputs
+        if request.outputs.is_empty() {
+            return Err(Error::ValidationError("No outputs specified".to_string()));
+        }
     }
 
     if request.outputs.len() > 10 {
@@ -215,7 +247,7 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
         ));
     }
 
-    // Validate amounts
+    // Validate amounts for non-empty outputs
     for output in &request.outputs {
         if output.amount == 0 {
             return Err(Error::ValidationError(
@@ -237,13 +269,14 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
 
     // Calculate expected fee based on mode:
     // - For swap requests, use variable-only fee (matches SPL swap economics)
-    // - For regular SOL withdrawals (no swap), use full fee (fixed + variable)
+    // - For stake requests, use full fee (fixed + variable) - same as regular withdrawals
+    // - For regular SOL withdrawals (no swap/stake), use full fee (fixed + variable)
     //   to stay consistent with the SP1 circuit and validator_agent API.
     let expected_fee = if request.swap.is_some() {
         // Swap mode: same semantics as planner::calculate_fee (variable 0.5%)
         calculate_fee(request.public_inputs.amount, decimals)
     } else {
-        // Non-swap withdrawals: fixed 0.0025 SOL + variable 0.5%
+        // Stake mode and regular withdrawals: fixed 0.0025 SOL + variable 0.5%
         // This matches zk-guest-sp1/guest/src/encoding.rs::calculate_fee
         // and services/relay/src/api/validator_agent.rs::calculate_fee.
         let fixed_fee: u64 = 2_500_000; // 0.0025 SOL in lamports
@@ -257,8 +290,25 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
     }
 
     // For swap mode, skip conservation check since outputs will be in swapped tokens, not SOL
+    // For stake mode, outputs should be empty (all goes to stake)
     // For regular mode, verify outputs + fee = amount
-    if request.swap.is_none() {
+    if request.swap.is_some() {
+        // Skip conservation check for swap mode
+    } else if request.stake.is_some() {
+        // Stake mode: outputs should be empty
+        if !request.outputs.is_empty() {
+            return Err(Error::ValidationError(
+                "Stake mode requires zero outputs".to_string(),
+            ));
+        }
+        // Verify stake_amount + fee = amount (stake_amount is implicit)
+        if expected_fee >= request.public_inputs.amount {
+            return Err(Error::ValidationError(
+                "Fee exceeds total amount in stake mode".to_string(),
+            ));
+        }
+    } else {
+        // Regular mode: verify outputs + fee = amount
         let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
         if total_output_amount + expected_fee != request.public_inputs.amount {
             return Err(Error::ValidationError(
@@ -371,6 +421,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
+            stake: None,
         };
 
         assert!(validate_request(&valid_request, 9).is_ok());
@@ -390,6 +441,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
+            stake: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -412,6 +464,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
+            stake: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -434,6 +487,7 @@ mod tests {
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
+            stake: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -456,6 +510,7 @@ mod tests {
             },
             proof_bytes: "".to_string(), // Empty base64
             swap: None,
+            stake: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());

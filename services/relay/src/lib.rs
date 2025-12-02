@@ -4,4 +4,5 @@
 //!
 
 pub mod error;
+pub mod stake;
 pub mod swap;

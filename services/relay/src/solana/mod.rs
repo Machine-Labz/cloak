@@ -179,11 +179,31 @@ impl SolanaService {
                 None
             };
 
+        // 2b. Check if stake is requested
+        let stake_config: Option<crate::stake::StakeConfig> =
+            if let Some(stake_value) = job.outputs_json.get("stake") {
+                match serde_json::from_value(stake_value.clone()) {
+                    Ok(config) => {
+                        info!("Staking requested in job {}: {:?}", job.request_id, config);
+                        Some(config)
+                    }
+                    Err(e) => {
+                        warn!("Invalid stake config in job {}: {}", job.request_id, e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
         // 3. Build and submit transaction(s)
         if let Some(swap_config) = swap_config {
             // Two-transaction flow: withdraw to relay temp account, then swap to final recipient
             self.submit_withdraw_with_swap(job, &outputs, &swap_config)
                 .await
+        } else if let Some(stake_config) = stake_config {
+            // Staking flow: withdraw to stake account
+            self.submit_withdraw_with_stake(job, &stake_config).await
         } else {
             // Single-transaction flow: just withdraw
             let transaction = self.build_withdraw_transaction(job, &outputs).await?;
@@ -613,6 +633,86 @@ impl SolanaService {
             )
         })?;
 
+        Ok(signature)
+    }
+
+    /// Submit a withdraw transaction with staking
+    async fn submit_withdraw_with_stake(
+        &self,
+        job: &Job,
+        stake_config: &crate::stake::StakeConfig,
+    ) -> Result<Signature, Error> {
+        info!(
+            "Starting withdraw+stake flow for job {}",
+            job.request_id
+        );
+
+        // Parse stake account and validator
+        let stake_account = Pubkey::try_from(stake_config.stake_account.as_str())
+            .map_err(|e| Error::ValidationError(format!("Invalid stake account: {}", e)))?;
+        let stake_authority = Pubkey::try_from(stake_config.stake_authority.as_str())
+            .map_err(|e| Error::ValidationError(format!("Invalid stake authority: {}", e)))?;
+        let validator_vote_account = Pubkey::try_from(stake_config.validator_vote_account.as_str())
+            .map_err(|e| Error::ValidationError(format!("Invalid validator vote account: {}", e)))?;
+
+        // Parse public inputs (104 bytes)
+        if job.public_inputs.len() != 104 {
+            return Err(Error::ValidationError(
+                "Public inputs must be 104 bytes".to_string(),
+            ));
+        }
+        let public_104: [u8; 104] = job.public_inputs[..104]
+            .try_into()
+            .map_err(|_| Error::ValidationError("Invalid public inputs length".to_string()))?;
+
+        // Get recent blockhash
+        let recent_blockhash = self.client.get_latest_blockhash().await?;
+
+        // Derive PDAs (native SOL pool => mint = Pubkey::default())
+        let (pool_pda, _) = transaction_builder::derive_pool_pda(&self.program_id, None);
+        let (roots_ring_pda, _) = transaction_builder::derive_roots_ring_pda(&self.program_id, None);
+        let (nullifier_shard_pda, _) =
+            transaction_builder::derive_nullifier_shard_pda(&self.program_id, None);
+        let (treasury_pda, _) = transaction_builder::derive_treasury_pda(&self.program_id, None);
+
+        // Get fee payer
+        let fee_payer = self
+            .fee_payer
+            .as_ref()
+            .ok_or_else(|| Error::ValidationError("Fee payer keypair required".to_string()))?;
+        let fee_payer_pubkey = fee_payer.pubkey();
+
+        // For staking we currently don't use PoW claims – build a plain withdraw_stake tx
+        let transaction = transaction_builder::build_withdraw_stake_transaction(
+            job.proof_bytes.clone(),
+            public_104,
+            stake_account,
+            self.program_id,
+            pool_pda,
+            roots_ring_pda,
+            nullifier_shard_pda,
+            treasury_pda,
+            fee_payer_pubkey,
+            recent_blockhash,
+            self.config.priority_micro_lamports,
+            None, // batch_hash
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        // Sign and submit
+        let mut signed_tx = transaction;
+        signed_tx.sign(&[fee_payer], recent_blockhash);
+
+        let signature = self
+            .client
+            .send_and_confirm_transaction(&signed_tx)
+            .await?;
+
+        info!("✅ Withdraw+stake transaction confirmed: {}", signature);
         Ok(signature)
     }
 

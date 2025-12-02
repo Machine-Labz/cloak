@@ -36,8 +36,9 @@ struct CircuitInputs {
     pub public: PublicInputs,
     pub outputs: Vec<Output>,
     /// Optional swap parameters for swap-mode withdrawals
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_params: Option<SwapParams>,
+    /// Optional stake parameters for stake-mode withdrawals
+    pub stake_params: Option<encoding::StakeParams>,
 }
 
 // Custom serde module for hex strings
@@ -154,6 +155,28 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
                 private.amount
             ));
         }
+    } else if inputs.stake_params.is_some() {
+        // Stake mode: verify stake constraints
+        if outputs_sum != 0 {
+            return Err(anyhow!(
+                "Stake mode requires zero outputs, got outputs_sum = {}",
+                outputs_sum
+            ));
+        }
+
+        // Compute remaining amount after fee (stake amount)
+        let stake_amount = private.amount.checked_sub(fee)
+            .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
+
+        // Verify amount conservation: stake_amount + fee = amount
+        if stake_amount + fee != private.amount {
+            return Err(anyhow!(
+                "Stake mode amount conservation failed: stake_amount ({}) + fee ({}) != deposit ({})",
+                stake_amount,
+                fee,
+                private.amount
+            ));
+        }
     } else {
         // Regular mode: verify conservation law
         let total_spent = outputs_sum + fee;
@@ -169,10 +192,14 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
 
     // Constraint 6: H(serialize(outputs)) == outputs_hash
     // For swap mode: outputs_hash = H(output_mint || recipient_ata || min_output_amount || public_amount)
+    // For stake mode: outputs_hash = H(stake_account || public_amount)
     // For regular mode: outputs_hash = H(output[0] || output[1] || ... || output[n-1])
     let computed_outputs_hash = if let Some(ref swap_params) = inputs.swap_params {
         // Swap mode: compute outputs_hash from swap parameters
         compute_swap_outputs_hash(swap_params, public.amount)
+    } else if let Some(ref stake_params) = inputs.stake_params {
+        // Stake mode: compute outputs_hash from stake parameters
+        compute_stake_outputs_hash(stake_params, public.amount)
     } else {
         // Regular mode: compute outputs_hash from outputs array
         compute_outputs_hash(outputs)
@@ -240,6 +267,7 @@ mod tests {
             },
             outputs,
             swap_params: None, // Regular mode (not swap)
+            stake_params: None, // Regular mode (not stake)
         }
     }
 

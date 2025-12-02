@@ -7,6 +7,7 @@ pub mod prepare_swap_sol;
 pub mod release_swap_funds;
 pub mod withdraw;
 pub mod withdraw_swap;
+pub mod withdraw_stake;
 
 use crate::error::ShieldPoolError;
 use pinocchio::program_error::ProgramError;
@@ -21,6 +22,7 @@ pub enum ShieldPoolInstruction {
     ReleaseSwapFunds = 6,
     ExecuteSwapViaOrca = 7,
     PrepareSwapSol = 8,
+    WithdrawStake = 9,
 }
 
 impl TryFrom<&u8> for ShieldPoolInstruction {
@@ -37,6 +39,7 @@ impl TryFrom<&u8> for ShieldPoolInstruction {
             6 => Ok(Self::ReleaseSwapFunds),
             7 => Ok(Self::ExecuteSwapViaOrca),
             8 => Ok(Self::PrepareSwapSol),
+            9 => Ok(Self::WithdrawStake),
             _ => Err(ShieldPoolError::InvalidTag.into()),
         }
     }

@@ -106,6 +106,14 @@ pub struct SwapParams {
     pub min_output_amount: u64,
 }
 
+/// Staking-specific parameters for computing outputs_hash in stake mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StakeParams {
+    /// Stake account address (where SOL will be staked)
+    #[serde(with = "address_serde")]
+    pub stake_account: [u8; 32],
+}
+
 /// Compute swap-mode outputs hash: H(output_mint || recipient_ata || min_output_amount || public_amount)
 /// This is used for swap withdrawals where we withdraw SOL and swap it for another token
 pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -> [u8; 32] {
@@ -113,6 +121,15 @@ pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -
     hasher.update(&swap_params.output_mint);
     hasher.update(&swap_params.recipient_ata);
     hasher.update(&serialize_u64_le(swap_params.min_output_amount));
+    hasher.update(&serialize_u64_le(public_amount));
+    *hasher.finalize().as_bytes()
+}
+
+/// Compute stake-mode outputs hash: H(stake_account || public_amount)
+/// This is used for staking withdrawals where we withdraw SOL to a stake account
+pub fn compute_stake_outputs_hash(stake_params: &StakeParams, public_amount: u64) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(&stake_params.stake_account);
     hasher.update(&serialize_u64_le(public_amount));
     *hasher.finalize().as_bytes()
 }

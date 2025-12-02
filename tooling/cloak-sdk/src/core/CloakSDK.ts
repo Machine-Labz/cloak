@@ -14,6 +14,9 @@ import {
   TransferOptions,
   TransferResult,
   WithdrawOptions,
+  StakeConfig,
+  StakeOptions,
+  StakeResult,
   MerkleProof,
   SP1ProofInputs,
   Network,
@@ -38,6 +41,7 @@ import {
 import {
   computeNullifier,
   computeOutputsHash,
+  computeStakeOutputsHash,
   hexToBytes,
   bytesToHex,
   isValidHex,
@@ -658,6 +662,223 @@ export class CloakSDK {
       [{ recipient, amount }],
       options
     );
+  }
+
+  /**
+   * Private stake - stake SOL privately to a validator
+   *
+   * Handles the complete private staking flow:
+   * 1. If note is not deposited, deposits it first and waits for confirmation
+   * 2. Generates a zero-knowledge proof with stake parameters
+   * 3. Submits the withdrawal via relay service to stake account
+   *
+   * @param connection - Solana connection (required for deposit if not already deposited)
+   * @param note - Note to spend (can be deposited or not)
+   * @param stakeConfig - Staking configuration (stake account, authority, validator)
+   * @param options - Optional configuration
+   * @returns Stake result with signature and stake account info
+   *
+   * @example
+   * ```typescript
+   * // Create a note (not deposited yet)
+   * const note = client.generateNote(10_000_000_000); // 10 SOL
+   *
+   * // privateStake handles the full flow: deposit + stake
+   * const result = await client.privateStake(
+   *   connection,
+   *   wallet,
+   *   note,
+   *   {
+   *     stakeAccount: new PublicKey("..."),
+   *     stakeAuthority: new PublicKey("..."),
+   *     validatorVoteAccount: new PublicKey("...")
+   *   },
+   *   {
+   *     onProgress: (status) => console.log(status),
+   *     onProofProgress: (pct) => console.log(`Proof: ${pct}%`)
+   *   }
+   * );
+   * console.log(`Success! TX: ${result.signature}`);
+   * console.log(`Staked ${result.stakeAmount} lamports to ${result.validatorVoteAccount}`);
+   * ```
+   */
+  async privateStake(
+    connection: Connection,
+    note: CloakNote,
+    stakeConfig: StakeConfig,
+    options?: StakeOptions
+  ): Promise<StakeResult> {
+    // Check if note needs to be deposited first
+    if (!isWithdrawable(note)) {
+      options?.onProgress?.("Note not deposited yet - depositing first...");
+
+      // Deposit the note (pass the existing note to preserve its commitment)
+      const depositResult = await this.deposit(connection, note, {
+        onProgress: options?.onProgress,
+        skipPreflight: false,
+      });
+
+      // Use the deposited note for withdrawal
+      note = depositResult.note;
+
+      options?.onProgress?.("Deposit complete - proceeding with private staking...");
+    }
+
+    // Calculate the actual protocol fee and convert to basis points
+    const protocolFee = note.amount - getDistributableAmount(note.amount);
+    const feeBps = Math.ceil((protocolFee * 10_000) / note.amount);
+
+    // Calculate stake amount (after fees)
+    const stakeAmount = getDistributableAmount(note.amount);
+
+    options?.onProgress?.("Fetching Merkle proof...");
+
+    // Use historical Merkle proof from note if available
+    let merkleProof: MerkleProof;
+    let merkleRoot: string;
+    
+    if (note.merkleProof && note.root) {
+      merkleProof = {
+        pathElements: note.merkleProof.pathElements,
+        pathIndices: note.merkleProof.pathIndices,
+      };
+      merkleRoot = note.root;
+    } else {
+      // Fallback: fetch current proof
+      merkleProof = await this.indexer.getMerkleProof(note.leafIndex!);
+      merkleRoot = merkleProof.root || (await this.indexer.getMerkleRoot()).root;
+    }
+
+    options?.onProgress?.("Computing cryptographic values...");
+
+    // Compute nullifier
+    const skSpendBytes = hexToBytes(note.sk_spend);
+    const nullifierBytes = computeNullifier(skSpendBytes, note.leafIndex!);
+    const nullifierHex = bytesToHex(nullifierBytes);
+
+    // Compute stake outputs hash: H(stake_account || public_amount)
+    const stakeOutputsHashBytes = computeStakeOutputsHash(stakeConfig.stakeAccount, note.amount);
+    const stakeOutputsHashHex = bytesToHex(stakeOutputsHashBytes);
+
+    options?.onProgress?.("Generating zero-knowledge proof...");
+
+    // Validate required fields
+    if (!note.leafIndex && note.leafIndex !== 0) {
+      throw new Error("Note must have a leaf index (note must be deposited)");
+    }
+    if (!merkleProof.pathElements || merkleProof.pathElements.length === 0) {
+      throw new Error("Merkle proof is invalid: missing path elements");
+    }
+    if (merkleProof.pathElements.length !== merkleProof.pathIndices.length) {
+      throw new Error("Merkle proof is invalid: path elements and indices length mismatch");
+    }
+    
+    // Validate Merkle path indices are binary (0 or 1 only)
+    for (let i = 0; i < merkleProof.pathIndices.length; i++) {
+      const idx = merkleProof.pathIndices[i];
+      if (idx !== 0 && idx !== 1) {
+        throw new Error(`Merkle proof path index at position ${i} must be 0 or 1, got ${idx}`);
+      }
+    }
+    
+    // Validate hex strings format
+    if (!isValidHex(note.r, 32)) {
+      throw new Error("Note r must be 64 hex characters (32 bytes)");
+    }
+    if (!isValidHex(note.sk_spend, 32)) {
+      throw new Error("Note sk_spend must be 64 hex characters (32 bytes)");
+    }
+    if (!isValidHex(merkleRoot, 32)) {
+      throw new Error("Merkle root must be 64 hex characters (32 bytes)");
+    }
+    
+    // Validate Merkle path elements are hex strings
+    for (let i = 0; i < merkleProof.pathElements.length; i++) {
+      const element = merkleProof.pathElements[i];
+      if (typeof element !== "string" || !isValidHex(element, 32)) {
+        throw new Error(`Merkle proof path element at position ${i} must be 64 hex characters (32 bytes)`);
+      }
+    }
+
+    // Prepare proof inputs with stake parameters
+    const proofInputs: SP1ProofInputs = {
+      privateInputs: {
+        amount: note.amount,
+        r: note.r,
+        sk_spend: note.sk_spend,
+        leaf_index: note.leafIndex!,
+        merkle_path: {
+          path_elements: merkleProof.pathElements,
+          path_indices: merkleProof.pathIndices,
+        },
+      },
+      publicInputs: {
+        root: merkleRoot,
+        nf: nullifierHex,
+        outputs_hash: stakeOutputsHashHex,
+        amount: note.amount,
+      },
+      outputs: [], // Empty outputs for staking mode
+      stake_params: {
+        stake_account: stakeConfig.stakeAccount.toBase58(),
+      },
+    };
+
+    // Generate proof
+    const proofResult = await this.prover.generateProof(proofInputs, {
+      onProgress: options?.onProofProgress,
+      onStart: () => options?.onProgress?.("Starting proof generation..."),
+      onSuccess: () => options?.onProgress?.("Proof generated successfully"),
+      onError: (error) => {
+        console.error("[CloakSDK] Proof generation error:", error);
+        options?.onProgress?.(`Proof generation error: ${error}`);
+      },
+    });
+
+    if (!proofResult.success || !proofResult.proof || !proofResult.publicInputs) {
+      let errorMessage = proofResult.error || "Proof generation failed";
+      
+      if (errorMessage.startsWith("Proof generation failed: ")) {
+        errorMessage = errorMessage.substring("Proof generation failed: ".length);
+      }
+      
+      errorMessage += `\nNote details: leafIndex=${note.leafIndex}, root=${merkleRoot.slice(0, 16)}..., nullifier=${nullifierHex.slice(0, 16)}...`;
+      
+      throw new Error(errorMessage);
+    }
+
+    options?.onProgress?.("Submitting to relay service...");
+
+    // Submit via relay
+    const signature = await this.relay.submitStake(
+      {
+        proof: proofResult.proof,
+        publicInputs: {
+          root: merkleRoot,
+          nf: nullifierHex,
+          outputs_hash: stakeOutputsHashHex,
+          amount: note.amount,
+        },
+        stakeConfig: {
+          stakeAccount: stakeConfig.stakeAccount.toBase58(),
+          stakeAuthority: stakeConfig.stakeAuthority.toBase58(),
+          validatorVoteAccount: stakeConfig.validatorVoteAccount.toBase58(),
+        },
+        feeBps: feeBps,
+      },
+      options?.onProgress
+    );
+
+    options?.onProgress?.("Staking complete!");
+
+    return {
+      signature,
+      stakeAccount: stakeConfig.stakeAccount.toBase58(),
+      validatorVoteAccount: stakeConfig.validatorVoteAccount.toBase58(),
+      stakeAmount: stakeAmount,
+      nullifier: nullifierHex,
+      root: merkleRoot,
+    };
   }
 
   /**

@@ -102,6 +102,35 @@ export function computeOutputsHash(
 }
 
 /**
+ * Compute stake outputs hash for staking mode
+ *
+ * Formula: Blake3(stake_account || public_amount)
+ *
+ * @param stakeAccount - Stake account public key
+ * @param publicAmount - Public amount (u64)
+ * @returns Stake outputs hash (32 bytes)
+ */
+export function computeStakeOutputsHash(
+  stakeAccount: PublicKey,
+  publicAmount: number
+): Uint8Array {
+  // Stake account public key (32 bytes)
+  const stakeAccountBytes = stakeAccount.toBytes();
+
+  // Amount as little-endian u64 (8 bytes)
+  const amountBytes = new Uint8Array(8);
+  new DataView(amountBytes.buffer).setBigUint64(0, BigInt(publicAmount), true);
+
+  // Concatenate: stake_account (32) + amount (8) = 40 bytes
+  const combined = new Uint8Array(40);
+  combined.set(stakeAccountBytes, 0);
+  combined.set(amountBytes, 32);
+
+  // Hash to get stake outputs hash
+  return blake3(combined);
+}
+
+/**
  * Convert hex string to Uint8Array
  *
  * @param hex - Hex string (with or without 0x prefix)
