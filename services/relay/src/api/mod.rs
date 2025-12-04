@@ -55,9 +55,10 @@ pub async fn health_check() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use axum::http::StatusCode;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_api_response_success() {

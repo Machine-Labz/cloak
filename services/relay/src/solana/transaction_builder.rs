@@ -10,8 +10,7 @@ use solana_sdk::{
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 
-use crate::error::Error;
-use crate::planner::Output;
+use crate::{error::Error, planner::Output};
 
 const PUBLIC_INPUTS_LEN: usize = 104;
 const DUPLICATE_NULLIFIER_LEN: usize = 32;
@@ -33,7 +32,9 @@ pub fn build_withdraw_ix_body(
 
     let num_outputs = outputs.len();
     if num_outputs == 0 || num_outputs > 10 {
-        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+        return Err(Error::ValidationError(
+            "Number of outputs must be between 1 and 10".into(),
+        ));
     }
 
     let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -71,7 +72,9 @@ pub fn build_withdraw_ix_body_with_pow(
 
     let num_outputs = outputs.len();
     if num_outputs == 0 || num_outputs > 10 {
-        return Err(Error::ValidationError("Number of outputs must be between 1 and 10".into()));
+        return Err(Error::ValidationError(
+            "Number of outputs must be between 1 and 10".into(),
+        ));
     }
 
     let per_output_len = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -112,16 +115,16 @@ pub fn build_withdraw_instruction(
     data.extend_from_slice(body);
 
     let mut accounts = Vec::with_capacity(5 + recipients.len());
-    accounts.push(AccountMeta::new(pool_pda, false));                      // pool (writable)
-    accounts.push(AccountMeta::new(treasury, false));                      // treasury (writable)
-    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false));       // roots ring (readonly)
-    accounts.push(AccountMeta::new(nullifier_shard_pda, false));           // nullifier shard (writable)
-    
+    accounts.push(AccountMeta::new(pool_pda, false)); // pool (writable)
+    accounts.push(AccountMeta::new(treasury, false)); // treasury (writable)
+    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false)); // roots ring (readonly)
+    accounts.push(AccountMeta::new(nullifier_shard_pda, false)); // nullifier shard (writable)
+
     // Add all recipient accounts
     for recipient in recipients {
         accounts.push(AccountMeta::new(*recipient, false));
     }
-    
+
     // Add system program at the end
     accounts.push(AccountMeta::new_readonly(system_program::id(), false));
 
@@ -225,8 +228,7 @@ pub fn derive_scramble_registry_pdas(
     slot: u64,
 ) -> (Pubkey, Pubkey, Pubkey) {
     // Registry PDA: ["registry"]
-    let (registry_pda, _) =
-        Pubkey::find_program_address(&[b"registry"], registry_program_id);
+    let (registry_pda, _) = Pubkey::find_program_address(&[b"registry"], registry_program_id);
 
     // Miner PDA: ["miner", authority]
     let (miner_pda, _) =
@@ -261,11 +263,7 @@ pub fn build_withdraw_transaction(
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
 ) -> Result<Transaction, Error> {
-    let body = build_withdraw_ix_body(
-        proof_bytes.as_slice(),
-        &public_104,
-        outputs,
-    )?;
+    let body = build_withdraw_ix_body(proof_bytes.as_slice(), &public_104, outputs)?;
     let withdraw_ix = build_withdraw_instruction(
         program_id,
         &body,
@@ -310,12 +308,8 @@ pub fn build_withdraw_transaction_with_pow(
     recent_blockhash: Hash,
     priority_micro_lamports: u64,
 ) -> Result<Transaction, Error> {
-    let body = build_withdraw_ix_body_with_pow(
-        proof_bytes.as_slice(),
-        &public_104,
-        outputs,
-        &batch_hash,
-    )?;
+    let body =
+        build_withdraw_ix_body_with_pow(proof_bytes.as_slice(), &public_104, outputs, &batch_hash)?;
     let withdraw_ix = build_withdraw_instruction_with_pow(
         program_id,
         &body,
@@ -579,8 +573,9 @@ pub fn build_withdraw_instruction_legacy(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use solana_sdk::{pubkey::Pubkey, system_program};
+
+    use super::*;
 
     #[test]
     fn test_withdraw_body_layout() {
@@ -600,8 +595,7 @@ mod tests {
             address: recip,
             amount: out_amt,
         }];
-        let body =
-            build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
+        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
         let expected_len = PROOF_LEN
             + PUBLIC_INPUTS_LEN
             + DUPLICATE_NULLIFIER_LEN

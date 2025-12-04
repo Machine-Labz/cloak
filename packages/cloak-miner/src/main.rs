@@ -17,11 +17,21 @@
 //!   cloak-miner --network devnet --keypair <PATH> register
 //!   cloak-miner --network devnet --keypair <PATH> status
 
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cloak_miner::{
-    build_register_miner_ix, constants::Network, derive_miner_pda, derive_registry_pda,
-    fetch_registry, ClaimManager,
+    build_register_miner_with_escrow_ix, constants::Network, derive_miner_escrow_pda,
+    derive_miner_pda, derive_registry_pda, fetch_registry, ClaimManager, DecoyManager, DecoyNote,
+    DecoyResult, NoteStorage,
 };
 use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
@@ -31,13 +41,9 @@ use solana_sdk::{
     signature::{read_keypair_file, Keypair, Signer},
     transaction::Transaction,
 };
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
-const DEFAULT_RELAY_URL: &str = 
+const DEFAULT_RELAY_URL: &str =
     // "https://api.cloaklabz.xyz";
     "http://localhost:3002";
 
@@ -72,7 +78,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Register as a new miner (one-time setup)
-    Register,
+    Register {
+        /// Initial escrow amount in SOL (for decoy operations)
+        #[arg(long, default_value = "0")]
+        initial_escrow: f64,
+    },
 
     /// Start mining claims continuously
     Mine {
@@ -91,6 +101,30 @@ enum Commands {
 
     /// Check miner status and active claims
     Status,
+
+    /// Decoy operations for privacy
+    #[command(subcommand)]
+    Decoy(DecoyCommands),
+}
+
+#[derive(Subcommand)]
+enum DecoyCommands {
+    /// Create a decoy deposit (generates note and deposits to shield-pool)
+    Deposit {
+        /// Amount to deposit in SOL
+        #[arg(long)]
+        amount: f64,
+    },
+
+    /// Show decoy note storage status
+    Status,
+
+    /// Top up miner escrow with SOL
+    TopUp {
+        /// Amount to add to escrow in SOL
+        #[arg(long)]
+        amount: f64,
+    },
 }
 
 #[tokio::main]
@@ -128,7 +162,9 @@ async fn main() -> Result<()> {
     info!("Program ID: {}", program_id);
 
     match cli.command {
-        Commands::Register => register_miner(&rpc_url, &program_id, keypair).await,
+        Commands::Register { initial_escrow } => {
+            register_miner(&rpc_url, &program_id, keypair, initial_escrow).await
+        }
         Commands::Mine {
             timeout,
             interval,
@@ -145,6 +181,15 @@ async fn main() -> Result<()> {
             .await
         }
         Commands::Status => check_status(&rpc_url, &program_id, keypair).await,
+        Commands::Decoy(decoy_cmd) => match decoy_cmd {
+            DecoyCommands::Deposit { amount } => {
+                decoy_deposit(&rpc_url, &program_id, keypair, amount).await
+            }
+            DecoyCommands::Status => decoy_status(&rpc_url, &program_id, keypair).await,
+            DecoyCommands::TopUp { amount } => {
+                decoy_top_up(&rpc_url, &program_id, keypair, amount).await
+            }
+        },
     }
 }
 
@@ -153,6 +198,7 @@ async fn register_miner(
     rpc_url: &str,
     program_id: &solana_sdk::pubkey::Pubkey,
     keypair: Keypair,
+    initial_escrow_sol: f64,
 ) -> Result<()> {
     info!("Registering miner...");
 
@@ -160,16 +206,27 @@ async fn register_miner(
 
     // Check if already registered
     let (miner_pda, _) = derive_miner_pda(program_id, &keypair.pubkey());
+    let (escrow_pda, _) = derive_miner_escrow_pda(program_id, &keypair.pubkey());
 
     if let Ok(account) = client.get_account(&miner_pda) {
-        if account.data.len() > 0 {
+        if !account.data.is_empty() {
             info!("✓ Miner already registered: {}", miner_pda);
+            info!("  Escrow PDA: {}", escrow_pda);
             return Ok(());
         }
     }
 
-    // Build and submit registration transaction
-    let register_ix = build_register_miner_ix(program_id, &miner_pda, &keypair.pubkey());
+    // Convert SOL to lamports
+    let initial_escrow_lamports = (initial_escrow_sol * LAMPORTS_PER_SOL as f64) as u64;
+
+    // Build and submit registration transaction with escrow
+    let register_ix = build_register_miner_with_escrow_ix(
+        program_id,
+        &miner_pda,
+        &escrow_pda,
+        &keypair.pubkey(),
+        initial_escrow_lamports,
+    );
 
     let recent_blockhash = client.get_latest_blockhash()?;
     let tx = Transaction::new_signed_with_payer(
@@ -185,6 +242,13 @@ async fn register_miner(
 
     info!("✓ Miner registered successfully!");
     info!("  Miner PDA: {}", miner_pda);
+    info!("  Escrow PDA: {}", escrow_pda);
+    if initial_escrow_lamports > 0 {
+        info!(
+            "  Initial escrow: {} SOL",
+            initial_escrow_lamports as f64 / LAMPORTS_PER_SOL as f64
+        );
+    }
     info!("  Signature: {}", signature);
 
     Ok(())
@@ -270,13 +334,19 @@ async fn check_relay_demand(relay_url: &str) -> Result<(bool, usize)> {
     match reqwest::get(&url).await {
         Ok(response) => {
             let status = response.status();
-            let response_text = response.text().await.unwrap_or_else(|_| String::from("<failed to read response>"));
-            
+            let response_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::from("<failed to read response>"));
+
             if !status.is_success() {
-                warn!("Relay returned non-success status {}: {}", status, response_text);
+                warn!(
+                    "Relay returned non-success status {}: {}",
+                    status, response_text
+                );
                 return Ok((true, 0)); // Assume demand to avoid blocking mining
             }
-            
+
             match serde_json::from_str::<BacklogResponse>(&response_text) {
                 Ok(backlog) => {
                     let has_demand = backlog.pending_count > 0;
@@ -284,7 +354,10 @@ async fn check_relay_demand(relay_url: &str) -> Result<(bool, usize)> {
                 }
                 Err(e) => {
                     warn!("Failed to parse backlog response from {}: {}", url, e);
-                    warn!("Response body (first 200 chars): {}", &response_text.chars().take(200).collect::<String>());
+                    warn!(
+                        "Response body (first 200 chars): {}",
+                        &response_text.chars().take(200).collect::<String>()
+                    );
                     Ok((true, 0)) // Assume demand to avoid blocking mining
                 }
             }
@@ -297,6 +370,10 @@ async fn check_relay_demand(relay_url: &str) -> Result<(bool, usize)> {
     }
 }
 
+/// Minimum escrow balance required to continue mining (in lamports)
+/// Below this threshold, miner should stop and re-register with new address
+const MIN_ESCROW_BALANCE: u64 = 50_000_000; // 0.05 SOL
+
 /// Mine claims continuously
 async fn mine_continuously(
     rpc_url: &str,
@@ -307,37 +384,81 @@ async fn mine_continuously(
     target_claims: usize,
 ) -> Result<()> {
     let miner_pubkey = keypair.pubkey();
-    
-    // Get relay URL from env or use default
-    let relay_url = std::env::var("RELAY_URL")
-        .unwrap_or_else(|_| DEFAULT_RELAY_URL.to_string());
 
-    println!("Cloak Miner Starting");
-    println!("Miner: {}", miner_pubkey);
-    println!("Timeout: {}s per attempt", timeout_secs);
-    println!("Interval: {}s between attempts", interval_secs);
-    println!("Target claims: {}", target_claims);
+    // Get relay URL from env or use default
+    let relay_url = std::env::var("RELAY_URL").unwrap_or_else(|_| DEFAULT_RELAY_URL.to_string());
+
+    println!("╔══════════════════════════════════════════════════════════╗");
+    println!("║              🎭 CLOAK MINER STARTING 🎭                   ║");
+    println!("╠══════════════════════════════════════════════════════════╣");
+    println!(
+        "║ Miner: {}...{}",
+        &miner_pubkey.to_string()[..8],
+        &miner_pubkey.to_string()[36..]
+    );
+    println!(
+        "║ Timeout: {}s | Interval: {}s | Target Claims: {}",
+        timeout_secs, interval_secs, target_claims
+    );
+    println!("║ Decoy Mode: ALWAYS ON (privacy by default)               ║");
+    println!("╚══════════════════════════════════════════════════════════╝");
 
     // Set up signal handler for graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
-        println!("Received shutdown signal, stopping miner...");
+        println!("\n⚠️  Received shutdown signal, stopping miner...");
         r.store(false, Ordering::SeqCst);
     })
     .context("Failed to set Ctrl-C handler")?;
 
-    // Initialize claim manager
+    // Initialize claim manager (needs a clone of keypair)
+    let keypair_bytes = keypair.to_bytes();
+    let keypair_for_claims: Keypair = keypair_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("Failed to clone keypair: {:?}", e))?;
+
     let mut manager = ClaimManager::new(
         rpc_url.to_string(),
-        keypair,
+        keypair_for_claims,
         &program_id.to_string(),
         timeout_secs,
     )
     .context("Failed to initialize ClaimManager")?;
 
-    println!("ClaimManager initialized");
-    println!("Continuous mining mode enabled\n");
+    // Initialize decoy manager (ALWAYS enabled - mandatory for privacy)
+    let keypair_for_decoy: Keypair = keypair_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("Failed to clone keypair: {:?}", e))?;
+
+    let mut decoy_manager = DecoyManager::new(rpc_url, keypair_for_decoy, program_id)
+        .context("Failed to initialize DecoyManager")?;
+
+    println!("\n📊 Initial Decoy Status:");
+    decoy_manager.print_status();
+
+    // Check initial escrow balance
+    let initial_escrow = decoy_manager.get_escrow_balance_pub().unwrap_or(0);
+    if initial_escrow < MIN_ESCROW_BALANCE {
+        error!("╔══════════════════════════════════════════════════════════╗");
+        error!("║           ⛔ INSUFFICIENT ESCROW BALANCE ⛔               ║");
+        error!("╠══════════════════════════════════════════════════════════╣");
+        error!(
+            "║ Current: {:.4} SOL | Required: {:.4} SOL",
+            initial_escrow as f64 / LAMPORTS_PER_SOL as f64,
+            MIN_ESCROW_BALANCE as f64 / LAMPORTS_PER_SOL as f64
+        );
+        error!("║                                                          ║");
+        error!("║ To mine, you must register with escrow funds:            ║");
+        error!("║   cloak-miner register --initial-escrow 1.0              ║");
+        error!("╚══════════════════════════════════════════════════════════╝");
+        return Ok(());
+    }
+
+    println!("\n✅ ClaimManager initialized");
+    println!("🎭 Decoy system active - all transactions create privacy noise\n");
 
     // Initialize miner statistics
     let stats = Arc::new(MinerStats::new());
@@ -360,14 +481,17 @@ async fn mine_continuously(
 
     // Check initial miner balance
     let min_sol_required = 0.01; // Minimum SOL needed for transactions
-    
+
     match client.get_balance(&miner_pubkey) {
         Ok(balance) => {
             let sol_balance = balance as f64 / LAMPORTS_PER_SOL as f64;
             println!("Initial SOL balance: {:.4} SOL", sol_balance);
-            
+
             if sol_balance < min_sol_required {
-                error!("Insufficient SOL balance: {:.4} SOL (minimum required: {:.4} SOL)", sol_balance, min_sol_required);
+                error!(
+                    "Insufficient SOL balance: {:.4} SOL (minimum required: {:.4} SOL)",
+                    sol_balance, min_sol_required
+                );
                 error!("Miner needs funding before it can submit transactions.");
                 error!("Exiting to avoid transaction failures.");
                 return Ok(());
@@ -402,17 +526,24 @@ async fn mine_continuously(
 
         // Check for relay demand
         let min_buffer = 2; // Always keep at least 2 claims ready for incoming requests
-        let (has_demand, pending_count) = match check_relay_demand(&relay_url).await.unwrap_or((true, 0)) {
-            (demand, count) => {
-                info!("📊 Relay check: {} pending jobs, has_demand={}", count, demand);
-                (demand, count)
-            }
-        };
+        let (has_demand, pending_count) =
+            match check_relay_demand(&relay_url).await.unwrap_or((true, 0)) {
+                (demand, count) => {
+                    info!(
+                        "📊 Relay check: {} pending jobs, has_demand={}",
+                        count, demand
+                    );
+                    (demand, count)
+                }
+            };
 
         // If we have enough claims, wait before checking again
         if current_claims >= target_claims {
             if has_demand {
-                println!("📦 {} pending withdrawals, but sufficient claims available", pending_count);
+                println!(
+                    "📦 {} pending withdrawals, but sufficient claims available",
+                    pending_count
+                );
             }
             println!("Waiting {}s before next check...\n", interval_secs);
             if running.load(Ordering::SeqCst) {
@@ -420,17 +551,29 @@ async fn mine_continuously(
             }
             continue;
         }
-        
+
         // Decision logic with clear reasoning
         if !has_demand && current_claims >= min_buffer {
-            println!("⚡ No demand detected ({} pending) and buffer sufficient ({} claims)", pending_count, current_claims);
-            println!("Skipping mining to avoid waste. Waiting {}s...\n", interval_secs);
+            println!(
+                "⚡ No demand detected ({} pending) and buffer sufficient ({} claims)",
+                pending_count, current_claims
+            );
+            println!(
+                "Skipping mining to avoid waste. Waiting {}s...\n",
+                interval_secs
+            );
             tokio::time::sleep(Duration::from_secs(interval_secs)).await;
             continue;
         } else if has_demand {
-            println!("📦 Mining triggered by demand: {} pending withdrawals", pending_count);
+            println!(
+                "📦 Mining triggered by demand: {} pending withdrawals",
+                pending_count
+            );
         } else {
-            println!("🔄 Mining to maintain minimum buffer: {} claims < {} buffer", current_claims, min_buffer);
+            println!(
+                "🔄 Mining to maintain minimum buffer: {} claims < {} buffer",
+                current_claims, min_buffer
+            );
         }
 
         // Mine new claims to reach target
@@ -473,6 +616,50 @@ async fn mine_continuously(
             }
         }
 
+        // Execute automatic decoy transaction
+        // Get current slot for rate limiting
+        let current_slot = client.get_slot().unwrap_or(0);
+
+        match decoy_manager.maybe_execute_decoy(current_slot).await {
+            DecoyResult::Deposited { amount, commitment } => {
+                info!(
+                    "🎭 Decoy deposit: {:.4} SOL (commitment: {}...)",
+                    amount as f64 / LAMPORTS_PER_SOL as f64,
+                    hex::encode(&commitment[0..8])
+                );
+            }
+            DecoyResult::Skipped(reason) => {
+                debug!("Decoy skipped: {}", reason);
+            }
+            DecoyResult::Failed(err) => {
+                warn!("Decoy failed: {}", err);
+            }
+        }
+
+        // Check if escrow is depleted - miner must re-register with new address
+        let current_escrow = decoy_manager.get_escrow_balance_pub().unwrap_or(0);
+        if current_escrow < MIN_ESCROW_BALANCE {
+            println!();
+            error!("╔══════════════════════════════════════════════════════════╗");
+            error!("║           💀 ESCROW DEPLETED - MINER RETIRING 💀          ║");
+            error!("╠══════════════════════════════════════════════════════════╣");
+            error!("║ Your miner escrow has been depleted through decoy        ║");
+            error!("║ transactions. This is normal and expected behavior.      ║");
+            error!("║                                                          ║");
+            error!("║ To continue mining, create a NEW miner with fresh funds: ║");
+            error!("║                                                          ║");
+            error!("║   1. Generate new keypair: solana-keygen new -o new.json ║");
+            error!("║   2. Fund the new wallet                                 ║");
+            error!("║   3. Register: cloak-miner -k new.json register \\        ║");
+            error!("║                  --initial-escrow 1.0                    ║");
+            error!("║   4. Start mining: cloak-miner -k new.json mine          ║");
+            error!("║                                                          ║");
+            error!("║ Using a new address improves privacy by making it        ║");
+            error!("║ harder to track which addresses belong to miners.        ║");
+            error!("╚══════════════════════════════════════════════════════════╝");
+            break;
+        }
+
         // Wait before next mining round
         if running.load(Ordering::SeqCst) {
             println!("Waiting {}s before next mining round...\n", interval_secs);
@@ -480,8 +667,9 @@ async fn mine_continuously(
         }
     }
 
-    println!("Miner stopped gracefully");
+    println!("\n🛑 Miner stopped");
     stats.print_summary();
+    decoy_manager.print_status();
     Ok(())
 }
 
@@ -528,8 +716,230 @@ async fn check_status(
         }
     }
 
+    // Check escrow balance
+    let (escrow_pda, _) = derive_miner_escrow_pda(program_id, &keypair.pubkey());
+    match client.get_balance(&escrow_pda) {
+        Ok(balance) => {
+            info!("\n✓ Escrow status:");
+            info!("  PDA: {}", escrow_pda);
+            info!(
+                "  Balance: {} SOL",
+                balance as f64 / LAMPORTS_PER_SOL as f64
+            );
+        }
+        Err(_) => {
+            info!("\n✗ Escrow not found (register with --initial-escrow to create)");
+        }
+    }
+
     // TODO: Query and display active claims for this miner
     info!("\nNote: Active claim enumeration not yet implemented");
+
+    Ok(())
+}
+
+// ============================================================================
+// DECOY OPERATIONS
+// ============================================================================
+
+/// Get the path to the note storage file
+fn get_note_storage_path(miner_pubkey: &solana_sdk::pubkey::Pubkey) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".cloak-miner")
+        .join(format!("notes-{}.json", miner_pubkey))
+}
+
+/// Decoy deposit - generate note and deposit to shield-pool
+async fn decoy_deposit(
+    rpc_url: &str,
+    _program_id: &solana_sdk::pubkey::Pubkey, // Reserved for future use
+    keypair: Keypair,
+    amount_sol: f64,
+) -> Result<()> {
+    use cloak_miner::build_deposit_ix;
+
+    info!("Creating decoy deposit...");
+
+    let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let amount_lamports = (amount_sol * LAMPORTS_PER_SOL as f64) as u64;
+
+    // Load or create note storage
+    let storage_path = get_note_storage_path(&keypair.pubkey());
+    let mut storage =
+        NoteStorage::load_or_create(storage_path.clone()).context("Failed to load note storage")?;
+
+    // Generate new note
+    let note = DecoyNote::generate(amount_lamports);
+    info!("Generated note:");
+    info!("  Commitment: {}", hex::encode(note.commitment));
+    info!("  Amount: {} SOL", amount_sol);
+
+    // Get shield-pool PDAs (these are typically initialized accounts)
+    // For now, we'll use hardcoded PDAs - in production these should be derived/configured
+    let shield_pool_program_id: solana_sdk::pubkey::Pubkey =
+        "c1oak6tetxYnNfvXKFkpn1d98FxtK7B68vBQLYQpWKp".parse()?;
+
+    // Derive pool and commitments PDAs
+    let (pool_pda, _) =
+        solana_sdk::pubkey::Pubkey::find_program_address(&[b"pool"], &shield_pool_program_id);
+    let (commitments_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[b"commitments"],
+        &shield_pool_program_id,
+    );
+
+    // Build deposit instruction
+    let deposit_ix = build_deposit_ix(
+        &keypair.pubkey(),
+        &pool_pda,
+        &commitments_pda,
+        amount_lamports,
+        note.commitment,
+    )?;
+
+    // Submit transaction
+    let recent_blockhash = client.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[deposit_ix],
+        Some(&keypair.pubkey()),
+        &[&keypair],
+        recent_blockhash,
+    );
+
+    let signature = client
+        .send_and_confirm_transaction(&tx)
+        .context("Failed to submit deposit transaction")?;
+
+    info!("✓ Deposit submitted!");
+    info!("  Signature: {}", signature);
+
+    // Save note to storage
+    let mut note = note;
+    note.deposit_signature = Some(signature.to_string());
+    storage.add_note(note)?;
+
+    info!("✓ Note saved to {}", storage_path.display());
+    info!("\nNote: The leaf_index will be set after indexer processes the deposit.");
+    info!("Run 'cloak-miner decoy status' to check pending notes.");
+
+    Ok(())
+}
+
+/// Decoy status - show note storage info
+async fn decoy_status(
+    rpc_url: &str,
+    program_id: &solana_sdk::pubkey::Pubkey,
+    keypair: Keypair,
+) -> Result<()> {
+    info!("Decoy note status...");
+
+    // Load note storage
+    let storage_path = get_note_storage_path(&keypair.pubkey());
+    let storage =
+        NoteStorage::load_or_create(storage_path.clone()).context("Failed to load note storage")?;
+
+    info!("Storage file: {}", storage_path.display());
+    info!("Total notes: {}", storage.count());
+    info!("Unspent notes: {}", storage.unspent_count());
+    info!(
+        "Total deposited: {} SOL",
+        storage.get_total_deposited() as f64 / LAMPORTS_PER_SOL as f64
+    );
+
+    let pending = storage.get_pending_notes();
+    if !pending.is_empty() {
+        info!("\nPending deposits (awaiting leaf_index):");
+        for note in pending {
+            info!(
+                "  - {} SOL (commitment: {}...)",
+                note.amount as f64 / LAMPORTS_PER_SOL as f64,
+                &hex::encode(note.commitment)[0..16]
+            );
+        }
+    }
+
+    let withdrawable = storage.get_withdrawable_notes();
+    if !withdrawable.is_empty() {
+        info!("\nWithdrawable notes:");
+        for note in withdrawable {
+            info!(
+                "  - {} SOL (leaf: {}, commitment: {}...)",
+                note.amount as f64 / LAMPORTS_PER_SOL as f64,
+                note.leaf_index.unwrap(),
+                &hex::encode(note.commitment)[0..16]
+            );
+        }
+    }
+
+    // Show escrow balance
+    let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let (escrow_pda, _) = derive_miner_escrow_pda(program_id, &keypair.pubkey());
+
+    match client.get_balance(&escrow_pda) {
+        Ok(balance) => {
+            info!(
+                "\nEscrow balance: {} SOL",
+                balance as f64 / LAMPORTS_PER_SOL as f64
+            );
+        }
+        Err(_) => {
+            info!("\nEscrow not found");
+        }
+    }
+
+    Ok(())
+}
+
+/// Top up escrow with SOL
+async fn decoy_top_up(
+    rpc_url: &str,
+    program_id: &solana_sdk::pubkey::Pubkey,
+    keypair: Keypair,
+    amount_sol: f64,
+) -> Result<()> {
+    use cloak_miner::build_top_up_escrow_ix;
+
+    info!("Topping up escrow...");
+
+    let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let amount_lamports = (amount_sol * LAMPORTS_PER_SOL as f64) as u64;
+
+    let (escrow_pda, _) = derive_miner_escrow_pda(program_id, &keypair.pubkey());
+
+    // Check current balance
+    let current_balance = client.get_balance(&escrow_pda).unwrap_or(0);
+    info!(
+        "Current escrow balance: {} SOL",
+        current_balance as f64 / LAMPORTS_PER_SOL as f64
+    );
+
+    // Build top-up instruction
+    let top_up_ix =
+        build_top_up_escrow_ix(program_id, &keypair.pubkey(), &escrow_pda, amount_lamports);
+
+    // Submit transaction
+    let recent_blockhash = client.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[top_up_ix],
+        Some(&keypair.pubkey()),
+        &[&keypair],
+        recent_blockhash,
+    );
+
+    let signature = client
+        .send_and_confirm_transaction(&tx)
+        .context("Failed to top up escrow")?;
+
+    info!("✓ Escrow topped up!");
+    info!("  Added: {} SOL", amount_sol);
+    info!("  Signature: {}", signature);
+
+    // Show new balance
+    let new_balance = client.get_balance(&escrow_pda)?;
+    info!(
+        "  New balance: {} SOL",
+        new_balance as f64 / LAMPORTS_PER_SOL as f64
+    );
 
     Ok(())
 }

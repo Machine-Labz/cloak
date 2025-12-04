@@ -6,6 +6,8 @@
 //! - Submitting mine/reveal transactions
 //! - Expiry monitoring
 
+use std::{collections::HashMap, str::FromStr, time::Duration};
+
 use anyhow::{anyhow, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -14,9 +16,6 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::time::Duration;
 
 use super::{
     engine::MiningEngine,
@@ -38,7 +37,7 @@ fn compute_batch_hash(job_id: &str) -> [u8; 32] {
 pub struct ClaimState {
     pub pda: Pubkey,
     pub batch_hash: [u8; 32],
-    pub slot: u64,  // Add slot for unique key
+    pub slot: u64, // Add slot for unique key
     pub revealed_at_slot: u64,
     pub expires_at_slot: u64,
     pub consumed_count: u16,
@@ -131,7 +130,11 @@ impl ClaimManager {
         batch_hash: [u8; 32],
     ) -> Result<(Pubkey, super::engine::MiningSolution)> {
         // Check if we have a usable claim (search by batch_hash)
-        if let Some((key, state)) = self.active_claims.iter().find(|(k, _)| k.batch_hash == batch_hash) {
+        if let Some((key, state)) = self
+            .active_claims
+            .iter()
+            .find(|(k, _)| k.batch_hash == batch_hash)
+        {
             if self.is_claim_usable(state).await? {
                 tracing::debug!(
                     "Using existing claim: {} ({}/{} consumed)",
@@ -306,13 +309,13 @@ impl ClaimManager {
     pub async fn get_active_claims_count(&mut self) -> Result<usize> {
         // Clean up expired/consumed claims first
         let current_slot = get_current_slot(&self.rpc_client)?;
-        
+
         self.active_claims.retain(|_, state| {
             let not_expired = current_slot <= state.expires_at_slot;
             let not_fully_consumed = state.consumed_count < state.max_consumes;
             not_expired && not_fully_consumed
         });
-        
+
         Ok(self.active_claims.len())
     }
 
@@ -321,8 +324,9 @@ impl ClaimManager {
     /// Returns true if a claim exists and is still valid
     pub fn has_usable_claim(&self, batch_hash: &[u8; 32]) -> bool {
         // Search for any claim with matching batch_hash
-        self.active_claims.iter()
-            .any(|(k, state)| k.batch_hash == *batch_hash && state.consumed_count < state.max_consumes)
+        self.active_claims.iter().any(|(k, state)| {
+            k.batch_hash == *batch_hash && state.consumed_count < state.max_consumes
+        })
     }
 
     /// Record that a claim was consumed
@@ -330,7 +334,9 @@ impl ClaimManager {
     /// Called after successful withdraw to track claim usage.
     pub fn record_consume(&mut self, batch_hash: &[u8; 32]) {
         // Find the claim key by searching for matching batch_hash
-        if let Some(key) = self.active_claims.keys()
+        if let Some(key) = self
+            .active_claims
+            .keys()
             .find(|k| k.batch_hash == *batch_hash)
             .cloned()
         {
@@ -358,13 +364,13 @@ impl ClaimManager {
     pub async fn cleanup_expired_claims(&mut self) -> Result<usize> {
         let current_slot = get_current_slot(&self.rpc_client)?;
         let before = self.active_claims.len();
-        
+
         self.active_claims.retain(|_, state| {
             let not_expired = current_slot <= state.expires_at_slot;
             let not_fully_consumed = state.consumed_count < state.max_consumes;
             not_expired && not_fully_consumed
         });
-        
+
         Ok(before - self.active_claims.len())
     }
 

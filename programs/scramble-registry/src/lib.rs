@@ -1,15 +1,17 @@
-use crate::instructions::ScrambleRegistryInstruction;
 use five8_const::decode_32_const;
 use instructions::{
     consume_claim::process_consume_claim_instruction,
     initialize::{process_initialize_registry_instruction, process_register_miner_instruction},
     mine_claim::process_mine_claim_instruction,
     reveal_claim::process_reveal_claim_instruction,
+    top_up_escrow::process_top_up_escrow_instruction,
 };
 use pinocchio::{
     account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
+
+use crate::instructions::ScrambleRegistryInstruction;
 
 mod constants;
 mod error;
@@ -22,22 +24,17 @@ pub use state::{Claim, ClaimStatus, Miner, ScrambleRegistry};
 #[cfg(test)]
 mod tests;
 
-// Scramble Registry Program ID
-const ID: [u8; 32] = decode_32_const("EH2FoBqySD7RhPgsmPBK67jZ2P9JRhVHjfdnjxhUQEE6");
+pub const ID: [u8; 32] = decode_32_const("9yoeUduVanEN5RGp144Czfa5GXNiLdGmDMAboM4vfqsm");
 
 program_entrypoint!(process_instruction);
 default_allocator!();
 default_panic_handler!();
 
 pub fn process_instruction(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if program_id != &ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-
     let (instruction_discriminant, instruction_data) = data
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
@@ -57,6 +54,9 @@ pub fn process_instruction(
         }
         ScrambleRegistryInstruction::ConsumeClaim => {
             process_consume_claim_instruction(accounts, instruction_data)
+        }
+        ScrambleRegistryInstruction::TopUpEscrow => {
+            process_top_up_escrow_instruction(accounts, instruction_data)
         }
     }
 }

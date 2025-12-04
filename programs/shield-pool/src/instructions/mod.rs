@@ -2,15 +2,18 @@ pub mod admin_push_root;
 pub mod deposit;
 pub mod initialize;
 pub mod withdraw;
+pub mod withdraw_miner_decoy;
+
+use pinocchio::program_error::ProgramError;
 
 use crate::error::ShieldPoolError;
-use pinocchio::program_error::ProgramError;
 
 pub enum ShieldPoolInstruction {
     Deposit = 0,
     AdminPushRoot = 1,
     Withdraw = 2,
     Initialize = 3,
+    WithdrawMinerDecoy = 4,
 }
 
 impl TryFrom<&u8> for ShieldPoolInstruction {
@@ -22,6 +25,7 @@ impl TryFrom<&u8> for ShieldPoolInstruction {
             1 => Ok(Self::AdminPushRoot),
             2 => Ok(Self::Withdraw),
             3 => Ok(Self::Initialize),
+            4 => Ok(Self::WithdrawMinerDecoy),
             _ => Err(ShieldPoolError::InvalidTag.into()),
         }
     }

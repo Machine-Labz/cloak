@@ -1,6 +1,7 @@
+use std::fs;
+
 use anyhow::Result;
 use serde_json;
-use std::fs;
 
 mod encoding {
     pub use zk_guest_sp1_host::encoding::*;
@@ -72,8 +73,9 @@ mod hex_array {
 }
 
 mod hex_string {
-    use super::encoding::*;
     use serde::{Deserializer, Serializer};
+
+    use super::encoding::*;
 
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where

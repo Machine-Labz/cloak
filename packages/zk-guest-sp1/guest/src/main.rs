@@ -39,8 +39,9 @@ struct CircuitInputs {
 
 // Custom serde module for hex strings
 mod hex_string {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where

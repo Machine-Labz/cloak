@@ -1,15 +1,13 @@
+use std::{sync::Arc, time::Duration};
+
 use anyhow::Result;
-use hex;
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::timeout;
 use tracing::info;
-
-use crate::config::Sp1TeeConfig;
-
 // Import the ELF from the existing zk-guest-sp1-host package
 use zk_guest_sp1_host::ELF;
+
+use crate::config::Sp1TeeConfig;
 
 /// SP1 TEE proof generation result
 #[derive(Debug)]

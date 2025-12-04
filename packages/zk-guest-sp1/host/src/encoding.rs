@@ -121,8 +121,9 @@ pub fn parse_address(addr_str: &str) -> Result<[u8; 32]> {
 
 // Custom serde for hex arrays
 mod hex_array_serde {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(elements: &Vec<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -146,8 +147,9 @@ mod hex_array_serde {
 
 // Custom serde for address field to handle both base58 and hex
 mod address_serde {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(address: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where

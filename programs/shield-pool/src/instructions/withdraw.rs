@@ -1,15 +1,19 @@
-use crate::constants::{
-    DUPLICATE_NULLIFIER_LEN, NUM_OUTPUTS_LEN, POW_BATCH_HASH_LEN, PROOF_LEN, PUB_LEN,
-    RECIPIENT_ADDR_LEN, RECIPIENT_AMOUNT_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
-};
-use crate::error::ShieldPoolError;
-use crate::ID;
 use core::convert::TryInto;
-use pinocchio::cpi::invoke_signed;
+
 use pinocchio::{
-    account_info::AccountInfo, instruction::AccountMeta, pubkey::Pubkey, ProgramResult,
+    account_info::AccountInfo, cpi::invoke_signed, instruction::AccountMeta, pubkey::Pubkey,
+    ProgramResult,
 };
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
+
+use crate::{
+    constants::{
+        DUPLICATE_NULLIFIER_LEN, NUM_OUTPUTS_LEN, POW_BATCH_HASH_LEN, PROOF_LEN, PUB_LEN,
+        RECIPIENT_ADDR_LEN, RECIPIENT_AMOUNT_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
+    },
+    error::ShieldPoolError,
+    ID,
+};
 
 const MIN_TAIL_LEN: usize = PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN;
 const PER_OUTPUT_LEN: usize = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -38,7 +42,15 @@ fn parse_withdraw_data<'a>(
     }
 
     // Parse public_inputs to get it out of the way, it's right after proof
-    let (_public_inputs_slice, _remainder) = data.split_at(data.len() - MIN_TAIL_LEN - if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 });
+    let (_public_inputs_slice, _remainder) = data.split_at(
+        data.len()
+            - MIN_TAIL_LEN
+            - if expect_batch_hash {
+                POW_BATCH_HASH_LEN
+            } else {
+                0
+            },
+    );
 
     // Actually, we need to be smarter. Let's parse from the end backwards.
     // Format: [proof][public_inputs=104][duplicate_nullifier=32][num_outputs=1][recipients...][batch_hash=32?]
@@ -57,8 +69,15 @@ fn parse_withdraw_data<'a>(
 
     // Let's parse forward instead
     // Skip proof first - we'll calculate its length later
-    let after_proof_idx = data.len() - PUB_LEN - DUPLICATE_NULLIFIER_LEN - NUM_OUTPUTS_LEN
-        - if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let after_proof_idx = data.len()
+        - PUB_LEN
+        - DUPLICATE_NULLIFIER_LEN
+        - NUM_OUTPUTS_LEN
+        - if expect_batch_hash {
+            POW_BATCH_HASH_LEN
+        } else {
+            0
+        };
 
     if data.len() < after_proof_idx {
         return Err(ShieldPoolError::InvalidInstructionData.into());
@@ -70,7 +89,12 @@ fn parse_withdraw_data<'a>(
 
     // To find where proof ends, we need to know num_outputs first
     // Let's peek at num_outputs position
-    let min_tail_with_batch = MIN_TAIL_LEN + if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let min_tail_with_batch = MIN_TAIL_LEN
+        + if expect_batch_hash {
+            POW_BATCH_HASH_LEN
+        } else {
+            0
+        };
     if data.len() < min_tail_with_batch + PROOF_LEN {
         return Err(ShieldPoolError::InvalidInstructionData.into());
     }
@@ -86,7 +110,11 @@ fn parse_withdraw_data<'a>(
     let _num_outputs_offset = PUB_LEN + DUPLICATE_NULLIFIER_LEN;
 
     // Read num_outputs by looking backwards from end
-    let batch_offset = if expect_batch_hash { POW_BATCH_HASH_LEN } else { 0 };
+    let batch_offset = if expect_batch_hash {
+        POW_BATCH_HASH_LEN
+    } else {
+        0
+    };
 
     // We need to iterate to find the right position
     // Let's try all possible num_outputs values (1-10) and see which one gives us a valid proof length
@@ -94,7 +122,11 @@ fn parse_withdraw_data<'a>(
     let mut found_parse: Option<(u8, usize)> = None;
     for test_num_outputs in 1..=MAX_OUTPUTS {
         let test_recipients_len = test_num_outputs * PER_OUTPUT_LEN;
-        let test_tail_len = PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN + test_recipients_len + batch_offset;
+        let test_tail_len = PUB_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + test_recipients_len
+            + batch_offset;
 
         if data.len() <= test_tail_len {
             continue;
@@ -249,10 +281,10 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
         if accounts.len() < expected_accounts {
             return Err(ShieldPoolError::MissingAccounts.into());
         }
-        }
+    }
 
     // Extract recipient accounts (positions 4 to 4+num_recipients-1)
-        let recipient_accounts = &accounts[4..4 + num_recipients];
+    let recipient_accounts = &accounts[4..4 + num_recipients];
 
     // Extract PoW accounts if in PoW mode
     let pow_context = if is_pow_mode {
@@ -271,11 +303,11 @@ pub fn process_withdraw_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pr
     };
 
     process_withdraw_unified(
-            pool_info,
-            treasury_info,
-            roots_ring_info,
-            nullifier_shard_info,
-            recipient_accounts,
+        pool_info,
+        treasury_info,
+        roots_ring_info,
+        nullifier_shard_info,
+        recipient_accounts,
         &parsed,
         pow_context,
     )
@@ -301,7 +333,7 @@ fn process_withdraw_unified<'a>(
     pow_context: Option<PowContext<'a>>,
 ) -> ProgramResult {
     let program_id = Pubkey::from(ID);
-    
+
     // Common validations
     if pool_info.owner() != &program_id {
         return Err(ShieldPoolError::PoolOwnerNotProgramId.into());
@@ -455,8 +487,7 @@ fn process_withdraw_unified<'a>(
 
     unsafe {
         // Deduct from pool
-        *pool_info.borrow_mut_lamports_unchecked() =
-            pool_lamports - parsed.public_amount;
+        *pool_info.borrow_mut_lamports_unchecked() = pool_lamports - parsed.public_amount;
 
         // Transfer to all recipients
         for i in 0..parsed.num_outputs as usize {
@@ -482,22 +513,19 @@ fn process_withdraw_unified<'a>(
                     .try_into()
                     .map_err(|_| ShieldPoolError::InvalidInstructionData)?,
             );
-            
+
             let scrambler_share = ((total_fee as u128 * fee_share_bps as u128) / 10_000) as u64;
             let protocol_share = total_fee - scrambler_share;
-            
+
             let miner_lamports = ctx.miner_authority_account.lamports();
-            *treasury_info.borrow_mut_lamports_unchecked() =
-                treasury_lamports + protocol_share;
+            *treasury_info.borrow_mut_lamports_unchecked() = treasury_lamports + protocol_share;
             *ctx.miner_authority_account.borrow_mut_lamports_unchecked() =
                 miner_lamports + scrambler_share;
         } else {
             // Non-PoW mode: all fees to treasury
-            *treasury_info.borrow_mut_lamports_unchecked() =
-                treasury_lamports + total_fee;
+            *treasury_info.borrow_mut_lamports_unchecked() = treasury_lamports + total_fee;
         }
     }
 
     Ok(())
 }
-
