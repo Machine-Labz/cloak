@@ -23,7 +23,7 @@ impl Database {
             PgPoolOptions::new()
                 .max_connections(config.database.max_connections)
                 .min_connections(config.database.min_connections)
-                .acquire_timeout(Duration::from_secs(5))
+                .acquire_timeout(Duration::from_secs(30)) // Increased from 5s to 30s to handle pool exhaustion
                 .idle_timeout(Duration::from_secs(600))
                 .max_lifetime(Duration::from_secs(1800))
                 .connect(&database_url),

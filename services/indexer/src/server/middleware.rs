@@ -118,8 +118,9 @@ pub fn cors_layer(cors_origins: &[String]) -> CorsLayer {
 
 /// Request timeout middleware
 /// Uses different timeouts based on endpoint:
-/// - /api/v1/deposit: 60 seconds - Merkle tree insertion can be slow
-/// - Other endpoints: 10 seconds - faster timeout for regular requests
+/// - /api/v1/deposit: 120 seconds - Merkle tree insertion can be slow
+/// - /api/v1/merkle/proof/*: 90 seconds - Merkle proof generation can be slow (many DB queries)
+/// - Other endpoints: 20 seconds - faster timeout for regular requests
 pub async fn timeout_middleware(
     request: Request<axum::body::Body>,
     next: Next,
@@ -129,6 +130,8 @@ pub async fn timeout_middleware(
     // Use longer timeout for slow endpoints
     let timeout_duration = if path == "/api/v1/deposit" {
         std::time::Duration::from_secs(120) // 120 seconds for deposit (Merkle tree insertion)
+    } else if path.starts_with("/api/v1/merkle/proof/") {
+        std::time::Duration::from_secs(90) // 90 seconds for Merkle proof generation
     } else {
         std::time::Duration::from_secs(20) // 20 seconds for other endpoints
     };
