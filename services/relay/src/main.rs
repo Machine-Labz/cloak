@@ -12,20 +12,18 @@ mod worker;
 use planner::orchestrator;
 
 use axum::{
+    body::Body,
     middleware::Next,
     response::{Json, Response},
     routing::{get, post},
     Router,
-    body::Body,
 };
+use governor::middleware::NoOpMiddleware;
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
-use governor::middleware::NoOpMiddleware;
 use tower_http::{cors::CorsLayer, set_header::SetResponseHeaderLayer, trace::TraceLayer};
 use tracing::info;
 
@@ -290,21 +288,18 @@ async fn root() -> Json<Value> {
 }
 
 /// Middleware to log all errors before they're converted to responses
-async fn log_errors(
-    request: axum::http::Request<Body>,
-    next: Next,
-) -> Response {
+async fn log_errors(request: axum::http::Request<Body>, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let method = request.method().clone();
-    
+
     // Log incoming request for /withdraw to debug
     if path == "/withdraw" {
         use tracing::warn;
         warn!("Incoming /withdraw request - before processing");
     }
-    
+
     let response = next.run(request).await;
-    
+
     // Log if it's an error response
     if response.status().is_server_error() || response.status().is_client_error() {
         use tracing::error;
@@ -314,24 +309,21 @@ async fn log_errors(
             status = %response.status(),
             "❌ Error response returned"
         );
-        
+
         // For /withdraw errors, log more details
         if path == "/withdraw" {
             error!("❌ /withdraw endpoint failed - this may be a JSON deserialization error");
             error!("❌ Expected JSON structure: {{ outputs: [...], policy: {{ fee_bps: number }}, public_inputs: {{ root, nf, amount, fee_bps, outputs_hash }}, proof_bytes: string }}");
         }
     }
-    
+
     response
 }
 
-
 /// Handle response errors to log details
-async fn handle_response_errors(
-    response: axum::response::Response,
-) -> axum::response::Response {
+async fn handle_response_errors(response: axum::response::Response) -> axum::response::Response {
     use tracing::error;
-    
+
     // Log if it's an error response
     if response.status().is_server_error() || response.status().is_client_error() {
         error!(
@@ -339,7 +331,7 @@ async fn handle_response_errors(
             "❌ Response error - this may be a JSON deserialization error or missing field"
         );
     }
-    
+
     response
 }
 
@@ -350,7 +342,7 @@ async fn handle_404() -> impl axum::response::IntoResponse {
         Json(json!({
             "error": true,
             "message": "Route not found"
-        }))
+        })),
     )
 }
 
