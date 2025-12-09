@@ -39,6 +39,8 @@ struct CircuitInputs {
     pub swap_params: Option<SwapParams>,
     /// Optional stake parameters for stake-mode withdrawals
     pub stake_params: Option<encoding::StakeParams>,
+    /// Optional unstake parameters for unstake-to-pool
+    pub unstake_params: Option<encoding::UnstakeParams>,
 }
 
 // Custom serde module for hex strings
@@ -177,6 +179,35 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
                 private.amount
             ));
         }
+    } else if inputs.unstake_params.is_some() {
+        // Unstake mode: verify unstake constraints
+        // This is a DEPOSIT operation (funds going INTO the pool)
+        // The commitment is generated from the unstake params
+        if outputs_sum != 0 {
+            return Err(anyhow!(
+                "Unstake mode requires zero outputs, got outputs_sum = {}",
+                outputs_sum
+            ));
+        }
+
+        // For unstake, we use a smaller fee (just protocol fee, no fixed component)
+        let unstake_fee = (private.amount * 5) / 1_000; // 0.5% variable only
+        let deposit_amount = private.amount.checked_sub(unstake_fee)
+            .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
+
+        // Verify the unstake params generate a valid commitment
+        let unstake_params = inputs.unstake_params.as_ref().unwrap();
+        let computed_pk_spend = compute_pk_spend(&unstake_params.sk_spend);
+        let computed_commitment = compute_commitment(deposit_amount, &unstake_params.r, &computed_pk_spend);
+        
+        // The public "root" field holds the commitment in unstake mode
+        if computed_commitment != public.root {
+            return Err(anyhow!(
+                "Unstake commitment mismatch: computed {} != public {}",
+                hex::encode(computed_commitment),
+                hex::encode(public.root)
+            ));
+        }
     } else {
         // Regular mode: verify conservation law
         let total_spent = outputs_sum + fee;
@@ -193,6 +224,7 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     // Constraint 6: H(serialize(outputs)) == outputs_hash
     // For swap mode: outputs_hash = H(output_mint || recipient_ata || min_output_amount || public_amount)
     // For stake mode: outputs_hash = H(stake_account || public_amount)
+    // For unstake mode: outputs_hash = H(commitment || stake_account_hash)
     // For regular mode: outputs_hash = H(output[0] || output[1] || ... || output[n-1])
     let computed_outputs_hash = if let Some(ref swap_params) = inputs.swap_params {
         // Swap mode: compute outputs_hash from swap parameters
@@ -200,6 +232,10 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     } else if let Some(ref stake_params) = inputs.stake_params {
         // Stake mode: compute outputs_hash from stake parameters
         compute_stake_outputs_hash(stake_params, public.amount)
+    } else if let Some(ref unstake_params) = inputs.unstake_params {
+        // Unstake mode: compute outputs_hash from unstake parameters
+        // This binds the commitment to the stake account
+        compute_unstake_outputs_hash(&public.root, &unstake_params.stake_account)
     } else {
         // Regular mode: compute outputs_hash from outputs array
         compute_outputs_hash(outputs)
@@ -268,6 +304,7 @@ mod tests {
             outputs,
             swap_params: None, // Regular mode (not swap)
             stake_params: None, // Regular mode (not stake)
+            unstake_params: None, // Regular mode (not unstake)
         }
     }
 

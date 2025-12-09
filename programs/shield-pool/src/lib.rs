@@ -67,5 +67,8 @@ pub fn process_instruction(
         ShieldPoolInstruction::WithdrawStake => {
             withdraw_stake::process_withdraw_stake_instruction(accounts, instruction_data)
         }
+        ShieldPoolInstruction::UnstakeToPool => {
+            unstake_to_pool::process_unstake_to_pool_instruction(accounts, instruction_data)
+        }
     }
 }

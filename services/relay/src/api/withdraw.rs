@@ -26,6 +26,8 @@ pub struct WithdrawRequest {
     pub swap: Option<SwapConfig>, // optional swap configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stake: Option<StakeConfig>, // optional staking configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partially_signed_tx: Option<String>, // optional base64 encoded partially signed transaction (for stake delegate)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -197,6 +199,11 @@ pub async fn handle_withdraw(
         metadata["stake"] = serde_json::to_value(stake_config).map_err(|e| {
             Error::InternalServerError(format!("Failed to serialize stake config: {}", e))
         })?;
+        
+        // Store partially signed transaction if provided
+        if let Some(partially_signed_tx) = &payload.partially_signed_tx {
+            metadata["partially_signed_tx"] = serde_json::Value::String(partially_signed_tx.clone());
+        }
     }
 
     let create_job = CreateJob {
@@ -419,9 +426,10 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::encode(vec![0u8; 256]),
+            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
             swap: None,
             stake: None,
+            partially_signed_tx: None,
         };
 
         assert!(validate_request(&valid_request, 9).is_ok());
@@ -439,9 +447,10 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::encode(vec![0u8; 256]),
+            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
             swap: None,
             stake: None,
+            partially_signed_tx: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -462,9 +471,10 @@ mod tests {
                 fee_bps: 10001,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::encode(vec![0u8; 256]),
+            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
             swap: None,
             stake: None,
+            partially_signed_tx: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -485,9 +495,10 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::encode(vec![0u8; 256]),
+            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
             swap: None,
             stake: None,
+            partially_signed_tx: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());
@@ -511,6 +522,7 @@ mod tests {
             proof_bytes: "".to_string(), // Empty base64
             swap: None,
             stake: None,
+            partially_signed_tx: None,
         };
 
         assert!(validate_request(&invalid_request, 9).is_err());

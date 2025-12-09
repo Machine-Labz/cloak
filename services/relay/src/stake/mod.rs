@@ -1,4 +1,4 @@
 pub mod types;
 
-pub use types::StakeConfig;
+pub use types::{StakeConfig, UnstakeConfig};
 

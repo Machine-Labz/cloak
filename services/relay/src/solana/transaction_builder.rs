@@ -1349,6 +1349,14 @@ pub fn build_withdraw_stake_ix_body(
     if proof.is_empty() {
         return Err(Error::ValidationError("proof must be non-empty".into()));
     }
+    
+    // Validate proof size (should be 260 bytes for Groth16)
+    if proof.len() != 260 {
+        tracing::warn!(
+            "Proof size is {} bytes, expected 260 bytes (Groth16)",
+            proof.len()
+        );
+    }
 
     let mut data = Vec::with_capacity(
         proof.len()
@@ -1364,6 +1372,13 @@ pub fn build_withdraw_stake_ix_body(
     if let Some(batch_hash) = batch_hash {
         data.extend_from_slice(batch_hash);
     }
+    
+    tracing::debug!(
+        "WithdrawStake body: proof_len={}, body_len={}, stake_account={}",
+        proof.len(),
+        data.len(),
+        stake_account
+    );
 
     Ok(data)
 }
@@ -1395,8 +1410,19 @@ pub fn build_withdraw_stake_instruction(
     use solana_sdk::sysvar;
 
     let mut data = Vec::with_capacity(1 + body.len());
-    data.push(ShieldPoolInstruction::WithdrawStake as u8);
+    let discriminant = ShieldPoolInstruction::WithdrawStake as u8;
+    data.push(discriminant);
     data.extend_from_slice(body);
+    
+    // Debug: log first few bytes
+    if data.len() >= 5 {
+        tracing::debug!(
+            "WithdrawStake instruction: discriminant={}, body_len={}, first_bytes=[{:02x}, {:02x}, {:02x}, {:02x}]",
+            discriminant,
+            body.len(),
+            data[0], data[1], data[2], data[3]
+        );
+    }
 
     let mut accounts = Vec::with_capacity(13);
     accounts.push(AccountMeta::new(pool_pda, false)); // pool (writable)
@@ -1430,8 +1456,14 @@ pub fn build_withdraw_stake_instruction(
     }
 }
 
-/// Build a full Transaction for WithdrawStake
+/// Build a full Transaction for WithdrawStake (legacy - just transfers lamports)
 /// Note: The stake account should be created and initialized before calling this function.
+/// Build a transaction with WithdrawStake instruction.
+/// 
+/// NOTE: Despite the name "WithdrawStake", this instruction does NOT withdraw stake.
+/// Instead, it withdraws SOL from the shield pool and transfers it to a stake account.
+/// Think of it as "WithdrawToStake" - withdrawing from pool TO a stake account.
+/// 
 /// This function only builds the withdraw_stake instruction that transfers lamports to the stake account.
 pub fn build_withdraw_stake_transaction(
     proof_bytes: Vec<u8>,
@@ -1483,6 +1515,209 @@ pub fn build_withdraw_stake_transaction(
     // Build transaction
     let mut msg = Message::new(
         &[cu_ix, pri_ix, withdraw_stake_ix],
+        Some(&fee_payer),
+    );
+    msg.recent_blockhash = recent_blockhash;
+    let tx = Transaction::new_unsigned(msg);
+    Ok(tx)
+}
+
+/// Build a transaction with WithdrawStake + Delegate instructions.
+/// 
+/// NOTE: Despite the name "WithdrawStake", this instruction does NOT withdraw stake.
+/// Instead, it withdraws SOL from the shield pool and transfers it to a stake account.
+/// 
+/// This builds a transaction with:
+/// 1. WithdrawStake - moves SOL from shield pool to stake account (relay signs as fee payer)
+/// 2. StakeProgram::DelegateStake - delegates to the validator (user signs as stake authority)
+///
+/// The stake account must already exist and be initialized (user creates it beforehand).
+/// This transaction can be partially signed by the user (delegate) and completed by the relay (withdraw_stake).
+pub fn build_withdraw_stake_and_delegate_transaction(
+    proof_bytes: Vec<u8>,
+    public_104: [u8; PUBLIC_INPUTS_LEN],
+    stake_account: Pubkey,
+    stake_authority: Pubkey,
+    validator_vote_account: Pubkey,
+    stake_amount_lamports: u64,
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    nullifier_shard_pda: Pubkey,
+    treasury: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+    batch_hash: Option<[u8; POW_BATCH_HASH_LEN]>,
+    scramble_registry_program: Option<Pubkey>,
+    claim_pda: Option<Pubkey>,
+    miner_pda: Option<Pubkey>,
+    registry_pda: Option<Pubkey>,
+    miner_authority: Option<Pubkey>,
+) -> Result<Transaction, Error> {
+    use solana_sdk::stake::instruction as stake_instruction;
+
+    // Build withdraw_stake instruction body
+    let body = build_withdraw_stake_ix_body(
+        proof_bytes.as_slice(),
+        &public_104,
+        &stake_account,
+        batch_hash.as_ref(),
+    )?;
+
+    // Build withdraw_stake instruction (this transfers SOL from pool to stake_account)
+    let withdraw_stake_ix = build_withdraw_stake_instruction(
+        program_id,
+        &body,
+        pool_pda,
+        treasury,
+        roots_ring_pda,
+        nullifier_shard_pda,
+        stake_account,
+        scramble_registry_program.clone(),
+        claim_pda,
+        miner_pda,
+        registry_pda,
+        miner_authority,
+    );
+
+    // Delegate stake to validator
+    // NOTE: This instruction requires the stake_authority to sign
+    let delegate_stake_ix = stake_instruction::delegate_stake(
+        &stake_account,
+        &stake_authority,
+        &validator_vote_account,
+    );
+
+    // Compute budget instructions - staking needs more CU
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(600_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+
+    // Build transaction with instructions in order:
+    // 1. Compute budget
+    // 2. WithdrawStake (moves SOL from pool to stake account, relay signs as fee payer)
+    // 3. Delegate stake (delegates to validator, user signs as stake authority)
+    let mut msg = Message::new(
+        &[
+            cu_ix,
+            pri_ix,
+            withdraw_stake_ix,
+            delegate_stake_ix,
+        ],
+        Some(&fee_payer),
+    );
+    msg.recent_blockhash = recent_blockhash;
+    let tx = Transaction::new_unsigned(msg);
+    Ok(tx)
+}
+
+// ============================================================================
+// UnstakeToPool Transaction Builder
+// ============================================================================
+
+/// Build the unstake_to_pool instruction body
+/// Format: [proof (260)][public_inputs (104)][stake_account (32)]
+pub fn build_unstake_to_pool_ix_body(
+    proof_bytes: &[u8],
+    public_inputs: &[u8; PUBLIC_INPUTS_LEN],
+    stake_account: &Pubkey,
+) -> Result<Vec<u8>, Error> {
+    // Proof should be 260 bytes for Groth16
+    if proof_bytes.len() != 260 {
+        return Err(Error::ValidationError(format!(
+            "Proof must be 260 bytes, got {}",
+            proof_bytes.len()
+        )));
+    }
+
+    let mut body = Vec::with_capacity(260 + PUBLIC_INPUTS_LEN + 32);
+    body.extend_from_slice(proof_bytes);
+    body.extend_from_slice(public_inputs);
+    body.extend_from_slice(stake_account.as_ref());
+
+    Ok(body)
+}
+
+/// Build an Instruction for shield-pool::UnstakeToPool (discriminant = 10)
+/// 
+/// Accounts layout:
+/// [0] pool - Shield pool PDA (writable)
+/// [1] roots_ring - Roots ring PDA (writable)
+/// [2] stake_account - Stake account (writable)
+/// [3] stake_authority - Stake authority (signer)
+/// [4] clock_sysvar - Clock sysvar
+/// [5] stake_history - Stake history sysvar
+/// [6] stake_program - Stake program
+pub fn build_unstake_to_pool_instruction(
+    program_id: Pubkey,
+    body: &[u8],
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    stake_account: Pubkey,
+    stake_authority: Pubkey,
+) -> Instruction {
+    use solana_sdk::sysvar;
+
+    const STAKE_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("Stake11111111111111111111111111111111111111");
+
+    let mut data = Vec::with_capacity(1 + body.len());
+    data.push(10u8); // UnstakeToPool discriminant
+    data.extend_from_slice(body);
+
+    let accounts = vec![
+        AccountMeta::new(pool_pda, false),              // pool (writable)
+        AccountMeta::new(roots_ring_pda, false),        // roots_ring (writable)
+        AccountMeta::new(stake_account, false),         // stake_account (writable)
+        AccountMeta::new_readonly(stake_authority, true), // stake_authority (signer)
+        AccountMeta::new_readonly(sysvar::clock::id(), false), // clock
+        AccountMeta::new_readonly(sysvar::stake_history::id(), false), // stake_history
+        AccountMeta::new_readonly(STAKE_PROGRAM_ID, false), // stake_program
+    ];
+
+    Instruction {
+        program_id,
+        accounts,
+        data,
+    }
+}
+
+/// Build a full Transaction for UnstakeToPool
+pub fn build_unstake_to_pool_transaction(
+    proof_bytes: Vec<u8>,
+    public_inputs: [u8; PUBLIC_INPUTS_LEN],
+    stake_account: Pubkey,
+    stake_authority: Pubkey,
+    program_id: Pubkey,
+    pool_pda: Pubkey,
+    roots_ring_pda: Pubkey,
+    fee_payer: Pubkey,
+    recent_blockhash: Hash,
+    priority_micro_lamports: u64,
+) -> Result<Transaction, Error> {
+    // Build unstake_to_pool instruction body
+    let body = build_unstake_to_pool_ix_body(
+        proof_bytes.as_slice(),
+        &public_inputs,
+        &stake_account,
+    )?;
+
+    // Build unstake_to_pool instruction
+    let unstake_ix = build_unstake_to_pool_instruction(
+        program_id,
+        &body,
+        pool_pda,
+        roots_ring_pda,
+        stake_account,
+        stake_authority,
+    );
+
+    // Compute budget instructions
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(400_000);
+    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
+
+    // Build transaction
+    let mut msg = Message::new(
+        &[cu_ix, pri_ix, unstake_ix],
         Some(&fee_payer),
     );
     msg.recent_blockhash = recent_blockhash;
