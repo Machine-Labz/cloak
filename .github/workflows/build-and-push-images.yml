@@ -65,17 +65,16 @@ jobs:
             git pull origin master || echo "⚠️  Git pull failed, continuing with existing code"
 
             echo "🛑 Stopping services..."
-            sudo systemctl stop nginx 2>/dev/null || true
-            docker compose -f deployment/compose.yml down indexer relay nginx || true
+            docker compose -f deployment/compose.yml down indexer relay || true
 
             echo "📥 Pulling latest Docker images..."
             docker compose -f deployment/compose.yml pull indexer relay
 
             echo "🏗️  Building nginx from local context..."
-            docker compose -f deployment/compose.yml build nginx
+            docker compose -f deployment/compose.yml build
 
             echo "🚀 Starting services (migrations run automatically on indexer startup)..."
-            docker compose -f deployment/compose.yml up -d --build indexer relay nginx
+            docker compose -f deployment/compose.yml up -d --build indexer relay
 
             echo "⏳ Waiting for services to start..."
             sleep 5
