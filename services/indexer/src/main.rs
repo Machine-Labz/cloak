@@ -5,6 +5,7 @@ mod database;
 mod error;
 mod logging;
 mod merkle;
+mod secretsmanager;
 mod server;
 pub mod solana;
 mod sp1_tee_client;
@@ -17,7 +18,7 @@ use anyhow::Result;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load configuration
-    let config = Config::from_env()?;
+    let config = Config::from_env().await?;
 
     // Initialize logging (now async to support CloudWatch)
     init_logging(&config).await?;

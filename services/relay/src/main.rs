@@ -5,6 +5,7 @@ mod config;
 mod db;
 mod error;
 mod planner;
+mod secretsmanager;
 mod solana;
 mod worker;
 
@@ -39,7 +40,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // Load config
-        let relay_config = RelayConfig::load()?;
+        let relay_config = RelayConfig::load().await?;
 
         // Database connection
         let database_url = relay_config.database.url.clone();

@@ -58,7 +58,7 @@ pub struct Sp1TeeConfig {
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self> {
+    pub async fn from_env() -> Result<Self> {
         match dotenvy::dotenv() {
             Ok(path) => tracing::info!("Loading environment from: {:?}", path),
             Err(err) => tracing::warn!(
@@ -69,11 +69,12 @@ impl Config {
 
         ensure_required_env_vars()?;
 
+        // Fetch database URL from AWS Secrets Manager
+        let database_url = crate::secretsmanager::fetch_database_url().await?;
+
         let config = Config {
             database: DatabaseConfig {
-                url: std::env::var("DATABASE_URL")
-                    .or_else(|_| std::env::var("DATABASE_URL"))
-                    .ok(),
+                url: Some(database_url),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20)?,
                 min_connections: get_env_var_as_number("DB_MIN_CONNECTIONS", 2)?,
             },
@@ -152,8 +153,9 @@ impl Config {
 fn ensure_required_env_vars() -> Result<()> {
     let mut missing: Vec<String> = Vec::new();
 
-    if !has_non_empty_env(["DATABASE_URL", "DATABASE_URL"]) {
-        missing.push("DATABASE_URL".to_string());
+    // Either DATABASE_URL_SECRET_NAME or DATABASE_URL must be set
+    if !has_non_empty_env(["DATABASE_URL_SECRET_NAME", "DATABASE_URL"]) {
+        missing.push("DATABASE_URL_SECRET_NAME or DATABASE_URL".to_string());
     }
 
     if !has_non_empty_env(["SOLANA_RPC_URL", "CLOAK_PROGRAM_ID"]) {

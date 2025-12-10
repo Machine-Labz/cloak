@@ -59,8 +59,11 @@ pub struct MetricsConfig {
 // Miners run independently using cloak-miner CLI
 
 impl Config {
-    pub fn load() -> anyhow::Result<Self> {
+    pub async fn load() -> anyhow::Result<Self> {
         ensure_required_env_vars()?;
+
+        // Fetch database URL from AWS Secrets Manager
+        let database_url = crate::secretsmanager::fetch_database_url().await?;
 
         let config = Config {
             server: ServerConfig {
@@ -110,7 +113,7 @@ impl Config {
                 },
             },
             database: DatabaseConfig {
-                url: get_env_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db").to_string(),
+                url: database_url,
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20).unwrap_or(20),
             },
             metrics: MetricsConfig {
@@ -128,8 +131,8 @@ impl Config {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_default_config() {
+    #[tokio::test]
+    async fn test_default_config() {
         let vars = [
             ("RELAY_PORT", "4000"),
             ("DATABASE_URL", "postgres://user:pass@localhost:5432/db"),
@@ -144,7 +147,7 @@ mod tests {
             std::env::set_var(key, value);
         }
 
-        let config = Config::load().unwrap();
+        let config = Config::load().await.unwrap();
         assert_eq!(config.server.port, 4000);
 
         for (key, _) in vars.iter() {
@@ -156,8 +159,9 @@ mod tests {
 fn ensure_required_env_vars() -> anyhow::Result<()> {
     let mut missing = Vec::new();
 
-    if !has_non_empty_env(&["DATABASE_URL", "DATABASE_URL"]) {
-        missing.push("DATABASE_URL (or DATABASE_URL)".to_string());
+    // Either DATABASE_URL_SECRET_NAME or DATABASE_URL must be set
+    if !has_non_empty_env(&["DATABASE_URL_SECRET_NAME", "DATABASE_URL"]) {
+        missing.push("DATABASE_URL_SECRET_NAME or DATABASE_URL".to_string());
     }
 
     if !has_non_empty_env(&["SOLANA_RPC_URL"]) {
@@ -208,7 +212,7 @@ pub struct Sp1TeeConfig {
 }
 
 impl Config {
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub async fn from_env() -> anyhow::Result<Self> {
         match dotenvy::dotenv() {
             Ok(path) => tracing::info!("Loading environment from: {:?}", path),
             Err(err) => tracing::warn!(
@@ -219,13 +223,12 @@ impl Config {
 
         ensure_required_env_vars()?;
 
+        // Fetch database URL from AWS Secrets Manager
+        let database_url = crate::secretsmanager::fetch_database_url().await?;
+
         let config = Config {
             database: DatabaseConfig {
-                url: get_env_var(
-                    "DATABASE_URL",
-                    "postgres://postgres:postgres@localhost:5432/relay",
-                )
-                .to_string(),
+                url: database_url,
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20).unwrap_or(20),
             },
             solana: SolanaConfig {

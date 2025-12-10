@@ -13,7 +13,7 @@ async fn main() -> Result<(), IndexerError> {
     tracing_subscriber::fmt::init();
 
     // Load configuration
-    let config = Config::from_env()?;
+    let config = Config::from_env().await?;
 
     tracing::info!("Starting database migrations");
 
