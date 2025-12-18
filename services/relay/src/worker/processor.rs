@@ -1,12 +1,17 @@
+use std::time::{Duration, Instant};
+
 use blake3::Hasher;
 use bs58;
-use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-use crate::db::models::{Job, JobStatus};
-use crate::db::repository::{JobRepository, NullifierRepository};
-use crate::error::Error;
-use crate::AppState;
+use crate::{
+    db::{
+        models::{Job, JobStatus},
+        repository::{JobRepository, NullifierRepository},
+    },
+    error::Error,
+    AppState,
+};
 
 /// Process a single job directly from database
 pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> {
@@ -48,17 +53,20 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
     // This prevents race conditions where multiple workers try to process the same job
     match state.job_repo.try_claim_job(job_id).await {
         Ok(true) => {
-            info!("📝 Job {} successfully claimed and status updated to processing", job_id);
+            info!(
+                "📝 Job {} successfully claimed and status updated to processing",
+                job_id
+            );
         }
         Ok(false) => {
-            info!("⏭️  Job {} already claimed by another worker, skipping", job_id);
+            info!(
+                "⏭️  Job {} already claimed by another worker, skipping",
+                job_id
+            );
             return Ok(());
         }
         Err(e) => {
-            error!(
-                "❌ Failed to claim job {}: {}",
-                job_id, e
-            );
+            error!("❌ Failed to claim job {}: {}", job_id, e);
             return Err(e);
         }
     }
@@ -108,7 +116,10 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                             warn!("Job {} conservation failed preflight; continuing but likely to fail on-chain", job_id);
                         }
                     } else {
-                        warn!("Job {} invalid public inputs length for amount extraction", job_id);
+                        warn!(
+                            "Job {} invalid public inputs length for amount extraction",
+                            job_id
+                        );
                     }
                 }
             }
@@ -295,7 +306,11 @@ pub async fn process_job_direct(job: Job, state: AppState) -> Result<(), Error> 
                                 let dummy_signature = format!("swap-completed-{}", job_id);
                                 if let Err(e) = state
                                     .job_repo
-                                    .update_job_completed(job_id, dummy_signature.clone(), dummy_signature)
+                                    .update_job_completed(
+                                        job_id,
+                                        dummy_signature.clone(),
+                                        dummy_signature,
+                                    )
                                     .await
                                 {
                                     error!("❌ Failed to mark job {} as completed: {}", job_id, e);
@@ -464,7 +479,6 @@ async fn process_withdraw(job: &crate::db::models::Job, state: &AppState) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // TODO: Add tests for job processing
 }

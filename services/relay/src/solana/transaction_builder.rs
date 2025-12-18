@@ -1,3 +1,4 @@
+use shield_pool::instructions::ShieldPoolInstruction;
 use solana_sdk::{
     compute_budget::ComputeBudgetInstruction,
     hash::Hash,
@@ -11,10 +12,7 @@ use solana_sdk::{
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use spl_token;
 
-use shield_pool::instructions::ShieldPoolInstruction;
-
-use crate::error::Error;
-use crate::planner::Output;
+use crate::{error::Error, planner::Output};
 
 // Manual implementation of associated token account derivation
 // This avoids dependency conflicts with spl-associated-token-account
@@ -566,7 +564,7 @@ pub fn build_release_swap_funds_instruction(
     swap_state_pda: Pubkey,
     relay: Pubkey,
 ) -> Instruction {
-    let mut data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
+    let data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
 
     Instruction {
         program_id,
@@ -900,123 +898,6 @@ pub fn build_withdraw_instruction_legacy(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use solana_sdk::{pubkey::Pubkey, system_program};
-
-    #[test]
-    fn test_withdraw_body_layout() {
-        const PROOF_LEN: usize = 1506;
-        let proof = vec![0xAAu8; PROOF_LEN];
-        let mut public = [0u8; PUBLIC_INPUTS_LEN];
-        // root 0..32, nf 32..64, outputs_hash 64..96, amount 96..104
-        public[0..32].copy_from_slice(&[0x11u8; 32]);
-        public[32..64].copy_from_slice(&[0x22u8; 32]);
-        public[64..96].copy_from_slice(&[0x33u8; 32]);
-        let amt: u64 = 0x0102_0304_0506_0708;
-        public[96..104].copy_from_slice(&amt.to_le_bytes());
-
-        let recip = [0x44u8; RECIPIENT_ADDR_LEN];
-        let out_amt: u64 = 123_456u64;
-        let outputs = vec![Output {
-            address: recip,
-            amount: out_amt,
-        }];
-        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
-        let expected_len = PROOF_LEN
-            + PUBLIC_INPUTS_LEN
-            + DUPLICATE_NULLIFIER_LEN
-            + NUM_OUTPUTS_LEN
-            + RECIPIENT_ADDR_LEN
-            + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(body.len(), expected_len);
-
-        let public_start = PROOF_LEN;
-        let public_end = public_start + PUBLIC_INPUTS_LEN;
-        assert_eq!(&body[..PROOF_LEN], proof.as_slice());
-        assert_eq!(&body[public_start..public_end], &public);
-
-        let dup_start = public_end;
-        let dup_end = dup_start + DUPLICATE_NULLIFIER_LEN;
-        assert_eq!(&body[dup_start..dup_end], &public[32..64]);
-
-        let outputs_idx = dup_end;
-        assert_eq!(body[outputs_idx], 1u8);
-
-        let recip_start = outputs_idx + NUM_OUTPUTS_LEN;
-        let recip_end = recip_start + RECIPIENT_ADDR_LEN;
-        assert_eq!(&body[recip_start..recip_end], &recip);
-
-        let amount_start = recip_end;
-        let amount_end = amount_start + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(&body[amount_start..amount_end], &out_amt.to_le_bytes());
-    }
-
-    #[test]
-    fn test_legacy_builder_derives_pdas_and_accounts_order() {
-        // Program id and PDAs
-        let program_id = Pubkey::new_unique();
-        let mint = Pubkey::default(); // Native SOL for test
-
-        // Minimal fake SP1 proof bundle
-        let bundle = vec![0xABu8; 1506];
-
-        // Public inputs 104 bytes (zeros are acceptable for building)
-        let public_inputs = vec![0u8; 104];
-
-        // Single output as required
-        let recipient_pubkey = Pubkey::new_unique();
-        let outputs = vec![Output {
-            address: recipient_pubkey.to_bytes(),
-            amount: 1_000_000,
-        }];
-
-        let blockhash = solana_sdk::hash::Hash::new_unique();
-        let tx = build_withdraw_instruction_legacy(
-            &program_id,
-            &mint,
-            &bundle,
-            &public_inputs,
-            &outputs,
-            blockhash,
-        )
-        .expect("tx");
-
-        let msg = tx.message();
-        assert!(
-            msg.instructions.len() >= 3,
-            "expect CU, fee, and withdraw ix"
-        );
-        let ci = &msg.instructions[2];
-
-        // Program id check
-        let pid = msg.account_keys[ci.program_id_index as usize];
-        assert_eq!(pid, program_id);
-
-        // Resolve accounts by index and verify order
-        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
-            derive_shield_pool_pdas(&program_id, &mint);
-        let resolve = |ix: u8| msg.account_keys[ix as usize];
-        assert_eq!(resolve(ci.accounts[0]), exp_pool);
-        assert_eq!(resolve(ci.accounts[1]), exp_treasury);
-        assert_eq!(resolve(ci.accounts[2]), exp_roots);
-        assert_eq!(resolve(ci.accounts[3]), exp_nullifier);
-        // recipient (we don't assert exact value here) and system program
-        assert_eq!(resolve(ci.accounts[5]), system_program::id());
-
-        // Data layout check: first byte is discriminant=2, then dynamic body
-        assert_eq!(ci.data[0], 2u8);
-        let expected_body_len = bundle.len()
-            + PUBLIC_INPUTS_LEN
-            + DUPLICATE_NULLIFIER_LEN
-            + NUM_OUTPUTS_LEN
-            + RECIPIENT_ADDR_LEN
-            + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(ci.data.len() - 1, expected_body_len);
-    }
-}
-
 // ============================================================================
 // FUND WSOL ATA INSTRUCTION
 // ============================================================================
@@ -1145,18 +1026,18 @@ fn _build_orca_swap_instruction_old(
 
     // Build accounts (old version without payer - function is deprecated)
     let accounts = vec![
-        AccountMeta::new(swap_state_pda, false),                 // 0. swap_state_pda (writable)
-        AccountMeta::new(wsol_ata, false),                       // 1. swap_wsol_ata (writable)
-        AccountMeta::new(recipient_ata, false),                  // 2. recipient_ata (writable)
-        AccountMeta::new(whirlpool_pda, false),                  // 3. whirlpool (writable)
-        AccountMeta::new(vault_a, false),                        // 4. token_vault_a (writable)
-        AccountMeta::new(vault_b, false),                        // 5. token_vault_b (writable)
-        AccountMeta::new(tick_array_0, false),                   // 6. tick_array_0 (writable)
-        AccountMeta::new(tick_array_1, false),                   // 7. tick_array_1 (writable)
-        AccountMeta::new(tick_array_2, false),                   // 8. tick_array_2 (writable)
-        AccountMeta::new_readonly(oracle, false),                // 9. oracle (readonly)
-        AccountMeta::new_readonly(spl_token::id(), false),       // 10. token_program (readonly)
-        AccountMeta::new_readonly(whirlpool_program, false),     // 11. whirlpool_program (readonly)
+        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable)
+        AccountMeta::new(wsol_ata, false),       // 1. swap_wsol_ata (writable)
+        AccountMeta::new(recipient_ata, false),  // 2. recipient_ata (writable)
+        AccountMeta::new(whirlpool_pda, false),  // 3. whirlpool (writable)
+        AccountMeta::new(vault_a, false),        // 4. token_vault_a (writable)
+        AccountMeta::new(vault_b, false),        // 5. token_vault_b (writable)
+        AccountMeta::new(tick_array_0, false),   // 6. tick_array_0 (writable)
+        AccountMeta::new(tick_array_1, false),   // 7. tick_array_1 (writable)
+        AccountMeta::new(tick_array_2, false),   // 8. tick_array_2 (writable)
+        AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
+        AccountMeta::new_readonly(spl_token::id(), false), // 10. token_program (readonly)
+        AccountMeta::new_readonly(whirlpool_program, false), // 11. whirlpool_program (readonly)
     ];
 
     Ok(Instruction {
@@ -1249,7 +1130,7 @@ pub fn build_execute_swap_via_orca_instruction(
     tick_array_1: Pubkey,
     tick_array_2: Pubkey,
     oracle: Pubkey,
-    payer: Pubkey,  // Payer account (receives rent from closing SwapState)
+    payer: Pubkey, // Payer account (receives rent from closing SwapState)
 ) -> Result<Instruction, Error> {
     // Derive SwapState PDA
     let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
@@ -1292,7 +1173,7 @@ pub fn build_execute_swap_via_orca_instruction(
         AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
         AccountMeta::new_readonly(token_program_id, false), // 10. token_program (readonly)
         AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program (readonly)
-        AccountMeta::new(payer, false),          // 12. payer (writable) - receives rent from closing SwapState
+        AccountMeta::new(payer, false), // 12. payer (writable) - receives rent from closing SwapState
     ];
 
     Ok(Instruction {
@@ -1300,4 +1181,122 @@ pub fn build_execute_swap_via_orca_instruction(
         accounts,
         data,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_sdk::{pubkey::Pubkey, system_program};
+
+    use super::*;
+
+    #[test]
+    fn test_withdraw_body_layout() {
+        const PROOF_LEN: usize = 1506;
+        let proof = vec![0xAAu8; PROOF_LEN];
+        let mut public = [0u8; PUBLIC_INPUTS_LEN];
+        // root 0..32, nf 32..64, outputs_hash 64..96, amount 96..104
+        public[0..32].copy_from_slice(&[0x11u8; 32]);
+        public[32..64].copy_from_slice(&[0x22u8; 32]);
+        public[64..96].copy_from_slice(&[0x33u8; 32]);
+        let amt: u64 = 0x0102_0304_0506_0708;
+        public[96..104].copy_from_slice(&amt.to_le_bytes());
+
+        let recip = [0x44u8; RECIPIENT_ADDR_LEN];
+        let out_amt: u64 = 123_456u64;
+        let outputs = vec![Output {
+            address: recip,
+            amount: out_amt,
+        }];
+        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
+        let expected_len = PROOF_LEN
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(body.len(), expected_len);
+
+        let public_start = PROOF_LEN;
+        let public_end = public_start + PUBLIC_INPUTS_LEN;
+        assert_eq!(&body[..PROOF_LEN], proof.as_slice());
+        assert_eq!(&body[public_start..public_end], &public);
+
+        let dup_start = public_end;
+        let dup_end = dup_start + DUPLICATE_NULLIFIER_LEN;
+        assert_eq!(&body[dup_start..dup_end], &public[32..64]);
+
+        let outputs_idx = dup_end;
+        assert_eq!(body[outputs_idx], 1u8);
+
+        let recip_start = outputs_idx + NUM_OUTPUTS_LEN;
+        let recip_end = recip_start + RECIPIENT_ADDR_LEN;
+        assert_eq!(&body[recip_start..recip_end], &recip);
+
+        let amount_start = recip_end;
+        let amount_end = amount_start + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(&body[amount_start..amount_end], &out_amt.to_le_bytes());
+    }
+
+    #[test]
+    fn test_legacy_builder_derives_pdas_and_accounts_order() {
+        // Program id and PDAs
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::default(); // Native SOL for test
+
+        // Minimal fake SP1 proof bundle
+        let bundle = vec![0xABu8; 1506];
+
+        // Public inputs 104 bytes (zeros are acceptable for building)
+        let public_inputs = vec![0u8; 104];
+
+        // Single output as required
+        let recipient_pubkey = Pubkey::new_unique();
+        let outputs = vec![Output {
+            address: recipient_pubkey.to_bytes(),
+            amount: 1_000_000,
+        }];
+
+        let blockhash = solana_sdk::hash::Hash::new_unique();
+        let tx = build_withdraw_instruction_legacy(
+            &program_id,
+            &mint,
+            &bundle,
+            &public_inputs,
+            &outputs,
+            blockhash,
+        )
+        .expect("tx");
+
+        let msg = tx.message();
+        assert!(
+            msg.instructions.len() >= 3,
+            "expect CU, fee, and withdraw ix"
+        );
+        let ci = &msg.instructions[2];
+
+        // Program id check
+        let pid = msg.account_keys[ci.program_id_index as usize];
+        assert_eq!(pid, program_id);
+
+        // Resolve accounts by index and verify order
+        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
+            derive_shield_pool_pdas(&program_id, &mint);
+        let resolve = |ix: u8| msg.account_keys[ix as usize];
+        assert_eq!(resolve(ci.accounts[0]), exp_pool);
+        assert_eq!(resolve(ci.accounts[1]), exp_treasury);
+        assert_eq!(resolve(ci.accounts[2]), exp_roots);
+        assert_eq!(resolve(ci.accounts[3]), exp_nullifier);
+        // recipient (we don't assert exact value here) and system program
+        assert_eq!(resolve(ci.accounts[5]), system_program::id());
+
+        // Data layout check: first byte is discriminant=2, then dynamic body
+        assert_eq!(ci.data[0], 2u8);
+        let expected_body_len = bundle.len()
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(ci.data.len() - 1, expected_body_len);
+    }
 }

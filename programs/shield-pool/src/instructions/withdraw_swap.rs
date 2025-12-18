@@ -1,3 +1,11 @@
+use core::convert::TryInto;
+
+use pinocchio::{
+    account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey, sysvars::Sysvar,
+    ProgramResult,
+};
+use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
+
 /// WithdrawSwap instruction - Transaction 1 of 2 for swap withdrawals
 ///
 /// This instruction:
@@ -22,15 +30,11 @@
 use crate::constants::{
     DUPLICATE_NULLIFIER_LEN, PROOF_LEN, PUB_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
 };
-use crate::error::ShieldPoolError;
-use crate::state::{NullifierShard, Pool, RootsRing, SwapState};
-use crate::ID;
-use core::convert::TryInto;
-use pinocchio::{
-    account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey, sysvars::Sysvar,
-    ProgramResult,
+use crate::{
+    error::ShieldPoolError,
+    state::{NullifierShard, Pool, RootsRing, SwapState},
+    ID,
 };
-use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
 
 const OUTPUT_MINT_LEN: usize = 32;
 const RECIPIENT_ATA_LEN: usize = 32;

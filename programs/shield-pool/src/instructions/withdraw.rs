@@ -1,19 +1,23 @@
-use crate::constants::{
-    DUPLICATE_NULLIFIER_LEN, NUM_OUTPUTS_LEN, POW_BATCH_HASH_LEN, PROOF_LEN, PUB_LEN,
-    RECIPIENT_ADDR_LEN, RECIPIENT_AMOUNT_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
-};
-use crate::error::ShieldPoolError;
-use crate::ID;
 use core::convert::TryInto;
-use pinocchio::cpi::invoke_signed;
+
 use pinocchio::{
     account_info::AccountInfo,
+    cpi::invoke_signed,
     instruction::{AccountMeta, Seed, Signer},
     pubkey::Pubkey,
     ProgramResult,
 };
 use pinocchio_token::instructions::Transfer as TokenTransfer;
 use sp1_solana::{verify_proof, GROTH16_VK_5_0_0_BYTES};
+
+use crate::{
+    constants::{
+        DUPLICATE_NULLIFIER_LEN, NUM_OUTPUTS_LEN, POW_BATCH_HASH_LEN, PROOF_LEN, PUB_LEN,
+        RECIPIENT_ADDR_LEN, RECIPIENT_AMOUNT_LEN, SP1_PUB_LEN, WITHDRAW_VKEY_HASH,
+    },
+    error::ShieldPoolError,
+    ID,
+};
 
 const MIN_TAIL_LEN: usize = PUB_LEN + DUPLICATE_NULLIFIER_LEN + NUM_OUTPUTS_LEN;
 const PER_OUTPUT_LEN: usize = RECIPIENT_ADDR_LEN + RECIPIENT_AMOUNT_LEN;
@@ -38,7 +42,7 @@ fn parse_withdraw_data<'a>(
     // First, read num_outputs to calculate the actual tail length
     // We need at least: MIN_TAIL_LEN bytes to read num_outputs
     if data.len() < MIN_TAIL_LEN + PROOF_LEN {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     // Parse public_inputs to get it out of the way, it's right after proof
@@ -80,7 +84,7 @@ fn parse_withdraw_data<'a>(
         };
 
     if data.len() < after_proof_idx {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     // Actually, this is getting complex. Let me parse it differently.
@@ -96,7 +100,7 @@ fn parse_withdraw_data<'a>(
             0
         };
     if data.len() < min_tail_with_batch + PROOF_LEN {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     // num_outputs is at position: data.len() - (batch_hash?) - (recipients) - 1
@@ -152,7 +156,7 @@ fn parse_withdraw_data<'a>(
     let (num_outputs, proof_len) = found_parse.ok_or(ShieldPoolError::InvalidInstructionData)?;
 
     if num_outputs == 0 || num_outputs as usize > MAX_OUTPUTS {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     let (proof, mut remainder) = data.split_at(proof_len);
@@ -174,7 +178,7 @@ fn parse_withdraw_data<'a>(
     remainder = rem;
 
     if num_outputs_byte != num_outputs {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     // Parse recipients
@@ -210,7 +214,7 @@ fn parse_withdraw_data<'a>(
     };
 
     if !remainder.is_empty() {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     let root: [u8; 32] = public_inputs[0..32]
@@ -229,7 +233,7 @@ fn parse_withdraw_data<'a>(
     );
 
     if duplicate_nullifier != nullifier {
-        return Err(ShieldPoolError::InvalidInstructionData.into());
+        return Err(ShieldPoolError::InvalidInstructionData);
     }
 
     Ok(ParsedWithdraw {
@@ -603,7 +607,7 @@ fn process_withdraw_unified<'a>(
 
         for (i, recipient_account) in recipient_accounts.iter().enumerate() {
             let (recipient_address, amount) = parsed.recipients[i];
-            if recipient_account.key().as_ref() != &recipient_address {
+            if recipient_account.key().as_ref() != recipient_address {
                 return Err(ShieldPoolError::InvalidRecipient.into());
             }
 
@@ -658,7 +662,7 @@ fn process_withdraw_unified<'a>(
 
         for (i, recipient_account) in recipient_accounts.iter().enumerate() {
             let (recipient_address, recipient_amount) = parsed.recipients[i];
-            if recipient_account.key().as_ref() != &recipient_address {
+            if recipient_account.key().as_ref() != recipient_address {
                 return Err(ShieldPoolError::InvalidRecipient.into());
             }
 

@@ -33,8 +33,7 @@ pub enum Error {
 
 impl axum::response::IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
+        use axum::{http::StatusCode, Json};
         use serde_json::json;
         use tracing::{error, warn};
 
@@ -42,25 +41,25 @@ impl axum::response::IntoResponse for Error {
             Error::BadRequest(msg) => {
                 warn!("❌ Bad request: {}", msg);
                 (StatusCode::BAD_REQUEST, msg.clone())
-            },
+            }
             Error::NotFound => {
                 warn!("❌ Not found");
                 (StatusCode::NOT_FOUND, "Not found".to_string())
-            },
+            }
             Error::ValidationError(msg) => {
                 warn!("❌ Validation error: {}", msg);
                 (
                     StatusCode::BAD_REQUEST,
                     format!("Validation error: {}", msg),
                 )
-            },
+            }
             Error::DatabaseError(msg) => {
                 error!("❌ Database error: {}", msg);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Database error: {}", msg),
                 )
-            },
+            }
             _ => {
                 // Log the actual error for debugging
                 error!("❌ Internal server error: {}", self);

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use bincode;
 use sp1_sdk::{HashableKey, ProverClient};
 
 fn find_guest_elf() -> Result<Vec<u8>> {

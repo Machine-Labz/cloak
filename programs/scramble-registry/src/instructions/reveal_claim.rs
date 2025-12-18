@@ -1,10 +1,14 @@
-use crate::error::ScrambleError;
-use crate::state::{Claim, ClaimStatus, ScrambleRegistry};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::program_error::ProgramError;
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    program_error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    ProgramResult,
+};
+
+use crate::{
+    error::ScrambleError,
+    state::{Claim, ClaimStatus, ScrambleRegistry},
+};
 
 #[inline(always)]
 pub fn process_reveal_claim_instruction(

@@ -8,8 +8,9 @@ pub mod release_swap_funds;
 pub mod withdraw;
 pub mod withdraw_swap;
 
-use crate::error::ShieldPoolError;
 use pinocchio::program_error::ProgramError;
+
+use crate::error::ShieldPoolError;
 
 pub enum ShieldPoolInstruction {
     Deposit = 0,

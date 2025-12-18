@@ -1,4 +1,5 @@
-use crate::solana::{Error, SolanaClient};
+use std::str::FromStr;
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -9,8 +10,9 @@ use solana_sdk::{
 };
 use spl_associated_token_account::get_associated_token_address;
 use spl_token;
-use std::str::FromStr;
 use tracing::{error, info, warn};
+
+use crate::solana::{Error, SolanaClient};
 
 const JUPITER_QUOTE_API_V1: &str = "https://lite-api.jup.ag/swap/v1/quote";
 const JUPITER_SWAP_API_V1: &str = "https://lite-api.jup.ag/swap/v1/swap";
@@ -328,8 +330,9 @@ async fn perform_orca_swap(
 ) -> Result<String, Error> {
     info!("Attempting Orca swap...");
 
-    use orca_whirlpools_client::{get_whirlpool_address, Whirlpool};
     use std::str::FromStr;
+
+    use orca_whirlpools_client::{get_whirlpool_address, Whirlpool};
 
     // Orca Whirlpool config on devnet
     let whirlpool_config = Pubkey::from_str("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR")

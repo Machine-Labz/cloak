@@ -3,8 +3,9 @@ pub mod initialize;
 pub mod mine_claim;
 pub mod reveal_claim;
 
-use crate::error::ScrambleError;
 use pinocchio::program_error::ProgramError;
+
+use crate::error::ScrambleError;
 
 pub enum ScrambleRegistryInstruction {
     InitializeRegistry = 0,

@@ -5,7 +5,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signer},
+    signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };

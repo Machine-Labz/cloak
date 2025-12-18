@@ -431,4 +431,3 @@ fn get_cors_origins() -> Vec<String> {
         }
     }
 }
-

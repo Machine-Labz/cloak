@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::{Context, Result};
 use shield_pool::instructions::ShieldPoolInstruction;
 use solana_client::rpc_client::RpcClient;
@@ -7,7 +9,6 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
-use std::str::FromStr;
 
 use crate::config::SolanaConfig;
 

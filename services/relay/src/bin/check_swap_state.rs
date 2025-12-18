@@ -1,8 +1,8 @@
+use std::{env, str::FromStr};
+
 /// Quick utility to check SwapState PDA and help manually complete stuck swaps
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
-use std::env;
-use std::str::FromStr;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();

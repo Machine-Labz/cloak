@@ -1,7 +1,11 @@
-use crate::config::Config;
-use crate::error::{IndexerError, Result};
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::time::Duration;
+
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+
+use crate::{
+    config::Config,
+    error::{IndexerError, Result},
+};
 #[derive(Clone)]
 
 pub struct Database {

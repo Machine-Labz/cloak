@@ -1,15 +1,15 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature,
     transaction::Transaction,
 };
-use std::time::Duration;
 use tracing::{error, info, warn};
 
 use super::SolanaClient;
-use crate::config::SolanaConfig;
-use crate::error::Error;
+use crate::{config::SolanaConfig, error::Error};
 
 pub struct RpcSolanaClient {
     client: RpcClient,
@@ -89,19 +89,13 @@ impl SolanaClient for RpcSolanaClient {
         const CONFIRMATION_DELAY: Duration = Duration::from_secs(4);
 
         while retries < MAX_CONFIRMATION_RETRIES {
-            let blockhash = self
-                .client
-                .get_latest_blockhash()
-                .await
-                .map_err(|e| Error::InternalServerError(format!("Failed to get latest blockhash: {}", e)))?;
-            
+            let blockhash = self.client.get_latest_blockhash().await.map_err(|e| {
+                Error::InternalServerError(format!("Failed to get latest blockhash: {}", e))
+            })?;
+
             match self
                 .client
-                .confirm_transaction_with_spinner(
-                    &signature,
-                    &blockhash,
-                    self.commitment,
-                )
+                .confirm_transaction_with_spinner(&signature, &blockhash, self.commitment)
                 .await
             {
                 Ok(_) => {
@@ -171,9 +165,7 @@ impl SolanaClient for RpcSolanaClient {
                 }
 
                 // Read count (first 4 bytes, little-endian)
-                let count = u32::from_le_bytes([
-                    data[0], data[1], data[2], data[3],
-                ]) as usize;
+                let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
 
                 // Check if we have enough data for all nullifiers
                 let expected_size = 4 + (count * 32);
@@ -190,7 +182,7 @@ impl SolanaClient for RpcSolanaClient {
                 // Only check up to the count
                 let nullifier_section = &data[4..];
                 let max_check = std::cmp::min(count, nullifier_section.len() / 32);
-                
+
                 for i in 0..max_check {
                     let offset = i * 32;
                     if offset + 32 <= nullifier_section.len() {

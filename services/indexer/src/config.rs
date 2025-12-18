@@ -1,6 +1,7 @@
+use std::path::PathBuf;
+
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -299,6 +300,5 @@ fn get_cors_origins() -> Vec<String> {
         }
     }
 }
-
 
 // Tests can be added here when needed

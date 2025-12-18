@@ -1,3 +1,5 @@
+use std::{env, io::BufRead, str::FromStr};
+
 /// Manual swap completion tool - completes a stuck swap that has WithdrawSwap done but ExecuteSwap pending
 use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
@@ -9,9 +11,6 @@ use solana_sdk::{
     signature::{read_keypair_file, Signer},
     transaction::Transaction,
 };
-use std::env;
-use std::io::BufRead;
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -165,7 +164,10 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to execute ExecuteSwap: {}", e))?;
 
     println!("   ✅ ExecuteSwap completed: {}", exec_sig);
-    println!("   View: https://orb.helius.dev/tx/{}?cluster=devnet", exec_sig);
+    println!(
+        "   View: https://orb.helius.dev/tx/{}?cluster=devnet",
+        exec_sig
+    );
     println!();
 
     // Verify PDA is closed

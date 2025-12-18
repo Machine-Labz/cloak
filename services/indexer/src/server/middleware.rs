@@ -1,16 +1,14 @@
+use std::{sync::Arc, time::Instant};
+
 use axum::{
     http::{Request, StatusCode},
     middleware::Next,
     response::Response,
 };
-use std::sync::Arc;
-use std::time::Instant;
-use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
-};
 use governor::middleware::NoOpMiddleware;
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+};
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware
@@ -126,7 +124,7 @@ pub async fn timeout_middleware(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let path = request.uri().path().to_string();
-    
+
     // Use longer timeout for slow endpoints
     let timeout_duration = if path == "/api/v1/deposit" {
         std::time::Duration::from_secs(120) // 120 seconds for deposit (Merkle tree insertion)
@@ -170,6 +168,5 @@ pub fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware
         config: governor_conf,
     }
 }
-
 
 // Tests can be added here when needed

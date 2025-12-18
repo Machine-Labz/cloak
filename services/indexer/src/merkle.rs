@@ -1,6 +1,7 @@
-use crate::error::{IndexerError, Result};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
+
+use crate::error::{IndexerError, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleProof {
@@ -153,7 +154,7 @@ impl MerkleTree {
         let mut current_value = clean_leaf;
 
         for level in 0..(self.height - 1) {
-            let is_left_child = current_index % 2 == 0;
+            let is_left_child = current_index.is_multiple_of(2);
             let parent_index = current_index / 2;
 
             tracing::info!(
@@ -251,7 +252,7 @@ impl MerkleTree {
         let mut current_index = leaf_index;
 
         for level in 0..(self.height - 1) {
-            let is_left_child = current_index % 2 == 0;
+            let is_left_child = current_index.is_multiple_of(2);
             path_indices.push(if is_left_child { 0 } else { 1 });
 
             let sibling_index = if is_left_child {

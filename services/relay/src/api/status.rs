@@ -3,7 +3,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{

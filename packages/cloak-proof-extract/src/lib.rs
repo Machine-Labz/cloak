@@ -112,9 +112,10 @@ pub fn parse_public_inputs_104(bytes: &[u8]) -> Result<PublicInputs, Error> {
 /// Optional SP1-backed helpers (requires feature = "sp1")
 #[cfg(feature = "sp1")]
 mod sp1_helpers {
-    use super::*;
-    use bincode;
+
     use sp1_sdk::SP1ProofWithPublicValues;
+
+    use super::*;
 
     /// Deserialize an SP1 proof bundle via bincode and return the 260-byte Groth16 proof bytes.
     pub fn extract_groth16_260_sp1(sp1_proof_bundle: &[u8]) -> Result<[u8; 260], Error> {
@@ -157,8 +158,9 @@ pub use sp1_helpers::{
 // serde helpers for hex feature
 #[cfg(feature = "hex")]
 mod hex32_serde {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(v: &[u8; 32], s: S) -> Result<S::Ok, S::Error>
     where
@@ -184,9 +186,9 @@ mod hex32_serde {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::PathBuf};
+
     use super::*;
-    use std::fs;
-    use std::path::PathBuf;
 
     fn locate(path_candidates: &[&str]) -> Option<PathBuf> {
         for p in path_candidates {

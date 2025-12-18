@@ -1,12 +1,11 @@
 pub mod processor;
 pub mod window_scheduler;
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+
 use tracing::{debug, error, info};
 
-use crate::db::repository::JobRepository;
-use crate::AppState;
+use crate::{db::repository::JobRepository, AppState};
 
 pub struct Worker {
     state: AppState,

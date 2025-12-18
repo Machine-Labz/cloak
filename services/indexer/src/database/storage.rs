@@ -1,8 +1,11 @@
-use crate::error::{IndexerError, Result};
-use crate::merkle::TreeStorage;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
+
+use crate::{
+    error::{IndexerError, Result},
+    merkle::TreeStorage,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StoredNote {

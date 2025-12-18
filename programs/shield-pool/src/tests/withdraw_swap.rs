@@ -1,7 +1,6 @@
-use blake3;
 use solana_sdk::pubkey::Pubkey;
 
-use crate::{instructions::ShieldPoolInstruction, state::SwapState, tests::setup};
+use crate::{state::SwapState, tests::setup};
 
 #[test]
 fn test_swap_state_pda_derivation() {

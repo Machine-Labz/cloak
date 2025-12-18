@@ -1,12 +1,12 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
+
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::db::models::Job;
-use crate::db::repository::JobRepository;
-use crate::AppState;
+use crate::{
+    db::{models::Job, repository::JobRepository},
+    AppState,
+};
 
 /// Configuration for withdrawal window timing
 #[derive(Clone, Debug)]
@@ -168,7 +168,7 @@ impl WindowScheduler {
         // Get buffered jobs
         let jobs_to_process = {
             let mut buffer = self.job_buffer.lock().await;
-            
+
             // Filter out completed/failed jobs from buffer
             buffer.retain(|job| {
                 job.status != crate::db::models::JobStatus::Completed

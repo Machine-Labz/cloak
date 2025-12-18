@@ -1,8 +1,7 @@
 pub mod encoding;
 
 use anyhow::Result;
-use sp1_sdk::Prover;
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
 
 pub const ELF: &[u8] = include_elf!("zk-guest-sp1-guest");
 
@@ -92,7 +91,7 @@ where
 {
     match std::thread::spawn(job).join() {
         Ok(Ok(artifacts)) => Ok(artifacts),
-        Ok(Err(err)) => Err(err.into()),
+        Ok(Err(err)) => Err(err),
         Err(_panic_info) => Err(anyhow::anyhow!(
             "SP1 proof generation panicked - this usually means invalid input data or circuit constraint failure"
         )),

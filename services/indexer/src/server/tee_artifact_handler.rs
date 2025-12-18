@@ -1,16 +1,16 @@
-use crate::server::final_handlers::AppState;
+use std::{collections::HashMap, sync::Arc};
+
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
-use axum::extract::Path;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
+
+use crate::server::final_handlers::AppState;
 
 /// Request to create a stdin artifact
 #[derive(Debug, Deserialize)]
@@ -51,8 +51,8 @@ pub struct ProofStatusQuery {
 #[derive(Debug, Serialize)]
 pub struct ProofStatusResponse {
     pub request_id: String,
-    pub status: String, // "pending", "processing", "ready", "failed"
-    pub proof: Option<String>,         // Hex-encoded proof bytes (when ready)
+    pub status: String,        // "pending", "processing", "ready", "failed"
+    pub proof: Option<String>, // Hex-encoded proof bytes (when ready)
     pub public_inputs: Option<String>, // Hex-encoded public inputs (when ready)
     pub generation_time_ms: Option<u64>,
     pub error: Option<String>,
@@ -63,7 +63,18 @@ pub struct ProofStatusResponse {
 #[derive(Clone)]
 pub struct ArtifactStore {
     // artifact_id -> (upload_url, expires_at, stdin_data)
-    artifacts: Arc<tokio::sync::RwLock<HashMap<String, (String, Option<chrono::DateTime<chrono::Utc>>, Option<String>)>>>,
+    artifacts: Arc<
+        tokio::sync::RwLock<
+            HashMap<
+                String,
+                (
+                    String,
+                    Option<chrono::DateTime<chrono::Utc>>,
+                    Option<String>,
+                ),
+            >,
+        >,
+    >,
     // request_id -> proof_status
     proof_requests: Arc<tokio::sync::RwLock<HashMap<String, ProofRequestStatus>>>,
 }
@@ -76,6 +87,12 @@ struct ProofRequestStatus {
     public_inputs: Option<String>,
     generation_time_ms: Option<u64>,
     error: Option<String>,
+}
+
+impl Default for ArtifactStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ArtifactStore {
@@ -92,9 +109,14 @@ impl ArtifactStore {
         artifacts.insert(artifact_id, (upload_url, Some(expires_at), None));
     }
 
-    pub async fn get_artifact(&self, artifact_id: &str) -> Option<(String, Option<chrono::DateTime<chrono::Utc>>)> {
+    pub async fn get_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Option<(String, Option<chrono::DateTime<chrono::Utc>>)> {
         let artifacts = self.artifacts.read().await;
-        artifacts.get(artifact_id).map(|(url, expires, _)| (url.clone(), *expires))
+        artifacts
+            .get(artifact_id)
+            .map(|(url, expires, _)| (url.clone(), *expires))
     }
 
     pub async fn store_stdin(&self, artifact_id: &str, stdin_data: String) -> Result<(), String> {
@@ -109,7 +131,9 @@ impl ArtifactStore {
 
     pub async fn get_stdin(&self, artifact_id: &str) -> Option<String> {
         let artifacts = self.artifacts.read().await;
-        artifacts.get(artifact_id).and_then(|(_, _, stdin)| stdin.clone())
+        artifacts
+            .get(artifact_id)
+            .and_then(|(_, _, stdin)| stdin.clone())
     }
 
     pub async fn create_proof_request(&self, request_id: String, artifact_id: String) {
@@ -155,7 +179,7 @@ impl ArtifactStore {
 // Global artifact store (in production, use a database)
 use once_cell::sync::Lazy;
 
-static ARTIFACT_STORE: Lazy<ArtifactStore> = Lazy::new(|| ArtifactStore::new());
+static ARTIFACT_STORE: Lazy<ArtifactStore> = Lazy::new(ArtifactStore::new);
 
 /// POST /tee/artifact
 /// Create a stdin artifact and get upload URL
@@ -165,7 +189,9 @@ pub async fn create_artifact(
 ) -> impl IntoResponse {
     let artifact_id = Uuid::new_v4().to_string();
     let upload_url = format!("/api/v1/tee/artifact/{}/upload", artifact_id);
-    ARTIFACT_STORE.create_artifact(artifact_id.clone(), upload_url.clone()).await;
+    ARTIFACT_STORE
+        .create_artifact(artifact_id.clone(), upload_url.clone())
+        .await;
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
 
     (
@@ -180,11 +206,7 @@ pub async fn create_artifact(
 
 /// POST /tee/artifact/:artifact_id/upload
 /// Upload stdin data to artifact (called by frontend directly)
-pub async fn upload_stdin(
-    Path(artifact_id): Path<String>,
-    body: Body,
-) -> impl IntoResponse {
-
+pub async fn upload_stdin(Path(artifact_id): Path<String>, body: Body) -> impl IntoResponse {
     // Convert body to string
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(bytes) => bytes,
@@ -198,7 +220,7 @@ pub async fn upload_stdin(
             );
         }
     };
-    
+
     let stdin_data = match String::from_utf8(body_bytes.to_vec()) {
         Ok(data) => data,
         Err(e) => {
@@ -213,15 +235,13 @@ pub async fn upload_stdin(
     };
 
     match ARTIFACT_STORE.store_stdin(&artifact_id, stdin_data).await {
-        Ok(_) => {
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "success": true,
-                    "artifact_id": artifact_id
-                })),
-            )
-        }
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "artifact_id": artifact_id
+            })),
+        ),
         Err(e) => {
             tracing::error!(artifact_id = %artifact_id, error = %e, "Failed to store stdin");
             (
@@ -240,7 +260,6 @@ pub async fn request_proof(
     State(state): State<AppState>,
     Json(request): Json<RequestProofRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-
     // Validate artifact exists
     let artifact = ARTIFACT_STORE.get_artifact(&request.artifact_id).await;
     if artifact.is_none() {
@@ -291,7 +310,14 @@ pub async fn request_proof(
     tokio::spawn(async move {
         // Update status to processing
         ARTIFACT_STORE
-            .update_proof_status(&request_id_clone, "processing".to_string(), None, None, None, None)
+            .update_proof_status(
+                &request_id_clone,
+                "processing".to_string(),
+                None,
+                None,
+                None,
+                None,
+            )
             .await;
 
         // Parse stdin to extract private/public/outputs
@@ -362,7 +388,8 @@ pub async fn request_proof(
         };
 
         // Extract swap_params if present (optional for swap transactions)
-        let swap_params = stdin_json.get("swap_params")
+        let swap_params = stdin_json
+            .get("swap_params")
             .and_then(|sp| serde_json::to_string(sp).ok());
 
         // Generate proof
@@ -391,7 +418,6 @@ pub async fn request_proof(
                         None,
                     )
                     .await;
-
             }
             Err(e) => {
                 ARTIFACT_STORE
@@ -414,7 +440,6 @@ pub async fn request_proof(
         }
     });
 
-
     Ok((
         StatusCode::ACCEPTED,
         Json(RequestProofResponse {
@@ -429,29 +454,23 @@ pub async fn request_proof(
 pub async fn get_proof_status(
     Query(query): Query<ProofStatusQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-
     match ARTIFACT_STORE.get_proof_status(&query.request_id).await {
-        Some(status) => {
-            Ok((
-                StatusCode::OK,
-                Json(ProofStatusResponse {
-                    request_id: query.request_id,
-                    status: status.status,
-                    proof: status.proof,
-                    public_inputs: status.public_inputs,
-                    generation_time_ms: status.generation_time_ms,
-                    error: status.error,
-                }),
-            ))
-        }
-        None => {
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "Proof request not found"
-                })),
-            ))
-        }
+        Some(status) => Ok((
+            StatusCode::OK,
+            Json(ProofStatusResponse {
+                request_id: query.request_id,
+                status: status.status,
+                proof: status.proof,
+                public_inputs: status.public_inputs,
+                generation_time_ms: status.generation_time_ms,
+                error: status.error,
+            }),
+        )),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Proof request not found"
+            })),
+        )),
     }
 }
-

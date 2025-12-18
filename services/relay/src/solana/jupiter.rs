@@ -1,3 +1,10 @@
+use std::net::SocketAddr;
+
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
+use tracing::{debug, info, warn};
+
 /// Jupiter DEX Integration for SPL Token Swaps
 ///
 /// This module provides integration with Jupiter's swap aggregator API
@@ -17,12 +24,6 @@
 /// let tx = jupiter.swap(&quote, user_pubkey).await?;
 /// ```
 use crate::error::Error;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use tracing::{debug, info, warn};
 
 const JUPITER_QUOTE_API_V6: &str = "https://quote-api.jup.ag/v6";
 const DEFAULT_SLIPPAGE_BPS: u16 = 50; // 0.5%

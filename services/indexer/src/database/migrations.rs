@@ -1,5 +1,6 @@
-use crate::error::{IndexerError, Result};
 use sqlx::{Acquire, Executor, Pool, Postgres, Row};
+
+use crate::error::{IndexerError, Result};
 
 pub async fn run_migrations(pool: &Pool<Postgres>) -> Result<()> {
     tracing::info!("Running database migrations");
@@ -180,17 +181,15 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
                 in_function = false;
                 dollar_quote.clear();
             }
-        } else if in_string {
-            if ch == string_char {
-                // Check for escaped quotes
-                if i + 1 < chars.len() && chars[i + 1] == string_char {
-                    current_statement.push(ch);
-                    current_statement.push(ch);
-                    i += 2;
-                    continue;
-                } else {
-                    in_string = false;
-                }
+        } else if in_string && ch == string_char {
+            // Check for escaped quotes
+            if i + 1 < chars.len() && chars[i + 1] == string_char {
+                current_statement.push(ch);
+                current_statement.push(ch);
+                i += 2;
+                continue;
+            } else {
+                in_string = false;
             }
         }
 

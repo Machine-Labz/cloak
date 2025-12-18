@@ -1,4 +1,3 @@
-use crate::instructions::ScrambleRegistryInstruction;
 use five8_const::decode_32_const;
 use instructions::{
     consume_claim::process_consume_claim_instruction,
@@ -10,6 +9,8 @@ use pinocchio::{
     account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
+
+use crate::instructions::ScrambleRegistryInstruction;
 
 mod constants;
 mod error;

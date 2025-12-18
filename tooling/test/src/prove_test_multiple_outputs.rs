@@ -1,11 +1,11 @@
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
 use anyhow::Result;
-use bincode;
 use cloak_proof_extract::extract_groth16_260_sp1;
-use hex;
-use rand;
-use reqwest;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -15,8 +15,6 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
-use std::str::FromStr;
-use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
     check_cluster_health, ensure_user_funding, load_keypair, print_config, MerkleProof, TestConfig,
     SOL_TO_LAMPORTS,
@@ -445,7 +443,7 @@ async fn reset_indexer_database(indexer_url: &str) -> Result<()> {
     println!("   🔄 Resetting indexer database...");
 
     let reset_response = http_client
-        .post(&format!("{}/api/v1/admin/reset", indexer_url))
+        .post(format!("{}/api/v1/admin/reset", indexer_url))
         .send()
         .await;
 
@@ -477,7 +475,7 @@ async fn reset_relay_database() -> Result<()> {
 
     // Use docker exec to run SQL command in the postgres container
     let truncate_cmd = std::process::Command::new("docker")
-        .args(&[
+        .args([
             "exec",
             "cloak-postgres",
             "psql",
@@ -519,7 +517,7 @@ async fn deposit_to_indexer(indexer_url: &str, test_data: &mut TestData) -> Resu
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis(),
-        test_data.commitment[..8].to_string(),
+        &test_data.commitment[..8],
         rand::random::<u32>()
     );
 
@@ -541,7 +539,7 @@ async fn deposit_to_indexer(indexer_url: &str, test_data: &mut TestData) -> Resu
     };
 
     let deposit_response = http_client
-        .post(&format!("{}/api/v1/deposit", indexer_url))
+        .post(format!("{}/api/v1/deposit", indexer_url))
         .json(&deposit_request)
         .send()
         .await?;
@@ -572,7 +570,7 @@ async fn deposit_to_indexer(indexer_url: &str, test_data: &mut TestData) -> Resu
 async fn get_merkle_root(indexer_url: &str) -> Result<String> {
     let http_client = reqwest::Client::new();
     let merkle_response = http_client
-        .get(&format!("{}/api/v1/merkle/root", indexer_url))
+        .get(format!("{}/api/v1/merkle/root", indexer_url))
         .send()
         .await?;
 
@@ -585,7 +583,7 @@ async fn get_merkle_root(indexer_url: &str) -> Result<String> {
 async fn get_merkle_proof(indexer_url: &str, leaf_index: u32) -> Result<MerkleProof> {
     let http_client = reqwest::Client::new();
     let proof_response = http_client
-        .get(&format!(
+        .get(format!(
             "{}/api/v1/merkle/proof/{}",
             indexer_url, leaf_index
         ))
@@ -1108,7 +1106,7 @@ async fn generate_proof_via_tee(
     let public_inputs_bytes = proof_result.public_values.to_vec();
 
     let canonical_proof = extract_groth16_260_sp1(&proof_bundle)?;
-    let proof_hex = hex::encode(&canonical_proof);
+    let proof_hex = hex::encode(canonical_proof);
     let public_inputs_hex = hex::encode(&public_inputs_bytes);
 
     println!("   ✅ TEE proof generation completed");
@@ -1147,7 +1145,7 @@ fn generate_proof_locally(
     } = generate_proof_local(private_inputs, public_inputs, outputs)?;
 
     let canonical_proof = extract_groth16_260_sp1(&proof_bytes)?;
-    let proof_hex = hex::encode(&canonical_proof);
+    let proof_hex = hex::encode(canonical_proof);
     let public_inputs_hex = hex::encode(&public_inputs);
 
     Ok(ProofArtifacts {
@@ -1501,7 +1499,7 @@ async fn execute_withdraw_via_relay(
     let effective_fee_bps = if total_amount == 0 {
         0u16
     } else {
-        let bps = ((fee.saturating_mul(10_000)) + total_amount - 1) / total_amount;
+        let bps = (fee.saturating_mul(10_000)).div_ceil(total_amount);
         bps.min(u16::MAX as u64) as u16
     };
 

@@ -1,18 +1,18 @@
+use pinocchio::{
+    account_info::AccountInfo,
+    instruction::{Seed, Signer},
+    pubkey::{find_program_address, Pubkey},
+    sysvars::{rent::Rent, Sysvar},
+    ProgramResult,
+};
+use pinocchio_system::instructions::CreateAccount;
+
 use crate::{
     constants::ADMIN_AUTHORITY,
     error::ShieldPoolError,
     state::{CommitmentQueue, NullifierShard, Pool, RootsRing},
     ID,
 };
-use pinocchio::sysvars::rent::Rent;
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{Seed, Signer},
-    pubkey::{find_program_address, Pubkey},
-    sysvars::Sysvar,
-    ProgramResult,
-};
-use pinocchio_system::instructions::CreateAccount;
 
 #[inline(always)]
 pub fn process_initialize_instruction(

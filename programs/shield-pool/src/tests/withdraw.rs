@@ -1,5 +1,3 @@
-use blake3;
-use serde_json;
 use solana_sdk::{
     account::Account,
     instruction::{AccountMeta, Instruction},
@@ -69,7 +67,7 @@ fn test_withdraw_instruction() {
 
     // Outputs hash (32 bytes) - calculate based on recipient and amount
     let outputs_hash = blake3::hash(
-        &serde_json::json!([{
+        serde_json::json!([{
             "address": recipient.to_string(),
             "amount": recipient_amount
         }])

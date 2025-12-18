@@ -1,14 +1,13 @@
+use std::{sync::Arc, time::Duration};
+
 use anyhow::Result;
 use sp1_sdk::{network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1Stdin};
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::timeout;
 use tracing::info;
-
-use crate::config::Sp1TeeConfig;
-
 // Import the ELF from the existing zk-guest-sp1-host package
 use zk_guest_sp1_host::ELF;
+
+use crate::config::Sp1TeeConfig;
 
 /// SP1 TEE proof generation result
 #[derive(Debug)]
@@ -107,32 +106,39 @@ impl Sp1TeeClient {
             .map_err(|e| anyhow::anyhow!("Invalid public_inputs JSON: {}", e))?;
         let outputs_val: serde_json::Value = serde_json::from_str(outputs)
             .map_err(|e| anyhow::anyhow!("Invalid outputs JSON: {}", e))?;
-        
+
         let combined_json = if let Some(sp) = swap_params {
             // Parse swap_params to ensure it's valid JSON
-            let swap_params_val: serde_json::Value = serde_json::from_str(sp)
-                .map_err(|e| anyhow::anyhow!(
+            let swap_params_val: serde_json::Value = serde_json::from_str(sp).map_err(|e| {
+                anyhow::anyhow!(
                     "Invalid swap_params JSON: {}. Raw: {}",
                     e,
                     &sp[..std::cmp::min(200, sp.len())]
-                ))?;
-            
-            info!("📋 Parsed swap_params_val: {}", serde_json::to_string(&swap_params_val).unwrap_or_else(|_| "error".to_string()));
-            
+                )
+            })?;
+
+            info!(
+                "📋 Parsed swap_params_val: {}",
+                serde_json::to_string(&swap_params_val).unwrap_or_else(|_| "error".to_string())
+            );
+
             let json_obj = serde_json::json!({
                 "private": private_val,
                 "public": public_val,
                 "outputs": outputs_val,
                 "swap_params": swap_params_val
             });
-            
+
             // Verify swap_params is present in the final JSON
             if let Some(sp_in_json) = json_obj.get("swap_params") {
-                info!("✅ swap_params is present in combined_json: {}", serde_json::to_string(sp_in_json).unwrap_or_else(|_| "error".to_string()));
+                info!(
+                    "✅ swap_params is present in combined_json: {}",
+                    serde_json::to_string(sp_in_json).unwrap_or_else(|_| "error".to_string())
+                );
             } else {
                 tracing::error!("❌ swap_params is MISSING from combined_json!");
             }
-            
+
             json_obj
         } else {
             serde_json::json!({
@@ -141,10 +147,10 @@ impl Sp1TeeClient {
                 "outputs": outputs_val
             })
         };
-        
+
         let combined_input = serde_json::to_string(&combined_json)
             .map_err(|e| anyhow::anyhow!("Failed to serialize combined input: {}", e))?;
-        
+
         if let Some(sp) = swap_params {
             info!(
                 "📋 Combined input WITH swap_params (first 1000 chars): {}",

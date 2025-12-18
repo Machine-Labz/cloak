@@ -1,7 +1,7 @@
-use crate::config::Config;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{EnvFilter, Layer};
+
+use crate::config::Config;
 
 pub async fn init_logging(config: &Config) -> anyhow::Result<()> {
     // Check if CloudWatch is enabled via environment variables

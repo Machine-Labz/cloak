@@ -155,7 +155,7 @@ impl MiningEngine {
             attempts += 1;
 
             // Log progress every 1M attempts with better formatting
-            if attempts % 1_000_000 == 0 {
+            if attempts.is_multiple_of(1_000_000) {
                 let elapsed = start_time.elapsed();
                 let hash_rate = attempts as f64 / elapsed.as_secs_f64();
                 tracing::info!(
@@ -220,7 +220,7 @@ impl MiningEngine {
             attempts += 1;
 
             // Log progress every 1M attempts
-            if attempts % 1_000_000 == 0 {
+            if attempts.is_multiple_of(1_000_000) {
                 let elapsed = start_time.elapsed();
                 let hash_rate = attempts as f64 / elapsed.as_secs_f64();
                 tracing::info!(

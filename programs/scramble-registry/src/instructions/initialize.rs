@@ -1,14 +1,18 @@
-use crate::error::ScrambleError;
-use crate::state::{Miner, ScrambleRegistry};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::instruction::Signer;
-use pinocchio::program_error::ProgramError;
-use pinocchio::pubkey::{find_program_address, Pubkey};
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::rent::Rent;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{seeds, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    instruction::Signer,
+    program_error::ProgramError,
+    pubkey::{find_program_address, Pubkey},
+    seeds,
+    sysvars::{clock::Clock, rent::Rent, Sysvar},
+    ProgramResult,
+};
 use pinocchio_system::instructions::CreateAccount;
+
+use crate::{
+    error::ScrambleError,
+    state::{Miner, ScrambleRegistry},
+};
 
 /// Derive the registry PDA
 fn derive_registry_pda(program_id: &Pubkey) -> (Pubkey, u8) {
@@ -108,7 +112,7 @@ pub fn process_initialize_registry_instruction(
     }
 
     // Initialize registry data
-    let mut registry = ScrambleRegistry::from_account_info_unchecked(&registry_account);
+    let mut registry = ScrambleRegistry::from_account_info_unchecked(registry_account);
     registry.initialize(
         admin_authority.key(),
         &initial_difficulty,
@@ -180,7 +184,7 @@ pub fn process_register_miner_instruction(
     }
 
     // Initialize miner data
-    let mut miner = Miner::from_account_info_unchecked(&miner_account);
+    let mut miner = Miner::from_account_info_unchecked(miner_account);
     miner.initialize(miner_authority.key(), current_slot);
 
     Ok(())
