@@ -1,6 +1,8 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
 use tracing::info;
 use uuid::Uuid;
 
@@ -10,6 +12,7 @@ use crate::{
     db::repository::JobRepository,
     error::Error,
     planner::calculate_fee,
+    swap::SwapConfig,
     AppState,
 };
 use cloak_proof_extract::extract_groth16_260_sp1;
@@ -20,6 +23,8 @@ pub struct WithdrawRequest {
     pub policy: Policy,
     pub public_inputs: PublicInputs,
     pub proof_bytes: String, // base64 encoded
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub swap: Option<SwapConfig>, // optional swap configuration
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -46,13 +51,38 @@ pub async fn handle_withdraw(
     State(state): State<AppState>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
+    // Note: Not logging payload details for security (contains sensitive proof data)
     info!("Received withdraw request");
 
+    // Determine decimals based on MINT_ADDRESS environment variable
+    // If set and non-empty, assume SPL token (6 decimals for USDC)
+    // Otherwise assume native SOL (9 decimals)
+    let decimals = match std::env::var("MINT_ADDRESS") {
+        Ok(mint_str) if !mint_str.is_empty() => 6, // SPL tokens
+        _ => 9,                                    // Native SOL
+    };
+
     // Validate the request
-    validate_request(&payload)?;
+    validate_request(&payload, decimals)?;
+
+    // Validate swap config if present
+    if let Some(ref swap_config) = payload.swap {
+        swap_config.validate().map_err(Error::ValidationError)?;
+        info!(
+            "Swap requested: {} → {}, slippage {} bps",
+            std::env::var("MINT_ADDRESS").unwrap_or_else(|_| "SOL".to_string()),
+            swap_config.output_mint,
+            swap_config.slippage_bps
+        );
+    }
 
     let request_id = Uuid::new_v4();
-    info!("Processing withdraw request with ID: {}", request_id);
+    info!(
+        request_id = %request_id,
+        outputs_count = payload.outputs.len(),
+        // Note: Not logging amounts, addresses, or proof data for security
+        "Processing withdraw request"
+    );
 
     // Decode and validate proof bytes
     let proof_bundle = base64::engine::general_purpose::STANDARD
@@ -75,32 +105,75 @@ pub async fn handle_withdraw(
 
     // Parse public inputs
     // Strip "0x" prefix if present
-    let root_str = payload.public_inputs.root.strip_prefix("0x").unwrap_or(&payload.public_inputs.root);
-    let nf_str = payload.public_inputs.nf.strip_prefix("0x").unwrap_or(&payload.public_inputs.nf);
-    let outputs_hash_str = payload.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&payload.public_inputs.outputs_hash);
-    
+    let root_str = payload
+        .public_inputs
+        .root
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.root);
+    let nf_str = payload
+        .public_inputs
+        .nf
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.nf);
+    let outputs_hash_str = payload
+        .public_inputs
+        .outputs_hash
+        .strip_prefix("0x")
+        .unwrap_or(&payload.public_inputs.outputs_hash);
+
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
+        return Err(Error::ValidationError("Nullifier cannot be empty".to_string()));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError("Outputs hash cannot be empty".to_string()));
+    }
+
+    // Validate hex string lengths before decoding
+    if root_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Root must be 64 hex characters, got {}", root_str.len())
+        ));
+    }
+    if nf_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Nullifier must be 64 hex characters, got {}", nf_str.len())
+        ));
+    }
+    if outputs_hash_str.len() != 64 {
+        return Err(Error::ValidationError(
+            format!("Outputs hash must be 64 hex characters, got {}", outputs_hash_str.len())
+        ));
+    }
+
     let root_hash = hex::decode(root_str)
         .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
     let nullifier = hex::decode(nf_str)
         .map_err(|e| Error::ValidationError(format!("Invalid nullifier hex: {}", e)))?;
     let outputs_hash = hex::decode(outputs_hash_str)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
-    
-    // Validate lengths
+
+    // Validate decoded lengths (should always be 32 after validation above, but double-check)
     if root_hash.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Root must be 32 bytes, got {}", root_hash.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Root must be 32 bytes, got {}",
+            root_hash.len()
+        )));
     }
     if nullifier.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Nullifier must be 32 bytes, got {}", nullifier.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Nullifier must be 32 bytes, got {}",
+            nullifier.len()
+        )));
     }
     if outputs_hash.len() != 32 {
-        return Err(Error::ValidationError(
-            format!("Outputs hash must be 32 bytes, got {}", outputs_hash.len())
-        ));
+        return Err(Error::ValidationError(format!(
+            "Outputs hash must be 32 bytes, got {}",
+            outputs_hash.len()
+        )));
     }
 
     // Note: We no longer check for nullifier double-spend at queueing time.
@@ -120,18 +193,27 @@ pub async fn handle_withdraw(
     let effective_fee_bps = if payload.public_inputs.amount == 0 {
         0
     } else {
-        let expected_fee = calculate_fee(payload.public_inputs.amount);
+        let expected_fee = calculate_fee(payload.public_inputs.amount, decimals);
         ((expected_fee.saturating_mul(10_000)) + payload.public_inputs.amount - 1)
             / payload.public_inputs.amount
     };
+
+    // Create metadata object with outputs and optional swap config
+    let mut metadata = serde_json::json!({
+        "outputs": payload.outputs
+    });
+
+    if let Some(swap_config) = &payload.swap {
+        metadata["swap"] = serde_json::to_value(swap_config).map_err(|e| {
+            Error::InternalServerError(format!("Failed to serialize swap config: {}", e))
+        })?;
+    }
 
     let create_job = CreateJob {
         request_id,
         proof_bytes: proof_bytes.to_vec(),
         public_inputs: public_inputs_bytes,
-        outputs_json: serde_json::to_value(&payload.outputs).map_err(|e| {
-            Error::InternalServerError(format!("Failed to serialize outputs: {}", e))
-        })?,
+        outputs_json: metadata,
         fee_bps: effective_fee_bps as i16,
         root_hash,
         nullifier: nullifier.clone(),
@@ -145,7 +227,10 @@ pub async fn handle_withdraw(
     // It will be created by the worker AFTER the transaction succeeds on-chain
     // (see services/relay/src/worker/processor.rs:113-120)
 
-    info!("Withdraw request queued successfully: {}", request_id);
+    info!(
+        request_id = %request_id,
+        "Withdraw request queued successfully"
+    );
 
     // Create successful response
     let response = WithdrawResponse {
@@ -157,31 +242,38 @@ pub async fn handle_withdraw(
     Ok(Json(ApiResponse::success(response)))
 }
 
-fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
+fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error> {
     // Validate outputs
     if request.outputs.is_empty() {
-        return Err(Error::ValidationError("No outputs specified".to_string()));
+        return Err(Error::ValidationError("At least one output is required".to_string()));
     }
 
     if request.outputs.len() > 10 {
         return Err(Error::ValidationError(
-            "Too many outputs (max 10)".to_string(),
+            format!("Too many outputs: {} (max 10)", request.outputs.len())
         ));
     }
 
-    // Validate amounts
-    for output in &request.outputs {
+    // Validate amounts and recipient addresses
+    for (i, output) in request.outputs.iter().enumerate() {
         if output.amount == 0 {
             return Err(Error::ValidationError(
-                "Output amount cannot be zero".to_string(),
+                format!("Output {} amount cannot be zero", i)
             ));
         }
 
-        if output.recipient.len() < 32 {
+        // Validate recipient address using Solana Pubkey validation
+        if output.recipient.is_empty() {
             return Err(Error::ValidationError(
-                "Invalid recipient address".to_string(),
+                format!("Output {} recipient address cannot be empty", i)
             ));
         }
+        
+        // Use Pubkey::from_str to validate the address format (base58 encoding)
+        Pubkey::from_str(&output.recipient)
+            .map_err(|e| Error::ValidationError(
+                format!("Output {} invalid Solana address '{}': {}", i, output.recipient, e)
+            ))?;
     }
 
     // Validate public inputs
@@ -189,18 +281,36 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
         return Err(Error::ValidationError("Amount cannot be zero".to_string()));
     }
 
-    let expected_fee = calculate_fee(request.public_inputs.amount);
+    // Calculate expected fee based on mode:
+    // - For swap requests, use variable-only fee (matches SPL swap economics)
+    // - For regular SOL withdrawals (no swap), use full fee (fixed + variable)
+    //   to stay consistent with the SP1 circuit and validator_agent API.
+    let expected_fee = if request.swap.is_some() {
+        // Swap mode: same semantics as planner::calculate_fee (variable 0.5%)
+        calculate_fee(request.public_inputs.amount, decimals)
+    } else {
+        // Non-swap withdrawals: fixed 0.0025 SOL + variable 0.5%
+        // This matches zk-guest-sp1/guest/src/encoding.rs::calculate_fee
+        // and services/relay/src/api/validator_agent.rs::calculate_fee.
+        let fixed_fee: u64 = 2_500_000; // 0.0025 SOL in lamports
+        let variable_fee = calculate_fee(request.public_inputs.amount, decimals);
+        fixed_fee.saturating_add(variable_fee)
+    };
     if expected_fee == 0 {
         return Err(Error::ValidationError(
             "Fee calculation resulted in zero; amount may be too small".to_string(),
         ));
     }
 
-    let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
-    if total_output_amount + expected_fee != request.public_inputs.amount {
-        return Err(Error::ValidationError(
-            "Conservation check failed: outputs + fee != amount".to_string(),
-        ));
+    // For swap mode, skip conservation check since outputs will be in swapped tokens, not SOL
+    // For regular mode, verify outputs + fee = amount
+    if request.swap.is_none() {
+        let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
+        if total_output_amount + expected_fee != request.public_inputs.amount {
+            return Err(Error::ValidationError(
+                "Conservation check failed: outputs + fee != amount".to_string(),
+            ));
+        }
     }
 
     let expected_fee_bps = if request.public_inputs.amount == 0 {
@@ -231,25 +341,49 @@ fn validate_request(request: &WithdrawRequest) -> Result<(), Error> {
     }
 
     // Validate hex strings (strip 0x prefix if present for validation)
-    let root_str = request.public_inputs.root.strip_prefix("0x").unwrap_or(&request.public_inputs.root);
-    let nf_str = request.public_inputs.nf.strip_prefix("0x").unwrap_or(&request.public_inputs.nf);
-    let outputs_hash_str = request.public_inputs.outputs_hash.strip_prefix("0x").unwrap_or(&request.public_inputs.outputs_hash);
-    
+    let root_str = request
+        .public_inputs
+        .root
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.root);
+    let nf_str = request
+        .public_inputs
+        .nf
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.nf);
+    let outputs_hash_str = request
+        .public_inputs
+        .outputs_hash
+        .strip_prefix("0x")
+        .unwrap_or(&request.public_inputs.outputs_hash);
+
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
+        return Err(Error::ValidationError("Nullifier cannot be empty".to_string()));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError("Outputs hash cannot be empty".to_string()));
+    }
+
+    // Validate hex string lengths
     if root_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Root must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Root must be 64 hex characters (or 66 with 0x prefix), got {}", root_str.len())
         ));
     }
 
     if nf_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Nullifier must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Nullifier must be 64 hex characters (or 66 with 0x prefix), got {}", nf_str.len())
         ));
     }
 
     if outputs_hash_str.len() != 64 {
         return Err(Error::ValidationError(
-            "Outputs hash must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            format!("Outputs hash must be 64 hex characters (or 66 with 0x prefix), got {}", outputs_hash_str.len())
         ));
     }
 
@@ -294,9 +428,10 @@ mod tests {
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
+            swap: None,
         };
 
-        assert!(validate_request(&valid_request).is_ok());
+        assert!(validate_request(&valid_request, 9).is_ok());
     }
 
     #[test]
@@ -312,9 +447,10 @@ mod tests {
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
+            swap: None,
         };
 
-        assert!(validate_request(&invalid_request).is_err());
+        assert!(validate_request(&invalid_request, 9).is_err());
     }
 
     #[test]
@@ -333,9 +469,10 @@ mod tests {
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
+            swap: None,
         };
 
-        assert!(validate_request(&invalid_request).is_err());
+        assert!(validate_request(&invalid_request, 9).is_err());
     }
 
     #[test]
@@ -354,9 +491,10 @@ mod tests {
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: base64::encode(vec![0u8; 256]),
+            swap: None,
         };
 
-        assert!(validate_request(&invalid_request).is_err());
+        assert!(validate_request(&invalid_request, 9).is_err());
     }
 
     #[test]
@@ -375,8 +513,9 @@ mod tests {
                 outputs_hash: "2".repeat(64),
             },
             proof_bytes: "".to_string(), // Empty base64
+            swap: None,
         };
 
-        assert!(validate_request(&invalid_request).is_err());
+        assert!(validate_request(&invalid_request, 9).is_err());
     }
 }

@@ -12,8 +12,10 @@ fn test_deposit_instruction() {
     let (program_id, mollusk) = setup();
 
     let user = Pubkey::new_from_array([0x11u8; 32]);
-    let pool = Pubkey::new_from_array([0x22u8; 32]);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+    let mint = Pubkey::default(); // Native SOL
+    let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 0u64;
     let sk_spend = [0x42u8; 32];
@@ -60,7 +62,7 @@ fn test_deposit_instruction() {
             pool,
             Account {
                 lamports: 0,
-                data: vec![],
+                data: vec![0u8; 32], // Pool::SIZE - all zeros = native SOL (Pubkey::default())
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,
@@ -127,8 +129,10 @@ fn test_deposit_insufficient_funds() {
     let (program_id, mollusk) = setup();
 
     let user = Pubkey::new_from_array([0x11u8; 32]);
-    let pool = Pubkey::new_from_array([0x22u8; 32]);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+    let mint = Pubkey::default(); // Native SOL
+    let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 2_000_000_000u64;
     let leaf_commit = [0x42u8; 32];
@@ -166,7 +170,7 @@ fn test_deposit_insufficient_funds() {
             pool,
             Account {
                 lamports: 0,
-                data: vec![],
+                data: vec![0u8; 32], // Pool::SIZE - all zeros = native SOL (Pubkey::default())
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,
@@ -206,8 +210,10 @@ fn test_deposit_duplicate_commitment() {
     let (program_id, mollusk) = setup();
 
     let user = Pubkey::new_from_array([0x91u8; 32]);
-    let pool = Pubkey::new_from_array([0x22u8; 32]);
-    let (commitments_log, _) = Pubkey::find_program_address(&[b"commitments"], &program_id);
+    let mint = Pubkey::default(); // Native SOL
+    let (pool, _) = Pubkey::find_program_address(&[b"pool", mint.as_ref()], &program_id);
+    let (commitments_log, _) =
+        Pubkey::find_program_address(&[b"commitments", mint.as_ref()], &program_id);
 
     let amount = 0u64;
     let commitment = [0xAAu8; 32];
@@ -245,7 +251,7 @@ fn test_deposit_duplicate_commitment() {
             pool,
             Account {
                 lamports: 0,
-                data: vec![],
+                data: vec![0u8; 32], // Pool::SIZE - all zeros = native SOL (Pubkey::default())
                 owner: program_id,
                 executable: false,
                 rent_epoch: 0,

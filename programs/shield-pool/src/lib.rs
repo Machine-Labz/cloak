@@ -9,7 +9,7 @@ use pinocchio::{
 mod constants;
 mod error;
 pub mod instructions;
-mod state;
+pub mod state;
 
 pub use state::CommitmentQueue;
 
@@ -48,6 +48,21 @@ pub fn process_instruction(
         }
         ShieldPoolInstruction::Initialize => {
             initialize::process_initialize_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::WithdrawSwap => {
+            withdraw_swap::process_withdraw_swap_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::ExecuteSwap => {
+            execute_swap::process_execute_swap_instruction(accounts, instruction_data)
+        }
+        ShieldPoolInstruction::ReleaseSwapFunds => {
+            release_swap_funds::process_release_swap_funds(accounts)
+        }
+        ShieldPoolInstruction::ExecuteSwapViaOrca => {
+            execute_swap_via_orca::process_execute_swap_via_orca(program_id, accounts, instruction_data)
+        }
+        ShieldPoolInstruction::PrepareSwapSol => {
+            prepare_swap_sol::process_prepare_swap_sol(program_id, accounts)
         }
     }
 }

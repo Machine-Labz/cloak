@@ -11,6 +11,11 @@ members = [
     "services/relay",
     "tooling/test",
 ]
+exclude = [
+    "no-std-svm-merkle-tree",
+    "no-std-svm-merkle-tree-blake3",
+    "merkle-bench",
+]
 resolver = "2"
 
 [workspace.package]
@@ -29,9 +34,11 @@ description = "Cloak - Privacy protocol for Solana"
 
 [workspace.dependencies]
 # SP1 dependencies
-sp1-sdk = { version = "5.2.1", default-features = false, features = [] }
-sp1-zkvm = "5.2.1"
-sp1-build = { version = "5.2.1", default-features = false, features = [] }
+# NOTE: Version must match exactly between all developers for consistent vkey_hash
+# Always commit Cargo.lock to ensure everyone uses the same resolved versions
+sp1-sdk = { version = "5.2.3", default-features = false, features = [] }
+sp1-zkvm = "5.2.3"
+sp1-build = { version = "5.2.3", default-features = false, features = [] }
 
 # Serialization
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }
@@ -68,7 +75,7 @@ pinocchio-system = "0.3.0"
 five8_const = "0.1.4"
 
 # SP1 Solana verifier dependencies
-sp1-solana = { git = "https://github.com/succinctlabs/sp1-solana" }
+sp1-solana = { git = "https://github.com/succinctlabs/sp1-solana", branch = "master" }
 groth16-solana = "0.2.0"
 num-bigint = "0.4.6"
 sha2 = "0.10.9"

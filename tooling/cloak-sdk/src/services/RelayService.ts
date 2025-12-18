@@ -173,6 +173,109 @@ export class RelayService {
   }
 
   /**
+   * Submit a swap transaction via relay
+   *
+   * Similar to submitWithdraw but includes swap parameters for token swaps.
+   * The relay service will validate the proof, execute the swap, pay for fees,
+   * and submit the transaction on-chain.
+   *
+   * @param params - Swap parameters
+   * @param onStatusUpdate - Optional callback for status updates
+   * @returns Transaction signature when completed
+   *
+   * @example
+   * ```typescript
+   * const signature = await relay.submitSwap({
+   *   proof: proofHex,
+   *   publicInputs: { root, nf, outputs_hash, amount },
+   *   outputs: [{ recipient: addr, amount: lamports }],
+   *   feeBps: 50,
+   *   swap: {
+   *     output_mint: tokenMint.toBase58(),
+   *     slippage_bps: 100,
+   *     min_output_amount: minAmount
+   *   }
+   * }, (status) => console.log(`Status: ${status}`));
+   * console.log(`Transaction: ${signature}`);
+   * ```
+   */
+  async submitSwap(
+    params: {
+      proof: string;
+      publicInputs: {
+        root: string;
+        nf: string;
+        outputs_hash: string;
+        amount: number;
+      };
+      outputs: Array<{ recipient: string; amount: number }>;
+      feeBps: number;
+      swap: {
+        output_mint: string;
+        slippage_bps: number;
+        min_output_amount: number;
+      };
+    },
+    onStatusUpdate?: (status: string) => void
+  ): Promise<string> {
+    // Convert proof from hex to base64
+    const proofBytes = hexToBytes(params.proof);
+    const proofBase64 = this.bytesToBase64(proofBytes);
+
+    // Prepare request body
+    const requestBody = {
+      outputs: params.outputs,
+      swap: params.swap,
+      policy: {
+        fee_bps: params.feeBps,
+      },
+      public_inputs: {
+        root: params.publicInputs.root,
+        nf: params.publicInputs.nf,
+        amount: params.publicInputs.amount,
+        fee_bps: params.feeBps,
+        outputs_hash: params.publicInputs.outputs_hash,
+      },
+      proof_bytes: proofBase64,
+    };
+
+    // Submit swap
+    const response = await fetch(`${this.baseUrl}/withdraw`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `${response.status} ${response.statusText}`;
+      try {
+        const errorText = await response.text();
+        errorMessage = errorText || errorMessage;
+      } catch {
+        // Ignore parse errors
+      }
+      throw new Error(`Relay swap failed: ${errorMessage}`);
+    }
+
+    const json = (await response.json()) as any;
+
+    if (!json.success) {
+      throw new Error(json.error || "Relay swap failed");
+    }
+
+    const requestId: string | undefined = json.data?.request_id;
+
+    if (!requestId) {
+      throw new Error("Relay response missing request_id");
+    }
+
+    // Poll for completion
+    return this.pollForCompletion(requestId, onStatusUpdate);
+  }
+
+  /**
    * Get transaction status
    *
    * @param requestId - Request ID from previous submission

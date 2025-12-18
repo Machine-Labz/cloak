@@ -5,7 +5,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use super::SolanaClient;
 use crate::config::SolanaConfig;
@@ -49,6 +49,13 @@ impl RpcSolanaClient {
 
 #[async_trait]
 impl SolanaClient for RpcSolanaClient {
+    async fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, Error> {
+        self.client
+            .get_minimum_balance_for_rent_exemption(data_len)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
+    }
+
     async fn get_latest_blockhash(&self) -> Result<solana_sdk::hash::Hash, Error> {
         self.client
             .get_latest_blockhash()
@@ -60,7 +67,6 @@ impl SolanaClient for RpcSolanaClient {
         &self,
         transaction: &Transaction,
     ) -> Result<Signature, Error> {
-
         // First send the transaction
         let signature = self
             .client
@@ -77,18 +83,23 @@ impl SolanaClient for RpcSolanaClient {
                 Error::InternalServerError(format!("send_transaction failed: {}", e))
             })?;
 
-
         // Then confirm it with retries
         let mut retries = 0;
-        const MAX_CONFIRMATION_RETRIES: u32 = 30; // 30 * 2s = 60s max wait
-        const CONFIRMATION_DELAY: Duration = Duration::from_secs(2);
+        const MAX_CONFIRMATION_RETRIES: u32 = 30; // 30 * 4s = 120s max wait
+        const CONFIRMATION_DELAY: Duration = Duration::from_secs(4);
 
         while retries < MAX_CONFIRMATION_RETRIES {
+            let blockhash = self
+                .client
+                .get_latest_blockhash()
+                .await
+                .map_err(|e| Error::InternalServerError(format!("Failed to get latest blockhash: {}", e)))?;
+            
             match self
                 .client
                 .confirm_transaction_with_spinner(
                     &signature,
-                    &self.client.get_latest_blockhash().await.unwrap(),
+                    &blockhash,
                     self.commitment,
                 )
                 .await
@@ -137,22 +148,56 @@ impl SolanaClient for RpcSolanaClient {
             .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 
-    async fn check_nullifier_exists(&self, nullifier_shard: &Pubkey, nullifier: &[u8]) -> Result<bool, Error> {
+    async fn check_nullifier_exists(
+        &self,
+        nullifier_shard: &Pubkey,
+        nullifier: &[u8],
+    ) -> Result<bool, Error> {
         // Fetch the nullifier shard account data
         match self.client.get_account_data(nullifier_shard).await {
             Ok(data) => {
-                // The nullifier shard stores nullifiers as a set of 32-byte hashes
+                // The nullifier shard layout is:
+                // [count: u32 (4 bytes)][nullifier0: 32 bytes][nullifier1: 32 bytes]...
                 // Check if our nullifier exists in the account data
                 if nullifier.len() != 32 {
-                    return Err(Error::ValidationError("Nullifier must be 32 bytes".to_string()));
+                    return Err(Error::ValidationError(
+                        "Nullifier must be 32 bytes".to_string(),
+                    ));
                 }
 
-                // Search for the nullifier in the account data
-                // Account data structure depends on the on-chain program implementation
-                // For now, we'll do a simple search through 32-byte chunks
-                for chunk in data.chunks_exact(32) {
-                    if chunk == nullifier {
-                        return Ok(true);
+                // Need at least 4 bytes for count
+                if data.len() < 4 {
+                    return Ok(false);
+                }
+
+                // Read count (first 4 bytes, little-endian)
+                let count = u32::from_le_bytes([
+                    data[0], data[1], data[2], data[3],
+                ]) as usize;
+
+                // Check if we have enough data for all nullifiers
+                let expected_size = 4 + (count * 32);
+                if data.len() < expected_size {
+                    // Account data is incomplete, but we can still check what we have
+                    warn!(
+                        "Nullifier shard account data incomplete: expected {} bytes, got {}",
+                        expected_size,
+                        data.len()
+                    );
+                }
+
+                // Search only in the nullifier section (skip first 4 bytes)
+                // Only check up to the count
+                let nullifier_section = &data[4..];
+                let max_check = std::cmp::min(count, nullifier_section.len() / 32);
+                
+                for i in 0..max_check {
+                    let offset = i * 32;
+                    if offset + 32 <= nullifier_section.len() {
+                        let chunk = &nullifier_section[offset..offset + 32];
+                        if chunk == nullifier {
+                            return Ok(true);
+                        }
                     }
                 }
 
@@ -163,10 +208,20 @@ impl SolanaClient for RpcSolanaClient {
                 if e.to_string().contains("AccountNotFound") {
                     Ok(false)
                 } else {
-                    Err(Error::InternalServerError(format!("Failed to check nullifier: {}", e)))
+                    Err(Error::InternalServerError(format!(
+                        "Failed to check nullifier: {}",
+                        e
+                    )))
                 }
             }
         }
+    }
+
+    async fn get_account(&self, pubkey: &Pubkey) -> Result<solana_sdk::account::Account, Error> {
+        self.client
+            .get_account(pubkey)
+            .await
+            .map_err(|e| Error::InternalServerError(e.to_string()))
     }
 }
 
@@ -181,6 +236,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -198,6 +254,7 @@ mod tests {
             rpc_url: "http://localhost:8899".to_string(),
             ws_url: "ws://localhost:8900".to_string(),
             program_id: "11111111111111111111111111111111".to_string(),
+            mint_address: None,
             withdraw_authority: None,
             priority_micro_lamports: 1000,
             jito_tip_lamports: 0,
@@ -225,6 +282,7 @@ mod tests {
             treasury_address: Some("11111111111111111111111111111111".to_string()),
             roots_ring_address: Some("11111111111111111111111111111111".to_string()),
             nullifier_shard_address: Some("11111111111111111111111111111111".to_string()),
+            mint_address: None, // add spl address we wanat to
         };
 
         // Test commitment parsing

@@ -282,6 +282,15 @@ export interface SP1ProofInputs {
     address: string;
     amount: number;
   }>;
+  /**
+   * Optional swap parameters for token swaps
+   * When provided, the proof will be for a swap transaction
+   */
+  swapParams?: {
+    output_mint: string;
+    recipient_ata: string;
+    min_output_amount: number;
+  };
 }
 
 /**
@@ -338,4 +347,45 @@ export interface ScannedNote extends CloakNote {
   
   /** Whether this note has been spent (nullifier check) */
   isSpent?: boolean;
+}
+
+/**
+ * Swap parameters for token swaps
+ */
+export interface SwapParams {
+  /** Output token mint address */
+  output_mint: string;
+  /** Slippage tolerance in basis points (e.g., 100 = 1%) */
+  slippage_bps: number;
+  /** Minimum output amount in token's smallest unit */
+  min_output_amount: number;
+}
+
+/**
+ * Options for swap operation
+ */
+export interface SwapOptions extends TransferOptions {
+  /** Output token mint address */
+  outputMint: string;
+  /** Slippage tolerance in basis points (default: 100 = 1%) */
+  slippageBps?: number;
+  /** Minimum output amount (will be calculated from quote if not provided) */
+  minOutputAmount?: number;
+  /** Optional callback to get swap quote */
+  getQuote?: (amountLamports: number, outputMint: string, slippageBps: number) => Promise<{
+    outAmount: number;
+    minOutputAmount: number;
+  }>;
+}
+
+/**
+ * Result from a swap operation
+ */
+export interface SwapResult extends TransferResult {
+  /** Output token mint address */
+  outputMint: string;
+  /** Minimum output amount that was guaranteed */
+  minOutputAmount: number;
+  /** Actual output amount received (may be higher than min) */
+  actualOutputAmount?: number;
 }

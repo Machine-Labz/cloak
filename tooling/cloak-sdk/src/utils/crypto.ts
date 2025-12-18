@@ -102,6 +102,51 @@ export function computeOutputsHash(
 }
 
 /**
+ * Compute outputs hash for swap transactions
+ *
+ * Formula: Blake3(output_mint || recipient_ata || min_output_amount || amount)
+ * where:
+ * - output_mint: 32 bytes (token mint address)
+ * - recipient_ata: 32 bytes (associated token account)
+ * - min_output_amount: 8 bytes (little-endian u64)
+ * - amount: 8 bytes (little-endian u64, note amount)
+ *
+ * @param outputMint - Output token mint address
+ * @param recipientAta - Recipient's associated token account
+ * @param minOutputAmount - Minimum output amount in token's smallest unit
+ * @param amount - Note amount in lamports
+ * @returns Outputs hash (32 bytes)
+ */
+export function computeSwapOutputsHash(
+  outputMint: PublicKey,
+  recipientAta: PublicKey,
+  minOutputAmount: number,
+  amount: number
+): Uint8Array {
+  // Total size: 32 (mint) + 32 (ata) + 8 (min_out) + 8 (amount) = 80 bytes
+  const concat = new Uint8Array(80);
+  
+  // Output mint (32 bytes)
+  concat.set(outputMint.toBytes(), 0);
+  
+  // Recipient ATA (32 bytes)
+  concat.set(recipientAta.toBytes(), 32);
+  
+  // Min output amount as little-endian u64 (8 bytes)
+  const minOutBytes = new Uint8Array(8);
+  new DataView(minOutBytes.buffer).setBigUint64(0, BigInt(minOutputAmount), true);
+  concat.set(minOutBytes, 64);
+  
+  // Note amount as little-endian u64 (8 bytes)
+  const amountBytes = new Uint8Array(8);
+  new DataView(amountBytes.buffer).setBigUint64(0, BigInt(amount), true);
+  concat.set(amountBytes, 72);
+  
+  // Hash to get outputs hash
+  return blake3(concat);
+}
+
+/**
  * Convert hex string to Uint8Array
  *
  * @param hex - Hex string (with or without 0x prefix)

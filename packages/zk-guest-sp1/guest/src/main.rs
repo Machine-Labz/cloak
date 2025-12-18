@@ -6,7 +6,7 @@ use sp1_zkvm::io;
 
 mod encoding;
 
-use encoding::*;
+use encoding::{SwapParams, *};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PrivateInputs {
@@ -35,6 +35,9 @@ struct CircuitInputs {
     pub private: PrivateInputs,
     pub public: PublicInputs,
     pub outputs: Vec<Output>,
+    /// Optional swap parameters for swap-mode withdrawals
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub swap_params: Option<SwapParams>,
 }
 
 // Custom serde module for hex strings
@@ -66,8 +69,8 @@ pub fn main() {
     let input_json = io::read::<String>();
 
     // Parse the input
-    let inputs: CircuitInputs =
-        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
+    let inputs: CircuitInputs = serde_json::from_str(&input_json)
+        .expect("Failed to parse input JSON");
 
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
@@ -113,22 +116,68 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     }
 
     // Constraint 5: sum(outputs) + fee(amount) == amount
-    // Fee is fixed in the program, so we calculate it directly
+    // For swap mode: outputs should be empty (all goes to swap)
+    // For regular mode: outputs + fee = amount
     let outputs_sum: u64 = outputs.iter().map(|o| o.amount).sum();
     let fee = calculate_fee(private.amount);
-    let total_spent = outputs_sum + fee;
 
-    if total_spent != private.amount {
-        return Err(anyhow!(
-            "Amount conservation failed: outputs({}) + fee({}) != amount({})",
-            outputs_sum,
-            fee,
-            private.amount
-        ));
+    if inputs.swap_params.is_some() {
+        // Swap mode: verify swap constraints
+        if outputs_sum != 0 {
+            return Err(anyhow!(
+                "Swap mode requires zero outputs, got outputs_sum = {}",
+                outputs_sum
+            ));
+        }
+
+        // Compute remaining amount after fee
+        let swap_amount = private.amount.checked_sub(fee)
+            .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
+
+        // Verify swap parameters if present
+        if let Some(ref swap_params) = inputs.swap_params {
+            if swap_params.min_output_amount > swap_amount {
+                return Err(anyhow!(
+                    "Min output {} exceeds swap amount {}",
+                    swap_params.min_output_amount,
+                    swap_amount
+                ));
+            }
+        }
+
+        // Verify amount conservation: swap_amount + fee = amount
+        if swap_amount + fee != private.amount {
+            return Err(anyhow!(
+                "Swap mode amount conservation failed: swap_amount ({}) + fee ({}) != deposit ({})",
+                swap_amount,
+                fee,
+                private.amount
+            ));
+        }
+    } else {
+        // Regular mode: verify conservation law
+        let total_spent = outputs_sum + fee;
+        if total_spent != private.amount {
+            return Err(anyhow!(
+                "Amount conservation failed: outputs({}) + fee({}) != amount({})",
+                outputs_sum,
+                fee,
+                private.amount
+            ));
+        }
     }
 
     // Constraint 6: H(serialize(outputs)) == outputs_hash
-    let computed_outputs_hash = compute_outputs_hash(outputs);
+    // For swap mode: outputs_hash = H(output_mint || recipient_ata || min_output_amount || public_amount)
+    // For regular mode: outputs_hash = H(output[0] || output[1] || ... || output[n-1])
+    let computed_outputs_hash = if let Some(ref swap_params) = inputs.swap_params {
+        // Swap mode: compute outputs_hash from swap parameters
+        compute_swap_outputs_hash(swap_params, public.amount)
+    } else {
+        // Regular mode: compute outputs_hash from outputs array
+        compute_outputs_hash(outputs)
+    };
+
     if computed_outputs_hash != public.outputs_hash {
         return Err(anyhow!("Outputs hash mismatch"));
     }
@@ -190,6 +239,7 @@ mod tests {
                 amount,
             },
             outputs,
+            swap_params: None, // Regular mode (not swap)
         }
     }
 

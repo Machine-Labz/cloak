@@ -20,7 +20,7 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@cloak/sdk": ["./src/index.ts"]
+      "@cloaklabz/sdk": ["./src/index.ts"]
     }
   },
   "include": ["src/**/*", "examples/**/*"],

@@ -235,7 +235,9 @@ impl ArtifactManager {
         let vk_path = self.get_artifact_path(version, "verification.key");
 
         // Create version directory if it doesn't exist
-        let version_dir = guest_elf_path.parent().unwrap();
+        let version_dir = guest_elf_path
+            .parent()
+            .ok_or_else(|| IndexerError::artifact("Invalid artifact path: no parent directory".to_string()))?;
         fs::create_dir_all(version_dir).await?;
 
         // Create placeholder guest ELF (dummy binary data)

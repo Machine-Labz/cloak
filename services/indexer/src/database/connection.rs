@@ -13,9 +13,7 @@ impl Database {
     pub async fn new(config: &Config) -> Result<Self> {
         let database_url = config.database_url();
 
-        tracing::info!(
-            "Connecting to database"
-        );
+        tracing::info!("Connecting to database");
 
         // Add connection timeout to prevent hanging
         let connection_timeout = Duration::from_secs(10);
@@ -25,7 +23,7 @@ impl Database {
             PgPoolOptions::new()
                 .max_connections(config.database.max_connections)
                 .min_connections(config.database.min_connections)
-                .acquire_timeout(Duration::from_secs(5))
+                .acquire_timeout(Duration::from_secs(30)) // Increased from 5s to 30s to handle pool exhaustion
                 .idle_timeout(Duration::from_secs(600))
                 .max_lifetime(Duration::from_secs(1800))
                 .connect(&database_url),
@@ -33,9 +31,7 @@ impl Database {
         .await
         .map_err(|_| {
             tracing::error!("Database connection timeout after {:?}", connection_timeout);
-            tracing::error!(
-                "Make sure PostgreSQL is running",
-            );
+            tracing::error!("Make sure PostgreSQL is running",);
             IndexerError::internal("Database connection timeout")
         })?
         .map_err(|e| {

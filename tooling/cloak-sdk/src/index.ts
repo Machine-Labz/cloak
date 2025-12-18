@@ -28,6 +28,9 @@ export type {
   DepositStatus,
   ScanNotesOptions,
   ScannedNote,
+  SwapOptions,
+  SwapParams,
+  SwapResult,
 } from "./core/types";
 
 // Export CloakError
@@ -92,6 +95,7 @@ export {
   generateCommitment,
   computeNullifier,
   computeOutputsHash,
+  computeSwapOutputsHash,
   hexToBytes,
   bytesToHex,
   randomBytes,
@@ -137,6 +141,10 @@ export {
 
 // Service clients
 export { IndexerService } from "./services/IndexerService";
+// Artifact-based prover (recommended - private inputs never pass through backend)
+export { ArtifactProverService } from "./services/ArtifactProverService";
+export type { ArtifactProofGenerationOptions } from "./services/ArtifactProverService";
+// Legacy prover (deprecated - sends private inputs to backend)
 export { ProverService } from "./services/ProverService";
 export type { ProofGenerationOptions } from "./services/ProverService";
 export { RelayService } from "./services/RelayService";
@@ -166,6 +174,10 @@ export {
   validateDepositParams,
 } from "./solana/instructions";
 export type { DepositInstructionParams } from "./solana/instructions";
+
+// PDA utilities
+export { getShieldPoolPDAs } from "./utils/pda";
+export type { ShieldPoolPDAs } from "./utils/pda";
 
 // Version
 export const VERSION = "0.1.0";

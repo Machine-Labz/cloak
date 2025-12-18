@@ -91,7 +91,37 @@ pub fn compute_outputs_hash(outputs: &[Output]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
+/// Swap-specific parameters for computing outputs_hash in swap mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwapParams {
+    /// Output token mint address (e.g., USDC)
+    #[serde(with = "address_serde")]
+    pub output_mint: [u8; 32],
+
+    /// Recipient's associated token account for the output mint
+    #[serde(with = "address_serde")]
+    pub recipient_ata: [u8; 32],
+
+    /// Minimum output amount (slippage protection)
+    pub min_output_amount: u64,
+}
+
+/// Compute swap-mode outputs hash: H(output_mint || recipient_ata || min_output_amount || public_amount)
+/// This is used for swap withdrawals where we withdraw SOL and swap it for another token
+pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(&swap_params.output_mint);
+    hasher.update(&swap_params.recipient_ata);
+    hasher.update(&serialize_u64_le(swap_params.min_output_amount));
+    hasher.update(&serialize_u64_le(public_amount));
+    *hasher.finalize().as_bytes()
+}
+
 pub fn calculate_fee(amount: u64) -> u64 {
+    // Fee structure:
+    // - For SOL withdrawals: Fixed (0.0025 SOL) + Variable (0.5%)
+    // - For SPL swaps: Variable fee (0.5%) is deducted from withdrawn SOL, fixed fee paid separately
+    // Since the circuit doesn't distinguish, we use the full fee (fixed + variable) for all cases
     let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (amount * 5) / 1_000; // 0.5% = 5/1000
     fixed_fee + variable_fee
@@ -290,5 +320,62 @@ mod tests {
         let hex_addr_prefixed = format!("0x{}", hex_addr);
         let parsed_hex_prefixed = parse_address(&hex_addr_prefixed).unwrap();
         assert_eq!(parsed_hex, parsed_hex_prefixed);
+    }
+
+    #[test]
+    fn test_swap_outputs_hash() {
+        // Test swap-mode outputs_hash computation
+        let swap_params = SwapParams {
+            output_mint: [0xAAu8; 32],
+            recipient_ata: [0xBBu8; 32],
+            min_output_amount: 1_000_000, // 1 USDC (6 decimals)
+        };
+        let public_amount = 3_000_000_000u64; // 3 SOL
+
+        let hash1 = compute_swap_outputs_hash(&swap_params, public_amount);
+        assert_eq!(hash1.len(), 32);
+
+        // Test determinism
+        let hash2 = compute_swap_outputs_hash(&swap_params, public_amount);
+        assert_eq!(hash1, hash2, "Swap outputs_hash should be deterministic");
+
+        // Test different parameters produce different hash
+        let swap_params2 = SwapParams {
+            output_mint: [0xCCu8; 32],
+            recipient_ata: [0xBBu8; 32],
+            min_output_amount: 1_000_000,
+        };
+        let hash3 = compute_swap_outputs_hash(&swap_params2, public_amount);
+        assert_ne!(hash1, hash3, "Different mint should produce different hash");
+
+        // Test different public_amount produces different hash
+        let hash4 = compute_swap_outputs_hash(&swap_params, 5_000_000_000u64);
+        assert_ne!(
+            hash1, hash4,
+            "Different public_amount should produce different hash"
+        );
+    }
+
+    #[test]
+    fn test_swap_vs_regular_outputs_hash() {
+        // Verify that swap mode and regular mode produce different hashes
+        // (they use different formulas)
+        let output = Output {
+            address: [0xAAu8; 32],
+            amount: 1_000_000,
+        };
+        let regular_hash = compute_outputs_hash(&[output]);
+
+        let swap_params = SwapParams {
+            output_mint: [0xAAu8; 32],
+            recipient_ata: [0xBBu8; 32],
+            min_output_amount: 1_000_000,
+        };
+        let swap_hash = compute_swap_outputs_hash(&swap_params, 3_000_000_000);
+
+        assert_ne!(
+            regular_hash, swap_hash,
+            "Swap and regular mode should produce different hashes"
+        );
     }
 }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleProof {
     pub path_elements: Vec<String>,
-    pub path_indices: Vec<u32>,
+    pub path_indices: Vec<u8>, // Changed from u32 to u8 to match zk circuit expectations
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

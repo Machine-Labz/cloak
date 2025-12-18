@@ -3,7 +3,14 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use std::sync::Arc;
 use std::time::Instant;
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    key_extractor::SmartIpKeyExtractor,
+    GovernorLayer,
+};
+use governor::middleware::NoOpMiddleware;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Request logging middleware
@@ -110,16 +117,33 @@ pub fn cors_layer(cors_origins: &[String]) -> CorsLayer {
 }
 
 /// Request timeout middleware
+/// Uses different timeouts based on endpoint:
+/// - /api/v1/deposit: 120 seconds - Merkle tree insertion can be slow
+/// - /api/v1/merkle/proof/*: 90 seconds - Merkle proof generation can be slow (many DB queries)
+/// - Other endpoints: 20 seconds - faster timeout for regular requests
 pub async fn timeout_middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let timeout_duration = std::time::Duration::from_secs(30); // Default 30 seconds
+    let path = request.uri().path().to_string();
+    
+    // Use longer timeout for slow endpoints
+    let timeout_duration = if path == "/api/v1/deposit" {
+        std::time::Duration::from_secs(120) // 120 seconds for deposit (Merkle tree insertion)
+    } else if path.starts_with("/api/v1/merkle/proof/") {
+        std::time::Duration::from_secs(90) // 90 seconds for Merkle proof generation
+    } else {
+        std::time::Duration::from_secs(20) // 20 seconds for other endpoints
+    };
 
     match tokio::time::timeout(timeout_duration, next.run(request)).await {
         Ok(response) => Ok(response),
         Err(_) => {
-            tracing::warn!("Request timed out after {:?}", timeout_duration);
+            tracing::warn!(
+                path = %path,
+                timeout_seconds = timeout_duration.as_secs(),
+                "Request timed out"
+            );
             Err(StatusCode::REQUEST_TIMEOUT)
         }
     }
@@ -130,5 +154,22 @@ pub fn request_size_limit() -> axum::extract::DefaultBodyLimit {
     // Limit request body to 1MB
     axum::extract::DefaultBodyLimit::max(1024 * 1024)
 }
+
+/// Rate limiting middleware for general endpoints
+/// 100 requests per minute per IP
+pub fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(1200u64) // 100 per 2 minutes = 1 per 1200ms
+            .burst_size(400u32)
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer {
+        config: governor_conf,
+    }
+}
+
 
 // Tests can be added here when needed

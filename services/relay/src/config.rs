@@ -9,7 +9,15 @@ pub struct Config {
     pub solana: SolanaConfig,
     pub database: DatabaseConfig,
     pub metrics: MetricsConfig,
+    pub jupiter: JupiterConfig,
     // Note: No miner config - relay queries on-chain for claims from independent miners
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct JupiterConfig {
+    pub enabled: bool,
+    pub api_url: String,
+    pub slippage_bps: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -17,6 +25,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub host: String,
     pub request_timeout_seconds: u64,
+    pub cors_origins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -34,6 +43,9 @@ pub struct SolanaConfig {
     // PoW Scrambler Registry (optional - if not set, PoW is disabled)
     // Relay queries on-chain for available claims from independent miners
     pub scramble_registry_program_id: Option<String>,
+
+    // Token mint address (empty = native SOL)
+    pub mint_address: Option<String>,
 
     // Shield Pool Account Addresses (optional - if not set, will calculate PDAs)
     pub pool_address: Option<String>,
@@ -66,10 +78,9 @@ impl Config {
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number(
-                    "RELAY_REQUEST_TIMEOUT_SECONDS",
-                    30,
-                ).unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
+                cors_origins: get_cors_origins(),
             },
             solana: SolanaConfig {
                 rpc_url: get_env_var("SOLANA_RPC_URL", "http://localhost:8899").to_string(),
@@ -79,44 +90,94 @@ impl Config {
                     .to_string(),
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 priority_micro_lamports: get_env_var_as_number(
                     "SOLANA_PRIORITY_MICROLAMPORTS",
                     10000,
-                ).unwrap_or(10000),
-                jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000).unwrap_or(100000),
+                )
+                .unwrap_or(10000),
+                jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
+                    .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000).unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
-                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
+                },
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 pool_address: {
                     let val = get_env_var("CLOAK_POOL_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 treasury_address: {
                     let val = get_env_var("CLOAK_TREASURY_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 roots_ring_address: {
                     let val = get_env_var("ROOTS_RING_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 nullifier_shard_address: {
-                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "")
+                        .trim()
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
             },
             database: DatabaseConfig {
-                url: get_env_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db").to_string(),
+                url: get_env_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+                    .to_string(),
                 max_connections: get_env_var_as_number("DB_MAX_CONNECTIONS", 20).unwrap_or(20),
             },
             metrics: MetricsConfig {
-                enabled: get_env_var("RELAY_METRICS_ENABLED", "true").parse().unwrap_or(true),
+                enabled: get_env_var("RELAY_METRICS_ENABLED", "true")
+                    .parse()
+                    .unwrap_or(true),
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
+            },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
             },
         };
 
@@ -233,9 +294,21 @@ impl Config {
                 ws_url: get_env_var("SOLANA_WS_URL", "ws://localhost:8900").to_string(),
                 commitment: get_env_var("SOLANA_COMMITMENT", "confirmed").to_string(),
                 program_id: get_env_var("CLOAK_PROGRAM_ID", "").to_string(),
+                mint_address: {
+                    let val = get_env_var("MINT_ADDRESS", "").trim().to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
+                },
                 withdraw_authority: {
                     let val = get_env_var("ADMIN_KEYPAIR", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 priority_micro_lamports: get_env_var_as_number(
                     "SOLANA_PRIORITY_MICROLAMPORTS",
@@ -245,27 +318,52 @@ impl Config {
                 jito_tip_lamports: get_env_var_as_number("SOLANA_JITO_TIP_LAMPORTS", 100000)
                     .unwrap_or(100000),
                 max_retries: get_env_var_as_number("SOLANA_MAX_RETRIES", 5).unwrap_or(5),
-                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 2000)
-                    .unwrap_or(2000),
+                retry_delay_ms: get_env_var_as_number("SOLANA_RETRY_DELAY_MS", 4000)
+                    .unwrap_or(4000),
                 scramble_registry_program_id: {
-                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "").trim().trim_matches('"').to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("SCRAMBLE_REGISTRY_PROGRAM_ID", "")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 pool_address: {
                     let val = get_env_var("CLOAK_POOL_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 treasury_address: {
                     let val = get_env_var("CLOAK_TREASURY_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 roots_ring_address: {
                     let val = get_env_var("ROOTS_RING_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
                 nullifier_shard_address: {
-                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "").trim().to_string();
-                    if val.is_empty() { None } else { Some(val) }
+                    let val = get_env_var("CLOAK_NULLIFIER_SHARD_ADDRESS", "")
+                        .trim()
+                        .to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
                 },
             },
             metrics: MetricsConfig {
@@ -275,11 +373,19 @@ impl Config {
                 port: get_env_var_as_number("RELAY_METRICS_PORT", 9090).unwrap_or(9090),
                 route: get_env_var("RELAY_METRICS_ROUTE", "/metrics").to_string(),
             },
+            jupiter: JupiterConfig {
+                enabled: get_env_var("JUPITER_ENABLED", "false")
+                    .parse()
+                    .unwrap_or(false),
+                api_url: get_env_var("JUPITER_API_URL", "https://quote-api.jup.ag/v6").to_string(),
+                slippage_bps: get_env_var_as_number("JUPITER_SLIPPAGE_BPS", 50).unwrap_or(50),
+            },
             server: ServerConfig {
                 port: get_env_var_as_number("RELAY_PORT", 3002).unwrap_or(3002),
                 host: get_env_var("RELAY_HOST", "0.0.0.0").to_string(),
-                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 30)
-                    .unwrap_or(30),
+                request_timeout_seconds: get_env_var_as_number("RELAY_REQUEST_TIMEOUT_SECONDS", 60)
+                    .unwrap_or(60),
+                cors_origins: get_cors_origins(),
             },
         };
 
@@ -303,3 +409,26 @@ where
         Err(_) => Ok(default),
     }
 }
+
+fn get_cors_origins() -> Vec<String> {
+    match std::env::var("CORS_ORIGINS") {
+        Ok(origins) => origins
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Err(_) => {
+            // Default CORS origins based on environment
+            let node_env = get_env_var("NODE_ENV", "development");
+            if node_env == "production" {
+                vec![
+                    "https://cloaklabz.xyz".to_string(),
+                    "https://www.cloaklabz.xyz".to_string(),
+                ]
+            } else {
+                vec!["*".to_string()] // Allow all origins in development
+            }
+        }
+    }
+}
+

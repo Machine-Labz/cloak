@@ -9,7 +9,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use base64::{Engine as _, engine::general_purpose};
 use serde::Deserialize;
+use solana_sdk::transaction::VersionedTransaction;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -34,6 +36,20 @@ pub struct DepositRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DepositPrepareRequest {
+    pub tx_bytes_base64: String,
+    pub leaf_commit: String,
+    pub encrypted_output: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DepositConfirmRequest {
+    pub prepared_deposit_id: String, // commitment hash
+    pub tx_signature: String,
+    pub slot: i64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct NotesRangeQuery {
     pub start: Option<i64>,
     pub end: Option<i64>,
@@ -49,8 +65,11 @@ pub async fn api_info() -> impl IntoResponse {
         ("merkle_root", "/api/v1/merkle/root"),
         ("merkle_proof", "/api/v1/merkle/proof/:index"),
         ("notes_range", "/api/v1/notes/range"),
-        ("prove", "/api/v1/prove"),
         ("artifacts", "/api/v1/artifacts/withdraw/:version"),
+        ("tee_artifact", "/api/v1/tee/artifact"),
+        ("tee_artifact_upload", "/api/v1/tee/artifact/:artifact_id/upload"),
+        ("tee_request_proof", "/api/v1/tee/request-proof"),
+        ("tee_proof_status", "/api/v1/tee/proof-status"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -62,14 +81,6 @@ pub async fn api_info() -> impl IntoResponse {
         "description": "Merkle tree indexer for Cloak privacy protocol",
         "endpoints": endpoints,
         "documentation": "https://docs.cloaklabz.xyz/offchain/indexer",
-        "deprecated_endpoints": {
-            "prove": {
-                "endpoint": "/api/v1/prove",
-                "reason": "Server-side proof generation will be removed. Use client-side proof generation instead.",
-                "sunset_date": "2025-06-01",
-                "migration_guide": "https://docs.cloaklabz.xyz/offchain/indexer"
-            }
-        },
         "timestamp": chrono::Utc::now()
     }))
 }
@@ -114,6 +125,27 @@ pub async fn deposit(
         "Processing deposit request"
     );
 
+    // Validate encrypted output format (base64 JSON with encryption fields)
+    if request.encrypted_output.len() > 100 {
+        if let Ok(decoded) = general_purpose::STANDARD.decode(&request.encrypted_output) {
+            if let Ok(json_str) = String::from_utf8(decoded) {
+                if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(obj) = json_value.as_object() {
+                        let has_ephemeral_pk = obj.contains_key("ephemeral_pk");
+                        let has_ciphertext = obj.contains_key("ciphertext");
+                        let has_nonce = obj.contains_key("nonce");
+                        
+                        if !has_ephemeral_pk || !has_ciphertext || !has_nonce {
+                            tracing::warn!(
+                                "Encrypted output missing required encryption fields"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Basic validation
     if request.leaf_commit.len() != 64 {
         tracing::warn!(
@@ -151,8 +183,9 @@ pub async fn deposit(
 
     // Atomically allocate next index and store the note in the database
     // This prevents race conditions when multiple deposits arrive concurrently
+    // Returns (leaf_index, is_existing) where is_existing is true if commitment already existed
     tracing::info!("💾 Atomically allocating index and storing note");
-    let allocated_index = match state
+    let (allocated_index, is_existing) = match state
         .storage
         .allocate_and_store_note(
             &request.leaf_commit,
@@ -163,12 +196,264 @@ pub async fn deposit(
         )
         .await
     {
-        Ok(index) => {
-            tracing::info!(
-                leaf_index = index,
-                "✅ Note stored successfully with atomically allocated index"
+        Ok((index, was_existing)) => {
+            if was_existing {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Note already exists, returning existing leaf_index (idempotent)"
+                );
+            } else {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Note stored successfully with atomically allocated index"
+                );
+            }
+            (index, was_existing)
+        }
+        Err(e) => {
+            // Check if this is a duplicate key error (commitment already exists)
+            let error_msg = e.to_string();
+            if error_msg.contains("duplicate key value violates unique constraint") 
+                && error_msg.contains("notes_leaf_commit_key") {
+                tracing::warn!(
+                    leaf_commit = request.leaf_commit,
+                    "⚠️ Deposit already registered. This commitment was already processed."
+                );
+                
+                // Get the existing note to return its index
+                match state.storage.get_note_by_commitment(&request.leaf_commit).await {
+                    Ok(Some(existing_note)) => {
+                        tracing::info!(
+                            leaf_index = existing_note.leaf_index,
+                            "Found existing note with same commitment"
+                        );
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(serde_json::json!({
+                                "success": false,
+                                "error": "Deposit already registered. This commitment was already processed.",
+                                "duplicate": true,
+                                "leaf_index": existing_note.leaf_index,
+                                "tx_signature": existing_note.tx_signature,
+                            })),
+                        );
+                    }
+                    Ok(None) => {
+                        // Should not happen, but handle gracefully
+                        tracing::error!("Duplicate key error but note not found in database");
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Database inconsistency detected",
+                                "details": "Commitment marked as duplicate but not found"
+                            })),
+                        );
+                    }
+                    Err(db_err) => {
+                        tracing::error!("Failed to query existing note: {}", db_err);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Failed to verify existing deposit",
+                                "details": db_err.to_string()
+                            })),
+                        );
+                    }
+                }
+            }
+            
+            tracing::error!("❌ Failed to allocate index and store note: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to store note",
+                    "details": e.to_string()
+                })),
             );
-            index
+        }
+    };
+
+    let mut tree = state.merkle_tree.lock().await;
+
+    if is_existing {
+        // Note already exists - just get the current root and return it
+        tracing::info!("🌳 Note already in Merkle tree, retrieving current root");
+        match tree.get_tree_state(&state.storage).await {
+            Ok(tree_state) => {
+                tracing::info!(
+                    leaf_index = allocated_index,
+                    root = tree_state.root,
+                    "✅ Returning existing note data (idempotent)"
+                );
+                (
+                    StatusCode::OK, // 200 OK for existing resource
+                    Json(serde_json::json!({
+                        "success": true,
+                        "leafIndex": allocated_index,
+                        "root": tree_state.root,
+                        "nextIndex": tree_state.next_index,
+                        "leafCommit": request.leaf_commit.to_lowercase(),
+                        "message": "Deposit already exists (idempotent)"
+                    })),
+                )
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to get merkle tree state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Failed to get merkle tree state",
+                        "details": e.to_string()
+                    })),
+                )
+            }
+        }
+    } else {
+        // New note - insert into merkle tree
+        tracing::info!("🌳 Inserting leaf into Merkle tree");
+        match tree
+            .insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage)
+            .await
+        {
+            Ok((new_root, _)) => {
+                tracing::info!(
+                    leaf_index = allocated_index,
+                    new_root = new_root,
+                    "✅ Successfully inserted leaf into Merkle tree"
+                );
+
+                // Push new root to on-chain roots ring synchronously to prevent race conditions
+                // The withdrawal proof depends on this root being on-chain before it can be verified
+                tracing::info!("🔗 Pushing root to on-chain roots ring");
+                if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
+                    tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
+                    // Continue anyway - withdrawals can still work if root is pushed later
+                    // or if the on-chain program has a grace period for root updates
+                    tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
+                } else {
+                    tracing::info!("✅ Root successfully pushed to on-chain roots ring");
+                }
+
+                tracing::info!("🎉 Deposit request completed successfully");
+                (
+                    StatusCode::CREATED,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "leafIndex": allocated_index,
+                        "root": new_root,
+                        "nextIndex": allocated_index + 1,
+                        "leafCommit": request.leaf_commit.to_lowercase(),
+                        "message": "Deposit processed successfully"
+                    })),
+                )
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to insert leaf into merkle tree: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Failed to update merkle tree",
+                        "details": e.to_string()
+                    })),
+                )
+            }
+        }
+    }
+}
+
+/// Prepare a deposit: verify transaction, allocate index, process, push root
+/// This ensures the root is on-chain BEFORE the user sends the transaction
+pub async fn deposit_prepare(
+    State(state): State<AppState>,
+    Json(request): Json<DepositPrepareRequest>,
+) -> impl IntoResponse {
+    tracing::info!("📥 Received deposit prepare request");
+    tracing::info!(
+        leaf_commit = request.leaf_commit,
+        encrypted_output_len = request.encrypted_output.len(),
+        tx_bytes_len = request.tx_bytes_base64.len(),
+        "Processing deposit prepare request"
+    );
+
+    // Basic validation
+    if request.leaf_commit.len() != 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Leaf commit must be 64 characters"
+            })),
+        );
+    }
+
+    if request.encrypted_output.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Encrypted output cannot be empty"
+            })),
+        );
+    }
+
+    // Verify transaction structure (optional but recommended)
+    // Decode and parse the transaction to verify it's a valid deposit
+    let tx_bytes = match base64::engine::general_purpose::STANDARD.decode(&request.tx_bytes_base64) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::warn!("Invalid base64 transaction: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid base64 transaction encoding"
+                })),
+            );
+        }
+    };
+
+    // Try to deserialize as VersionedTransaction to verify structure
+    let _tx: VersionedTransaction = match bincode::deserialize(&tx_bytes) {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::warn!("Invalid transaction structure: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid transaction structure"
+                })),
+            );
+        }
+    };
+
+    // TODO: Optionally verify the transaction contains a deposit instruction
+    // and extract commitment from instruction data to verify it matches request.leaf_commit
+    // For now, we trust the client to provide the correct commitment
+
+    // Atomically allocate next index and store the note as "pending"
+    // Use "pending" as placeholder signature until transaction is confirmed
+    tracing::info!("💾 Atomically allocating index and storing pending note");
+    let (allocated_index, is_existing) = match state
+        .storage
+        .allocate_and_store_note(
+            &request.leaf_commit,
+            &request.encrypted_output,
+            "pending", // Placeholder signature
+            0,         // Placeholder slot
+            Some(chrono::Utc::now()),
+        )
+        .await
+    {
+        Ok((index, was_existing)) => {
+            if was_existing {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Note already exists, returning existing leaf_index (idempotent)"
+                );
+            } else {
+                tracing::info!(
+                    leaf_index = index,
+                    "✅ Pending note stored successfully with atomically allocated index"
+                );
+            }
+            (index, was_existing)
         }
         Err(e) => {
             tracing::error!("❌ Failed to allocate index and store note: {}", e);
@@ -182,39 +467,109 @@ pub async fn deposit(
         }
     };
 
-    // Insert the leaf into the merkle tree and get the new root
-    tracing::info!("🌳 Inserting leaf into Merkle tree");
     let mut tree = state.merkle_tree.lock().await;
-    match tree.insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage).await {
+
+    if is_existing {
+        // Note already exists - check if it's still pending
+        if let Ok(Some(note)) = state.storage.get_note_by_commitment(&request.leaf_commit).await {
+            if note.tx_signature == "pending" || note.tx_signature.is_empty() {
+                // Still pending, return prepare response
+                match tree.get_tree_state(&state.storage).await {
+                    Ok(tree_state) => {
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "success": true,
+                                "prepared_deposit_id": request.leaf_commit.to_lowercase(),
+                                "leafIndex": allocated_index,
+                                "root": tree_state.root,
+                                "message": "Deposit already prepared (idempotent)"
+                            })),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to get merkle tree state: {}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Failed to get merkle tree state",
+                                "details": e.to_string()
+                            })),
+                        );
+                    }
+                }
+            } else {
+                // Already confirmed
+                match tree.get_tree_state(&state.storage).await {
+                    Ok(tree_state) => {
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "success": true,
+                                "prepared_deposit_id": request.leaf_commit.to_lowercase(),
+                                "leafIndex": allocated_index,
+                                "root": tree_state.root,
+                                "message": "Deposit already confirmed"
+                            })),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to get merkle tree state: {}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": "Failed to get merkle tree state",
+                                "details": e.to_string()
+                            })),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // New note - insert into merkle tree
+    tracing::info!("🌳 Inserting leaf into Merkle tree");
+    match tree
+        .insert_leaf(allocated_index as u64, &request.leaf_commit, &state.storage)
+        .await
+    {
         Ok((new_root, _)) => {
             tracing::info!(
                 leaf_index = allocated_index,
                 new_root = new_root,
                 "✅ Successfully inserted leaf into Merkle tree"
             );
-            
-            // Push new root to on-chain roots ring synchronously to prevent race conditions
-            // The withdrawal proof depends on this root being on-chain before it can be verified
-            tracing::info!("🔗 Pushing root to on-chain roots ring");
+
+            // Push new root to on-chain roots ring synchronously
+            // This is critical - the root MUST be on-chain before the deposit transaction is sent
+            tracing::info!("🔗 Pushing root to on-chain roots ring (CRITICAL: must succeed before deposit)");
             if let Err(e) = push_root_to_chain(&new_root, &state.config.solana).await {
                 tracing::error!("❌ Failed to push root to on-chain roots ring: {}", e);
-                // Continue anyway - withdrawals can still work if root is pushed later
-                // or if the on-chain program has a grace period for root updates
-                tracing::warn!("⚠️  Continuing despite root push failure - withdrawals may fail until root is manually pushed");
+                // This is a critical failure - we cannot proceed if root push fails
+                // The deposit transaction should not be sent if root is not on-chain
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Failed to push root to on-chain roots ring",
+                        "details": e.to_string(),
+                        "message": "Deposit cannot proceed - root must be on-chain first"
+                    })),
+                );
             } else {
                 tracing::info!("✅ Root successfully pushed to on-chain roots ring");
             }
-            
-            tracing::info!("🎉 Deposit request completed successfully");
+
+            tracing::info!("🎉 Deposit prepare completed successfully");
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({
                     "success": true,
+                    "prepared_deposit_id": request.leaf_commit.to_lowercase(),
                     "leafIndex": allocated_index,
                     "root": new_root,
                     "nextIndex": allocated_index + 1,
-                    "leafCommit": request.leaf_commit.to_lowercase(),
-                    "message": "Deposit processed successfully"
+                    "message": "Deposit prepared successfully - root is on-chain, safe to send transaction"
                 })),
             )
         }
@@ -224,6 +579,76 @@ pub async fn deposit(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "error": "Failed to update merkle tree",
+                    "details": e.to_string()
+                })),
+            )
+        }
+    }
+}
+
+/// Confirm a prepared deposit: update with transaction signature and slot
+pub async fn deposit_confirm(
+    State(state): State<AppState>,
+    Json(request): Json<DepositConfirmRequest>,
+) -> impl IntoResponse {
+    tracing::info!("📥 Received deposit confirm request");
+    tracing::info!(
+        prepared_deposit_id = request.prepared_deposit_id,
+        tx_signature = request.tx_signature,
+        slot = request.slot,
+        "Processing deposit confirm request"
+    );
+
+    // Validate inputs
+    if request.prepared_deposit_id.len() != 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Prepared deposit ID (commitment) must be 64 characters"
+            })),
+        );
+    }
+
+    if request.tx_signature.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Transaction signature is required"
+            })),
+        );
+    }
+
+    // Update the pending deposit with the actual transaction signature
+    tracing::info!("💾 Updating pending deposit with transaction signature");
+    match state
+        .storage
+        .update_note_signature(
+            &request.prepared_deposit_id,
+            &request.tx_signature,
+            request.slot,
+        )
+        .await
+    {
+        Ok(_) => {
+            tracing::info!(
+                prepared_deposit_id = request.prepared_deposit_id,
+                tx_signature = request.tx_signature,
+                "✅ Deposit confirmed successfully"
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": "Deposit confirmed successfully"
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to confirm deposit: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to confirm deposit",
                     "details": e.to_string()
                 })),
             )

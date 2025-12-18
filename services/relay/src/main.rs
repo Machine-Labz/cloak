@@ -6,18 +6,31 @@ mod db;
 mod error;
 mod planner;
 mod solana;
+mod swap;
 mod worker;
 
 use planner::orchestrator;
 
 use axum::{
-    response::Json,
+    middleware::Next,
+    response::{Json, Response},
     routing::{get, post},
     Router,
+    body::Body,
 };
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    key_extractor::SmartIpKeyExtractor,
+    GovernorLayer,
+};
+use governor::middleware::NoOpMiddleware;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    set_header::SetResponseHeaderLayer,
+    trace::TraceLayer,
+};
 use tracing::info;
 
 use crate::claim_manager::ClaimFinder;
@@ -136,17 +149,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Cloak Relay Service");
 
+    // Load config for CORS settings
+    let relay_config = RelayConfig::load()?;
+
     // Create application state with real connections
     let app_state = AppState::new().await?;
 
-    // Configure CORS to allow requests from the frontend
-    let cors = CorsLayer::permissive();
+    // Configure CORS based on environment
+    let cors = create_cors_layer(&relay_config.server.cors_origins);
 
     // Build our application with routes
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
+        // Withdraw endpoint (with stricter rate limiting applied after with_state)
         .route("/withdraw", post(api::withdraw::handle_withdraw))
+        .fallback(handle_404)
         .route("/status/:id", get(api::status::get_status))
         // Miners API - backlog status
         .route("/backlog", get(api::backlog::get_backlog_status))
@@ -162,19 +180,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/orchestrate/withdraw",
             post(orchestrator::orchestrate_withdraw),
         )
+        // Apply general rate limiting to all routes
+        // Temporarily disabled to debug "Unable To Extract Key!" error
+        // .layer(rate_limit_general())
         .layer(cors)
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_XSS_PROTECTION,
+            axum::http::HeaderValue::from_static("1; mode=block"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
         .layer(TraceLayer::new_for_http())
-        .with_state(app_state.clone());
+        .layer(axum::middleware::from_fn(log_errors))
+        .with_state(app_state.clone())
+        .layer(axum::middleware::map_response(handle_response_errors));
 
     // Spawn the window scheduler task to process jobs in batched windows
     let scheduler_state = app_state.clone();
     tokio::spawn(async move {
         // Configure windowing: process when slot ends in 0 or 5
         let window_config = worker::window_scheduler::WindowConfig {
-            slot_patterns: vec![0, 5],  // Every ~5 slots (~2.5s)
-            min_batch_size: None,        // No minimum - process whatever is ready
-            max_batch_size: 50,          // Safety limit
-            poll_interval_secs: 1,       // Check slot every second
+            slot_patterns: vec![0, 5], // Every ~5 slots (~2.5s)
+            min_batch_size: None,      // No minimum - process whatever is ready
+            max_batch_size: 50,        // Safety limit
+            poll_interval_secs: 1,     // Check slot every second
         };
 
         let scheduler = Arc::new(worker::window_scheduler::WindowScheduler::new(
@@ -196,6 +235,71 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Rate limiting middleware for withdraw endpoint
+/// 10 requests per minute per IP (withdraw is critical)
+fn rate_limit_withdraw() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    use std::sync::Arc;
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(6000u64) // 10 per minute = 1 per 6000ms
+            .burst_size(20u32)
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer {
+        config: governor_conf,
+    }
+}
+
+/// Rate limiting middleware for general endpoints
+/// 100 requests per minute per IP
+fn rate_limit_general() -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware> {
+    use std::sync::Arc;
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(SmartIpKeyExtractor)
+            .per_millisecond(600u64) // 100 per minute = 1 per 600ms
+            .burst_size(200u32)
+            .finish()
+            .unwrap(),
+    );
+    GovernorLayer {
+        config: governor_conf,
+    }
+}
+
+/// Create CORS layer based on configured origins
+fn create_cors_layer(cors_origins: &[String]) -> CorsLayer {
+    let mut cors = CorsLayer::new()
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ])
+        .max_age(std::time::Duration::from_secs(86400)); // 24 hours
+
+    // Configure origins
+    if cors_origins.len() == 1 && cors_origins[0] == "*" {
+        // Allow all origins in development (without credentials)
+        cors = cors.allow_origin(Any);
+    } else {
+        // Specific origins for production (with credentials)
+        cors = cors.allow_credentials(true);
+        for origin in cors_origins {
+            if let Ok(origin_header) = origin.parse::<axum::http::HeaderValue>() {
+                cors = cors.allow_origin(origin_header);
+            }
+        }
+    }
+
+    cors
+}
+
 async fn root() -> Json<Value> {
     Json(json!({
         "service": "Cloak Relay",
@@ -210,6 +314,71 @@ async fn root() -> Json<Value> {
             "submit": "POST /submit"
         }
     }))
+}
+
+/// Middleware to log all errors before they're converted to responses
+async fn log_errors(
+    request: axum::http::Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    let method = request.method().clone();
+    
+    // Log incoming request for /withdraw to debug
+    if path == "/withdraw" {
+        use tracing::warn;
+        warn!("Incoming /withdraw request - before processing");
+    }
+    
+    let response = next.run(request).await;
+    
+    // Log if it's an error response
+    if response.status().is_server_error() || response.status().is_client_error() {
+        use tracing::error;
+        error!(
+            method = %method,
+            path = %path,
+            status = %response.status(),
+            "❌ Error response returned"
+        );
+        
+        // For /withdraw errors, log more details
+        if path == "/withdraw" {
+            error!("❌ /withdraw endpoint failed - this may be a JSON deserialization error");
+            error!("❌ Expected JSON structure: {{ outputs: [...], policy: {{ fee_bps: number }}, public_inputs: {{ root, nf, amount, fee_bps, outputs_hash }}, proof_bytes: string }}");
+        }
+    }
+    
+    response
+}
+
+
+/// Handle response errors to log details
+async fn handle_response_errors(
+    response: axum::response::Response,
+) -> axum::response::Response {
+    use tracing::error;
+    
+    // Log if it's an error response
+    if response.status().is_server_error() || response.status().is_client_error() {
+        error!(
+            status = %response.status(),
+            "❌ Response error - this may be a JSON deserialization error or missing field"
+        );
+    }
+    
+    response
+}
+
+async fn handle_404() -> impl axum::response::IntoResponse {
+    use axum::http::StatusCode;
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": true,
+            "message": "Route not found"
+        }))
+    )
 }
 
 async fn health_check() -> Json<Value> {

@@ -14,41 +14,40 @@ TypeScript SDK for the Cloak Protocol - Private transactions on Solana using zer
 ## Installation
 
 ```bash
-npm install @cloak/sdk @solana/web3.js
+npm install @cloaklabz/sdk @solana/web3.js
 # or
-yarn add @cloak/sdk @solana/web3.js
+yarn add @cloaklabz/sdk @solana/web3.js
 # or
-pnpm add @cloak/sdk @solana/web3.js
+pnpm add @cloaklabz/sdk @solana/web3.js
+```
+
+**Note**: For swap functionality, you'll also need `@solana/spl-token`:
+```bash
+npm install @solana/spl-token
 ```
 
 ## Quick Start
 
 ```typescript
-import { CloakSDK } from "@cloak/sdk";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { CloakSDK, generateNote } from "@cloaklabz/sdk";
+import { Connection, Keypair } from "@solana/web3.js";
 
-// Initialize client
-const client = new CloakSDK({
-  network: "devnet",
-  programId: new PublicKey("YOUR_PROGRAM_ID"),
-  poolAddress: new PublicKey("YOUR_POOL_ADDRESS"),
-  commitmentsAddress: new PublicKey("YOUR_COMMITMENTS_ADDRESS"),
-  // Option A: Single API URL (recommended when reverse proxying indexer+relay)
-  apiUrl: "https://api.your-cloak.example.com",
-  // Option B: Separate services (if not using a single URL)
-  // indexerUrl: "https://your-indexer.com",
-  // relayUrl: "https://your-relay.com",
-});
-
-// Connect to Solana
+// Initialize connection and keypair
 const connection = new Connection("https://api.devnet.solana.com");
+const keypair = Keypair.fromSecretKey(/* your secret key */);
+
+// Initialize client - only need network and keypair!
+const client = new CloakSDK({
+  keypairBytes: keypair.secretKey,
+  network: "devnet", // Optional, defaults to "devnet"
+});
 
 // ==================================================================
 // OPTION 1: Deposit only (save note for later)
 // ==================================================================
 const depositResult = await client.deposit(
   connection,
-  wallet, // Wallet with sendTransaction method
+  keypair,
   1_000_000_000, // 1 SOL in lamports
   {
     onProgress: (status) => console.log(status),
@@ -60,26 +59,22 @@ console.log("Note saved:", depositResult.note);
 // ==================================================================
 // OPTION 2: Private Transfer (complete flow: deposit + withdraw)
 // ==================================================================
-// This is the main use case - privately send funds to recipients!
-
 // Generate a note (not deposited yet)
-const note = client.generateNote(1_000_000_000); // 1 SOL
+const note = generateNote(1_000_000_000); // 1 SOL
 
 // privateTransfer handles EVERYTHING:
 // - Deposits the note if not already deposited
 // - Waits for confirmation
-// - Generates ZK proof
+// - Generates ZK proof using artifact-based flow (private inputs never pass through backend)
 // - Transfers to recipients
 const transferResult = await client.privateTransfer(
   connection,
-  wallet,
   note,
   [
     { recipient: new PublicKey("ADDR1"), amount: 500_000_000 },
     { recipient: new PublicKey("ADDR2"), amount: 492_500_000 }, // After fees
   ],
   {
-    relayFeeBps: 50, // 0.5% relay fee
     onProgress: (status) => console.log(status),
     onProofProgress: (progress) => console.log(`Proof: ${progress}%`),
   }
@@ -88,9 +83,10 @@ const transferResult = await client.privateTransfer(
 console.log("Transfer complete:", transferResult.signature);
 ```
 
-Note on API configuration:
-- Provide a single `apiUrl` when your deployment proxies both indexer and relay behind the same origin (recommended).
-- If `apiUrl` is not provided, you must provide both `indexerUrl` and `relayUrl`.
+**API Configuration:**
+- The SDK uses environment variables or defaults for API URLs
+- Set `CLOAK_API_URL` environment variable to override the default
+- Defaults to `http://localhost` for local development
 
 ## Core Concepts
 
@@ -129,23 +125,26 @@ All without revealing which note you're spending!
 
 **Pattern 1: Deposit now, withdraw later**
 ```typescript
+import { generateNote } from "@cloaklabz/sdk";
+
 // Save funds privately
-const result = await client.deposit(connection, wallet, 1_000_000_000);
+const result = await client.deposit(connection, keypair, 1_000_000_000);
 saveNoteSecurely(result.note); // Store for later
 
 // Later: withdraw using the saved note
 const withdrawResult = await client.withdraw(
-  connection, wallet, loadNote(), recipientAddress
+  connection, loadNote(), recipientAddress
 );
 ```
 
 **Pattern 2: Private transfer (deposit + immediate withdraw)**
 ```typescript
+import { generateNote } from "@cloaklabz/sdk";
+
 // Send funds privately to recipients in one call
-const note = client.generateNote(1_000_000_000);
+const note = generateNote(1_000_000_000);
 const result = await client.privateTransfer(
   connection,
-  wallet,
   note,
   [
     { recipient: addr1, amount: 500_000_000 },
@@ -153,6 +152,26 @@ const result = await client.privateTransfer(
   ]
 );
 // Everything handled automatically!
+```
+
+**Pattern 3: Swap SOL for tokens privately**
+```typescript
+import { generateNote } from "@cloaklabz/sdk";
+
+// Swap SOL for tokens privately
+const note = generateNote(1_000_000_000);
+const result = await client.swap(
+  connection,
+  note,
+  recipientPublicKey,
+  {
+    outputMint: "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+    slippageBps: 100,
+    getQuote: async (amount, mint, slippage) => {
+      // Your swap quote logic
+    },
+  }
+);
 ```
 
 ## API Reference
@@ -164,7 +183,13 @@ Main client for interacting with Cloak Protocol.
 #### Constructor
 
 ```typescript
-new CloakSDK(config: CloakConfig)
+new CloakSDK(config: {
+  keypairBytes: Uint8Array;  // Required: Solana keypair secret key
+  network?: Network;          // Optional: "devnet" | "testnet" | "mainnet" (default: "devnet")
+  cloakKeys?: CloakKeyPair;   // Optional: Cloak protocol keys (auto-generated if not provided)
+  storage?: StorageAdapter;   // Optional: Storage adapter for notes (default: in-memory)
+  programId?: PublicKey;      // Optional: Cloak program ID (uses default if not provided)
+})
 ```
 
 #### Methods
@@ -176,7 +201,7 @@ Deposit SOL into the protocol and create a private note.
 ```typescript
 async deposit(
   connection: Connection,
-  payer: Wallet,
+  payer: Keypair | WalletAdapter,
   amountLamports: number,
   options?: DepositOptions
 ): Promise<DepositResult>
@@ -184,7 +209,9 @@ async deposit(
 
 **Example:**
 ```typescript
-const result = await client.deposit(connection, wallet, 1_000_000_000);
+const result = await client.deposit(connection, keypair, 1_000_000_000, {
+  onProgress: (status) => console.log(status),
+});
 console.log("Leaf index:", result.leafIndex);
 // Save result.note securely!
 ```
@@ -198,7 +225,6 @@ Execute a complete private transfer with 1-5 recipients.
 ```typescript
 async privateTransfer(
   connection: Connection,
-  payer: Wallet,
   note: CloakNote,
   recipients: MaxLengthArray<Transfer, 5>,
   options?: TransferOptions
@@ -215,19 +241,46 @@ type MaxLengthArray<T, Max extends number, A extends T[] = []> =
 **Example:**
 ```typescript
 // Generate note (not deposited)
-const note = client.generateNote(1_000_000_000);
+const note = generateNote(1_000_000_000);
 
 // privateTransfer handles deposit + withdrawal
 const result = await client.privateTransfer(
   connection,
-  wallet,
   note,
   [
     { recipient: addr1, amount: 500_000_000 },
     { recipient: addr2, amount: 400_000_000 },
     { recipient: addr3, amount: 92_500_000 }, // After protocol fees
   ],
-  { relayFeeBps: 50 } // 0.5% relay fee
+  {
+    onProgress: (status) => console.log(status),
+    onProofProgress: (progress) => console.log(`Proof: ${progress}%`),
+  }
+);
+```
+
+##### `send()`
+
+Convenience method that wraps `privateTransfer()` with a simpler API.
+
+```typescript
+async send(
+  connection: Connection,
+  note: CloakNote,
+  recipients: MaxLengthArray<Transfer, 5>,
+  options?: TransferOptions
+): Promise<TransferResult>
+```
+
+**Example:**
+```typescript
+const result = await client.send(
+  connection,
+  note,
+  [
+    { recipient: addr1, amount: 500_000_000 },
+    { recipient: addr2, amount: 492_500_000 },
+  ]
 );
 ```
 
@@ -240,7 +293,6 @@ Convenience method for withdrawing to a single recipient.
 ```typescript
 async withdraw(
   connection: Connection,
-  payer: Wallet,
   note: CloakNote,
   recipient: PublicKey,
   options?: WithdrawOptions
@@ -249,13 +301,66 @@ async withdraw(
 
 **Example:**
 ```typescript
-const note = client.generateNote(1_000_000_000);
+const note = generateNote(1_000_000_000);
 const result = await client.withdraw(
   connection,
-  wallet,
   note,
   recipientAddress,
   { withdrawAll: true } // Withdraw full amount minus fees
+);
+```
+
+##### `swap()`
+
+Swap SOL for tokens privately using zero-knowledge proofs.
+
+**Handles the full flow**: Deposits if needed, fetches swap quote, generates proof, and executes swap.
+
+```typescript
+async swap(
+  connection: Connection,
+  note: CloakNote,
+  recipient: PublicKey,
+  options: SwapOptions
+): Promise<SwapResult>
+```
+
+**SwapOptions:**
+```typescript
+interface SwapOptions extends TransferOptions {
+  outputMint: string;                    // Output token mint address
+  slippageBps?: number;                  // Slippage tolerance in basis points (default: 100)
+  minOutputAmount?: number;               // Minimum output amount (if not using getQuote)
+  getQuote?: (amountLamports: number, outputMint: string, slippageBps: number) => Promise<{
+    outAmount: number;
+    minOutputAmount: number;
+  }>;
+}
+```
+
+**Example:**
+```typescript
+const note = generateNote(1_000_000_000);
+const result = await client.swap(
+  connection,
+  note,
+  recipientPublicKey,
+  {
+    outputMint: "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+    slippageBps: 100, // 1% slippage
+    getQuote: async (amount, mint, slippage) => {
+      // Fetch quote from swap API (e.g., Orca, Jupiter)
+      const response = await fetch(
+        `https://pools-api.devnet.orca.so/swap-quote?from=So11111111111111111111111111111111111111112&to=${mint}&amount=${amount}&slippageBps=${slippage}`
+      );
+      const data = await response.json();
+      return {
+        outAmount: parseInt(data.data.swap.outputAmount),
+        minOutputAmount: Math.floor(parseInt(data.data.swap.outputAmount) * (10000 - slippage) / 10000),
+      };
+    },
+    onProgress: (status) => console.log(status),
+  }
 );
 ```
 
@@ -263,30 +368,42 @@ const result = await client.withdraw(
 
 Generate a new note without depositing (for testing or pre-generation).
 
+**Note**: This is a standalone function, not a method on the client.
+
 ```typescript
-generateNote(amountLamports: number): CloakNote
+import { generateNote } from "@cloaklabz/sdk";
+
+const note = generateNote(amountLamports: number): CloakNote
 ```
 
 ##### `parseNote()`
 
 Parse a note from JSON string.
 
+**Note**: This is a standalone function, not a method on the client.
+
 ```typescript
-parseNote(jsonString: string): CloakNote
+import { parseNote } from "@cloaklabz/sdk";
+
+const note = parseNote(jsonString: string): CloakNote
 ```
 
 ##### `exportNote()`
 
 Export a note to JSON string.
 
+**Note**: This is a standalone function, not a method on the client.
+
 ```typescript
-exportNote(note: CloakNote, pretty?: boolean): string
+import { exportNote } from "@cloaklabz/sdk";
+
+const json = exportNote(note: CloakNote, pretty?: boolean): string
 ```
 
 ### Fee Calculation
 
 ```typescript
-import { calculateFee, getDistributableAmount, formatAmount } from "@cloak/sdk";
+import { calculateFee, getDistributableAmount, formatAmount } from "@cloaklabz/sdk";
 
 const amount = 1_000_000_000; // 1 SOL
 const fee = calculateFee(amount); // Protocol fee
@@ -310,7 +427,7 @@ import {
   computeOutputsHash,
   hexToBytes,
   bytesToHex,
-} from "@cloak/sdk";
+} from "@cloaklabz/sdk";
 
 // Generate commitment
 const commitment = generateCommitment(amount, r, skSpend);
@@ -371,10 +488,11 @@ await client.privateTransfer(
 Use service clients directly for lower-level operations:
 
 ```typescript
-import { IndexerService, ProverService, RelayService } from "@cloak/sdk";
+import { IndexerService, ArtifactProverService, RelayService } from "@cloaklabz/sdk";
 
 const indexer = new IndexerService("https://indexer.example.com");
-const prover = new ProverService("https://prover.example.com");
+// Use ArtifactProverService for privacy (private inputs never pass through backend)
+const prover = new ArtifactProverService("https://indexer.example.com");
 const relay = new RelayService("https://relay.example.com");
 
 // Get Merkle root
@@ -383,7 +501,7 @@ const { root, next_index } = await indexer.getMerkleRoot();
 // Get Merkle proof
 const proof = await indexer.getMerkleProof(leafIndex);
 
-// Generate proof
+// Generate proof using artifact-based flow (private inputs uploaded directly to TEE)
 const proofResult = await prover.generateProof(inputs);
 
 // Submit withdrawal
@@ -402,7 +520,9 @@ import type {
   TransferResult,
   DepositResult,
   MerkleProof,
-} from "@cloak/sdk";
+  SwapOptions,
+  SwapResult,
+} from "@cloaklabz/sdk";
 ```
 
 ## Security Considerations
@@ -419,13 +539,13 @@ import type {
 
 5. **Network isolation**: Don't mix notes from different networks (devnet/mainnet).
 
-6. **Proof privacy**: This SDK sends private inputs to a backend prover. For full privacy in production, consider client-side proof generation.
+6. **Proof privacy**: This SDK uses artifact-based proof generation where private inputs are uploaded directly to TEE, never passing through the backend in plaintext. This provides true privacy-preserving withdrawals.
 
 ## Error Handling
 
 ```typescript
 try {
-  const result = await client.privateTransfer(note, recipients);
+  const result = await client.privateTransfer(connection, note, recipients);
   console.log("Success:", result.signature);
 } catch (error) {
   if (error.message.includes("Note must be deposited")) {
@@ -434,6 +554,8 @@ try {
     console.error("ZK proof generation failed");
   } else if (error.message.includes("Relay")) {
     console.error("Relay service error");
+  } else if (error.message.includes("@solana/spl-token")) {
+    console.error("Swap requires @solana/spl-token package");
   } else {
     console.error("Unknown error:", error);
   }
@@ -444,11 +566,20 @@ try {
 
 See the [examples](./examples) directory for complete working examples:
 
-- Basic deposit and withdrawal
-- Multi-recipient transfers
-- Note management and storage
-- Error handling
-- Progress tracking
+- **deposit-example.ts** - Deposit SOL to create a private note
+- **transfer-example.ts** - Private transfers to multiple recipients
+- **send-example.ts** - Using the `send()` convenience method
+- **withdraw-example.ts** - Withdraw previously deposited notes
+- **swap-example.ts** - Swap SOL for tokens privately
+
+Run examples:
+```bash
+npm run example:deposit
+npm run example:transfer
+npm run example:send
+npm run example:withdraw
+npm run example:swap
+```
 
 ## Contributing
 
