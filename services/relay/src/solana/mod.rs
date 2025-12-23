@@ -6,6 +6,7 @@ pub mod transaction_builder;
 
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose};
+use bincode;
 use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -903,71 +904,76 @@ impl SolanaService {
     async fn submit_unstake_to_pool(
         &self,
         job: &Job,
-        unstake_config: &crate::stake::UnstakeConfig,
+        _unstake_config: &crate::stake::UnstakeConfig, // Not used in 2-phase flow
     ) -> Result<Signature, Error> {
         info!(
             "Starting unstake-to-pool flow for job {}",
             job.request_id
         );
 
-        // Parse stake account and authority
-        let stake_account = Pubkey::try_from(unstake_config.stake_account.as_str())
-            .map_err(|e| Error::ValidationError(format!("Invalid stake account: {}", e)))?;
-        let stake_authority = Pubkey::try_from(unstake_config.stake_authority.as_str())
-            .map_err(|e| Error::ValidationError(format!("Invalid stake authority: {}", e)))?;
-
-        // Parse public inputs (104 bytes)
-        if job.public_inputs.len() != 104 {
-            return Err(Error::ValidationError(
-                "Public inputs must be 104 bytes".to_string(),
-            ));
-        }
-        let public_104: [u8; 104] = job.public_inputs[..104]
-            .try_into()
-            .map_err(|_| Error::ValidationError("Invalid public inputs length".to_string()))?;
-
-        // Get recent blockhash
-        let recent_blockhash = self.client.get_latest_blockhash().await?;
-
-        // Derive PDAs (native SOL pool => mint = Pubkey::default())
-        let (pool_pda, _) = transaction_builder::derive_pool_pda(&self.program_id, None);
-        let (roots_ring_pda, _) = transaction_builder::derive_roots_ring_pda(&self.program_id, None);
-
-        // Get fee payer
+        // Get fee payer (needed for signing)
         let fee_payer = self
             .fee_payer
             .as_ref()
             .ok_or_else(|| Error::ValidationError("Fee payer required".to_string()))?;
-        let fee_payer_pubkey = fee_payer.pubkey();
 
-        // Build unstake transaction
-        let transaction = transaction_builder::build_unstake_to_pool_transaction(
-            job.proof_bytes.clone(),
-            public_104,
-            stake_account,
-            stake_authority,
-            self.program_id,
-            pool_pda,
-            roots_ring_pda,
-            fee_payer_pubkey,
-            recent_blockhash,
-            self.config.priority_micro_lamports,
-        )?;
+        // Check if we have a partially signed transaction from the frontend
+        // This is the 2-phase signing flow where user signs first as stake_authority
+        let partially_signed_tx_b64 = job.outputs_json
+            .get("partially_signed_tx")
+            .and_then(|v| v.as_str());
 
-        // Sign with fee payer
-        // Note: stake_authority must also sign, but that's handled by the user's wallet
-        // For now, we only sign with fee payer - the transaction will be partially signed
-        let mut signed_tx = transaction;
-        signed_tx.partial_sign(&[fee_payer], recent_blockhash);
+        if let Some(tx_b64) = partially_signed_tx_b64 {
+            info!("✅ Received partially signed transaction from frontend");
+            
+            // Deserialize the transaction that's already signed by stake_authority
+            let tx_bytes = general_purpose::STANDARD.decode(tx_b64)
+                .map_err(|e| Error::ValidationError(format!("Invalid base64: {}", e)))?;
+            
+            let mut transaction: Transaction = bincode::deserialize(&tx_bytes)
+                .map_err(|e| Error::ValidationError(format!("Invalid transaction: {}", e)))?;
 
-        // Submit and confirm
-        let signature = self
-            .client
-            .send_and_confirm_transaction(&signed_tx)
-            .await?;
+            // Update feePayer to relay's key (frontend uses user's key as placeholder)
+            let fee_payer_pubkey = fee_payer.pubkey();
+            transaction.message.account_keys[0] = fee_payer_pubkey;
+            info!("Updated feePayer to relay's key: {}", fee_payer_pubkey);
 
-        info!("✅ Unstake-to-pool transaction confirmed: {}", signature);
-        Ok(signature)
+            // Refresh blockhash
+            let recent_blockhash = self.client.get_latest_blockhash().await?;
+            transaction.message.recent_blockhash = recent_blockhash;
+
+            // Add relay's signature as fee_payer
+            info!("Adding relay fee_payer signature");
+            transaction.partial_sign(&[fee_payer], recent_blockhash);
+
+            // Verify we have both signatures
+            if transaction.signatures.len() < 2 {
+                return Err(Error::ValidationError(
+                    "Transaction missing required signatures".to_string()
+                ));
+            }
+
+            info!("✅ Transaction has both signatures (user + relay)");
+
+            // Submit the fully signed transaction
+            let signature = self
+                .client
+                .send_and_confirm_transaction(&transaction)
+                .await?;
+
+            info!("✅ Unstake-to-pool transaction confirmed: {}", signature);
+            Ok(signature)
+        } else {
+            // Fallback: No partially signed transaction provided
+            // This path will FAIL because we don't have stake_authority signature
+            warn!("⚠️  No partially_signed_tx provided - transaction will fail!");
+            warn!("⚠️  Unstake requires stake_authority signature from user");
+            
+            return Err(Error::ValidationError(
+                "Unstake requires a partially signed transaction with stake_authority signature. \
+                 Please use the 2-phase signing flow.".to_string()
+            ));
+        }
     }
 
     /// Build withdraw transaction using the canonical shield-pool layout and PDAs

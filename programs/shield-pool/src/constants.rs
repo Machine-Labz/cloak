@@ -2,7 +2,7 @@ use five8_const::decode_32_const;
 
 /// SP1 Withdraw Circuit VKey Hash
 pub const WITHDRAW_VKEY_HASH: &str =
-    "0x00eaae1108426a7a92a11dfd323b97bb8859ac0003f10e9c94d80ab7d080aada";
+    "0x00ddd4143efe13f6bad7ab5b316ba3b4cdec48f781b2edadc9a026320ad940a6";
 
 pub const ADMIN_AUTHORITY: [u8; 32] =
     decode_32_const("mgfSqUe1qaaUjeEzuLUyDUx5Rk4fkgePB5NtLnS3Vxa");

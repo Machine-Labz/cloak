@@ -5,12 +5,10 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::api::{ApiResponse, WithdrawResponse};
-use crate::db::repository::JobRepository;
 use crate::db::models::CreateJob;
+use crate::db::repository::JobRepository;
 use crate::stake::UnstakeConfig;
-use crate::solana::SolanaService;
-
-use std::sync::Arc;
+use crate::AppState;
 
 /// Unstake request payload
 #[derive(Debug, Deserialize)]
@@ -21,6 +19,12 @@ pub struct UnstakeRequest {
     pub public_inputs: UnstakePublicInputs,
     /// Unstake configuration
     pub unstake: UnstakeConfig,
+    /// Optional partially signed transaction (base64 encoded)
+    /// If provided, relay will add its signature and submit
+    /// If not provided, relay will create and sign the transaction (requires stake_authority to be relay)
+    #[serde(default)]
+    #[allow(dead_code)] // TODO: Will be used when 2-phase signing is implemented
+    pub partially_signed_tx: Option<String>,
 }
 
 /// Public inputs for unstake proof
@@ -36,12 +40,6 @@ pub struct UnstakePublicInputs {
     pub amount: u64,
 }
 
-/// Application state for unstake endpoint
-pub struct UnstakeAppState {
-    pub job_repo: Arc<dyn JobRepository + Send + Sync>,
-    pub solana_service: Arc<SolanaService>,
-}
-
 /// Handle unstake request
 /// 
 /// This endpoint allows users to unstake from a deactivated stake account
@@ -53,7 +51,7 @@ pub struct UnstakeAppState {
 /// 3. Relay submits UnstakeToPool transaction
 /// 4. Funds go to shield pool with new commitment
 pub async fn handle_unstake(
-    State(state): State<Arc<UnstakeAppState>>,
+    State(state): State<AppState>,
     Json(payload): Json<UnstakeRequest>,
 ) -> Result<Json<ApiResponse<WithdrawResponse>>, (StatusCode, Json<ApiResponse<String>>)> {
     info!("Received unstake request");
@@ -144,10 +142,18 @@ pub async fn handle_unstake(
     let request_id = Uuid::new_v4();
 
     // Create metadata for the job
-    let metadata = serde_json::json!({
+    let mut metadata = serde_json::json!({
         "type": "unstake",
         "unstake": payload.unstake,
     });
+    
+    // If frontend provided a partially signed transaction, include it
+    if let Some(ref partially_signed_tx) = payload.partially_signed_tx {
+        metadata["partially_signed_tx"] = serde_json::Value::String(partially_signed_tx.clone());
+        info!("✅ Partially signed transaction included in job metadata");
+    } else {
+        warn!("⚠️  No partially signed transaction provided - job may fail");
+    }
 
     // Create job in database
     let create_job = CreateJob {

@@ -321,6 +321,7 @@ pub async fn generate_proof(
             &request.outputs,
             swap_params_str.as_deref(),
             stake_params_str.as_deref(),
+            None, // unstake_params not supported in legacy endpoint
         )
         .await
     {

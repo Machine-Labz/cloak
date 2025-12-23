@@ -101,21 +101,27 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     // Constraint 2: C = H(amount || r || pk_spend)
     let commitment = compute_commitment(private.amount, &private.r, &pk_spend);
 
-    // Constraint 3: MerkleVerify(C, merkle_path) == root
-    let merkle_valid = verify_merkle_path(
-        &commitment,
-        &private.merkle_path.path_elements,
-        &private.merkle_path.path_indices,
-        &public.root,
-    );
-    if !merkle_valid {
-        return Err(anyhow!("Merkle path verification failed"));
-    }
+    // For unstake mode, skip Merkle and nullifier verification
+    // Unstake is a DEPOSIT operation, not a WITHDRAW
+    if inputs.unstake_params.is_none() {
+        // Constraint 3: MerkleVerify(C, merkle_path) == root
+        // Only for withdraw operations (not unstake)
+        let merkle_valid = verify_merkle_path(
+            &commitment,
+            &private.merkle_path.path_elements,
+            &private.merkle_path.path_indices,
+            &public.root,
+        );
+        if !merkle_valid {
+            return Err(anyhow!("Merkle path verification failed"));
+        }
 
-    // Constraint 4: nf == H(sk_spend || leaf_index)
-    let computed_nullifier = compute_nullifier(&private.sk_spend, private.leaf_index);
-    if computed_nullifier != public.nf {
-        return Err(anyhow!("Nullifier mismatch"));
+        // Constraint 4: nf == H(sk_spend || leaf_index)
+        // Only for withdraw operations (not unstake)
+        let computed_nullifier = compute_nullifier(&private.sk_spend, private.leaf_index);
+        if computed_nullifier != public.nf {
+            return Err(anyhow!("Nullifier mismatch"));
+        }
     }
 
     // Constraint 5: sum(outputs) + fee(amount) == amount

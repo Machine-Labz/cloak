@@ -84,6 +84,7 @@ impl Sp1TeeClient {
         outputs: &str,
         swap_params: Option<&str>,
         stake_params: Option<&str>,
+        unstake_params: Option<&str>,
     ) -> Result<TeeProofResult> {
         let start_time = std::time::Instant::now();
         
@@ -162,6 +163,27 @@ impl Sp1TeeClient {
                 info!("✅ stake_params is present in combined_json: {}", serde_json::to_string(stp_in_json).unwrap_or_else(|_| "error".to_string()));
             } else {
                 tracing::error!("❌ stake_params is MISSING from combined_json!");
+            }
+        }
+
+        if let Some(utp) = unstake_params {
+            // Parse unstake_params to ensure it's valid JSON
+            let unstake_params_val: serde_json::Value = serde_json::from_str(utp)
+                .map_err(|e| anyhow::anyhow!(
+                    "Invalid unstake_params JSON: {}. Raw: {}",
+                    e,
+                    &utp[..std::cmp::min(200, utp.len())]
+                ))?;
+            
+            info!("📋 Parsed unstake_params_val: {}", serde_json::to_string(&unstake_params_val).unwrap_or_else(|_| "error".to_string()));
+            
+            json_obj["unstake_params"] = unstake_params_val;
+            
+            // Verify unstake_params is present in the final JSON
+            if let Some(utp_in_json) = json_obj.get("unstake_params") {
+                info!("✅ unstake_params is present in combined_json: {}", serde_json::to_string(utp_in_json).unwrap_or_else(|_| "error".to_string()));
+            } else {
+                tracing::error!("❌ unstake_params is MISSING from combined_json!");
             }
         }
 

@@ -8,6 +8,9 @@ use crate::server::middleware::{
     cors_layer, logging_middleware, request_size_limit, timeout_middleware,
 };
 use crate::server::prover_handler::generate_proof;
+use crate::server::tee_handlers::{
+    create_artifact, get_proof_status, request_proof, upload_stdin,
+};
 use crate::sp1_tee_client::create_tee_client;
 use axum::{
     middleware,
@@ -63,6 +66,10 @@ pub async fn create_app(config: Config) -> Result<(Router, AppState), IndexerErr
     let next_index = storage.get_max_leaf_index().await?;
     tracing::info!(next_index = next_index, "Setting Merkle tree next index");
     merkle_tree.set_next_index(next_index);
+    
+    // Initialize root cache from storage
+    tracing::info!("Initializing root cache from storage");
+    merkle_tree.init_root_cache(&storage).await?;
 
     // Initialize artifact manager
     tracing::info!("Initializing artifact manager");
@@ -141,8 +148,13 @@ fn create_api_v1_routes() -> Router<AppState> {
         .route("/merkle/root", get(get_merkle_root))
         .route("/merkle/proof/:index", get(get_merkle_proof))
         .route("/notes/range", get(get_notes_range))
-        // Proof generation endpoint
+        // Legacy proof generation endpoint (deprecated)
         .route("/prove", post(generate_proof))
+        // TEE artifact-based proof generation endpoints (preferred)
+        .route("/tee/artifact", post(create_artifact))
+        .route("/tee/artifact/:artifact_id/upload", post(upload_stdin))
+        .route("/tee/request-proof", post(request_proof))
+        .route("/tee/proof-status", get(get_proof_status))
         // Admin endpoints
         .route("/admin/reset", post(reset_database))
 }
