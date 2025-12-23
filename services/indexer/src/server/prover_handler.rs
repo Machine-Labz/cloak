@@ -27,8 +27,6 @@ pub struct ProveRequest {
     pub outputs: String,        // JSON string
     #[serde(default)]
     pub swap_params: Option<serde_json::Value>, // Optional swap params JSON object
-    #[serde(default)]
-    pub stake_params: Option<serde_json::Value>, // Optional stake params JSON object
 }
 
 #[derive(Debug, Serialize)]
@@ -88,15 +86,6 @@ pub async fn generate_proof(
         tracing::info!("⚠️  swap_params is MISSING/None");
     }
 
-    // Log stake_params presence
-    if let Some(ref sp) = request.stake_params {
-        tracing::info!(
-            "✅ stake_params is present: {}",
-            serde_json::to_string(sp).unwrap_or_else(|_| "error".to_string())
-        );
-    } else {
-        tracing::info!("⚠️  stake_params is MISSING/None");
-    }
 
     let start_time = Instant::now();
 
@@ -293,26 +282,11 @@ pub async fn generate_proof(
         state.config.sp1_tee.timeout_seconds
     );
 
-    // Convert swap_params and stake_params JSON Value to string using serde_json::to_string
+    // Convert swap_params JSON Value to string using serde_json::to_string
     // This ensures valid JSON formatting (to_string() on Value doesn't produce valid JSON)
     let swap_params_str = request.swap_params.as_ref().and_then(|v| {
         serde_json::to_string(v).ok()
     });
-    let stake_params_str = request.stake_params.as_ref().and_then(|v| {
-        let s = serde_json::to_string(v).ok();
-        if let Some(ref str_val) = s {
-            tracing::info!("📋 stake_params_str (serialized): {}", str_val);
-        } else {
-            tracing::error!("❌ Failed to serialize stake_params to string!");
-        }
-        s
-    });
-    
-    if let Some(ref stp_str) = stake_params_str {
-        tracing::info!("✅ stake_params_str is Some, length: {}", stp_str.len());
-    } else {
-        tracing::warn!("⚠️ stake_params_str is None");
-    }
 
     match tee_client
         .generate_proof(
@@ -320,8 +294,8 @@ pub async fn generate_proof(
             &request.public_inputs,
             &request.outputs,
             swap_params_str.as_deref(),
-            stake_params_str.as_deref(),
-            None, // unstake_params not supported in legacy endpoint
+            None, // stake_params not supported
+            None, // unstake_params not supported
         )
         .await
     {

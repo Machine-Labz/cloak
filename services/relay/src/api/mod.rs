@@ -1,6 +1,5 @@
 pub mod backlog;
 pub mod status;
-pub mod unstake;
 pub mod validator_agent;
 pub mod withdraw;
 

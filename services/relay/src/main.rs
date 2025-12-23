@@ -6,7 +6,6 @@ mod db;
 mod error;
 mod planner;
 mod solana;
-mod stake;
 mod swap;
 mod worker;
 
@@ -149,7 +148,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(root))
         .route("/health", get(health_check))
         .route("/withdraw", post(api::withdraw::handle_withdraw))
-        .route("/unstake", post(api::unstake::handle_unstake))
         .route("/status/:id", get(api::status::get_status))
         // Miners API - backlog status
         .route("/backlog", get(api::backlog::get_backlog_status))
