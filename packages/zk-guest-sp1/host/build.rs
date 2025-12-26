@@ -5,12 +5,15 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZK_GUEST_FORCE_BUILD");
     // Optional override to force building the guest even if a prebuilt artifact exists.
     // Set ZK_GUEST_FORCE_BUILD=1 to rebuild the ELF from source.
-    let force_build = std::env::var("ZK_GUEST_FORCE_BUILD").map_or(false, |v| v == "1");
+    let force_build = std::env::var("ZK_GUEST_FORCE_BUILD").is_ok_and(|v| v == "1");
 
     // Check if pre-built ELF exists (for Docker builds without SP1 toolchain)
     // Use CARGO_MANIFEST_DIR to ensure correct path resolution
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let prebuilt_elf = Path::new(&manifest_dir).parent().unwrap().join(".artifacts/zk-guest-sp1-guest");
+    let prebuilt_elf = Path::new(&manifest_dir)
+        .parent()
+        .unwrap()
+        .join(".artifacts/zk-guest-sp1-guest");
 
     if prebuilt_elf.exists() && !force_build {
         println!("cargo:warning=Using pre-built ELF from .artifacts directory");

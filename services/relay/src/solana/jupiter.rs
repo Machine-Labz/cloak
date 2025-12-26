@@ -1,3 +1,10 @@
+use std::net::SocketAddr;
+
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
+use tracing::{debug, info, warn};
+
 /// Jupiter DEX Integration for SPL Token Swaps
 ///
 /// This module provides integration with Jupiter's swap aggregator API
@@ -17,12 +24,6 @@
 /// let tx = jupiter.swap(&quote, user_pubkey).await?;
 /// ```
 use crate::error::Error;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use tracing::{debug, info, warn};
 
 const JUPITER_QUOTE_API_V6: &str = "https://quote-api.jup.ag/v6";
 const DEFAULT_SLIPPAGE_BPS: u16 = 50; // 0.5%
@@ -133,7 +134,7 @@ impl JupiterService {
 
         // Build HTTP client with optional DNS override for environments where
         // container DNS cannot resolve external hosts (e.g., quote-api.jup.ag)
-        let mut builder = Client::builder().timeout(std::time::Duration::from_secs(30));
+        let mut builder = Client::builder().timeout(std::time::Duration::from_secs(60));
 
         // If JUPITER_DNS_OVERRIDE_IP is set, force-resolve the API host to this IP.
         // This preserves TLS/SNI while bypassing container DNS.

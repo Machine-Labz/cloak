@@ -1,16 +1,19 @@
-use crate::error::ScrambleError;
-use crate::state::{Claim, Miner, ScrambleRegistry};
-use crate::utils::{u256_lt, verify_pow};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::instruction::Signer;
-use pinocchio::program_error::ProgramError;
-use pinocchio::pubkey::find_program_address;
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::rent::Rent;
-use pinocchio::sysvars::slot_hashes::SLOTHASHES_ID;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{seeds, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    instruction::Signer,
+    program_error::ProgramError,
+    pubkey::find_program_address,
+    seeds,
+    sysvars::{clock::Clock, rent::Rent, slot_hashes::SLOTHASHES_ID, Sysvar},
+    ProgramResult,
+};
 use pinocchio_system::instructions::CreateAccount;
+
+use crate::{
+    error::ScrambleError,
+    state::{Claim, Miner, ScrambleRegistry},
+    utils::{u256_lt, verify_pow},
+};
 
 #[inline(always)]
 pub fn process_mine_claim_instruction(
@@ -168,7 +171,7 @@ pub fn process_mine_claim_instruction(
     }
 
     // Initialize claim data
-    let mut claim = Claim::from_account_info_unchecked(&claim_account);
+    let mut claim = Claim::from_account_info_unchecked(claim_account);
     claim.initialize(
         miner_authority.key(),
         &batch_hash,

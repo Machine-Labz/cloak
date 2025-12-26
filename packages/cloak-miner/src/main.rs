@@ -17,6 +17,15 @@
 //!   cloak-miner --network devnet --keypair <PATH> register
 //!   cloak-miner --network devnet --keypair <PATH> status
 
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cloak_miner::{
@@ -32,10 +41,6 @@ use solana_sdk::{
     signature::{read_keypair_file, Keypair, Signer},
     transaction::Transaction,
 };
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -159,7 +164,7 @@ async fn register_miner(
     let (miner_pda, _) = derive_miner_pda(program_id, &keypair.pubkey());
 
     if let Ok(account) = client.get_account(&miner_pda) {
-        if account.data.len() > 0 {
+        if !account.data.is_empty() {
             info!("✓ Miner already registered: {}", miner_pda);
             return Ok(());
         }
@@ -413,7 +418,7 @@ async fn mine_continuously(
         // Check for relay demand
         let min_buffer = 2; // Always keep at least 2 claims ready for incoming requests
         let (has_demand, pending_count) =
-            match check_relay_demand(&relay_url).await.unwrap_or((true, 0)) {
+            match check_relay_demand(relay_url).await.unwrap_or((true, 0)) {
                 (demand, count) => {
                     info!(
                         "📊 Relay check: {} pending jobs, has_demand={}",

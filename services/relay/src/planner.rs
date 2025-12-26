@@ -1,5 +1,6 @@
-use blake3::Hasher;
 use std::time::{Duration, Instant};
+
+use blake3::Hasher;
 
 /// Root metadata within the current acceptable window
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,8 +41,8 @@ pub mod orchestrator;
 pub fn calculate_fee(amount: u64, _decimals: u8) -> u64 {
     // ZK circuit validates: outputs_sum + variable_fee = amount
     // Must match guest/src/encoding.rs::calculate_fee()
-    let variable_fee = (amount.saturating_mul(5)) / 1_000; // 0.5%
-    variable_fee
+    // 0.5%
+    (amount.saturating_mul(5)) / 1_000
 }
 
 /// Legacy function for backwards compatibility (assumes 9 decimals / SOL)
@@ -174,8 +175,9 @@ pub fn jitter_delay(now: Instant) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Instant;
+
+    use super::*;
 
     #[test]
     fn test_conservation_fee_and_outputs_hash() {

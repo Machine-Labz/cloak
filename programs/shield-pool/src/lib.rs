@@ -1,10 +1,11 @@
-use crate::instructions::ShieldPoolInstruction;
 use five8_const::decode_32_const;
 use instructions::*;
 use pinocchio::{
     account_info::AccountInfo, default_allocator, default_panic_handler, program_entrypoint,
     program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
+
+use crate::instructions::ShieldPoolInstruction;
 
 mod constants;
 mod error;
@@ -59,7 +60,11 @@ pub fn process_instruction(
             release_swap_funds::process_release_swap_funds(accounts)
         }
         ShieldPoolInstruction::ExecuteSwapViaOrca => {
-            execute_swap_via_orca::process_execute_swap_via_orca(program_id, accounts, instruction_data)
+            execute_swap_via_orca::process_execute_swap_via_orca(
+                program_id,
+                accounts,
+                instruction_data,
+            )
         }
         ShieldPoolInstruction::PrepareSwapSol => {
             prepare_swap_sol::process_prepare_swap_sol(program_id, accounts)

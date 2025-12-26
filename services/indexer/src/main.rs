@@ -9,10 +9,9 @@ mod server;
 pub mod solana;
 mod sp1_tee_client;
 
-use crate::config::Config;
-use crate::logging::init_logging;
-use crate::server::routes::start_server;
 use anyhow::Result;
+
+use crate::{config::Config, logging::init_logging, server::routes::start_server};
 
 #[tokio::main]
 async fn main() -> Result<()> {

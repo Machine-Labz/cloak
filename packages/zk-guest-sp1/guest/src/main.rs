@@ -45,8 +45,9 @@ struct CircuitInputs {
 
 // Custom serde module for hex strings
 mod hex_string {
-    use super::*;
     use serde::{Deserializer, Serializer};
+
+    use super::*;
 
     pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -72,8 +73,8 @@ pub fn main() {
     let input_json = io::read::<String>();
 
     // Parse the input
-    let inputs: CircuitInputs = serde_json::from_str(&input_json)
-        .expect("Failed to parse input JSON");
+    let inputs: CircuitInputs =
+        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
 
     // Verify all circuit constraints
     verify_circuit_constraints(&inputs).expect("Circuit constraint verification failed");
@@ -140,7 +141,9 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
         }
 
         // Compute remaining amount after fee
-        let swap_amount = private.amount.checked_sub(fee)
+        let swap_amount = private
+            .amount
+            .checked_sub(fee)
             .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
 
         // Verify swap parameters if present

@@ -1,3 +1,4 @@
+use shield_pool::instructions::ShieldPoolInstruction;
 use solana_sdk::{
     compute_budget::ComputeBudgetInstruction,
     hash::Hash,
@@ -11,10 +12,7 @@ use solana_sdk::{
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
 use spl_token;
 
-use shield_pool::instructions::ShieldPoolInstruction;
-
-use crate::error::Error;
-use crate::planner::Output;
+use crate::{error::Error, planner::Output};
 
 // Manual implementation of associated token account derivation
 // This avoids dependency conflicts with spl-associated-token-account
@@ -391,42 +389,6 @@ pub(crate) fn derive_shield_pool_pdas(
     (pool_pda, treasury_pda, roots_ring_pda, nullifier_shard_pda)
 }
 
-/// Back-compat helpers used by SolanaService / older callsites ---------------------------------
-///
-/// These helpers mirror the on-chain PDA seeds and accept an optional mint. When `mint` is `None`
-/// we default to `Pubkey::default()`, which is how the native SOL pool is addressed.
-pub(crate) fn derive_pool_pda(
-    program_id: &Pubkey,
-    mint: Option<&Pubkey>,
-) -> (Pubkey, u8) {
-    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
-    Pubkey::find_program_address(&[b"pool", mint_key.as_ref()], program_id)
-}
-
-pub(crate) fn derive_roots_ring_pda(
-    program_id: &Pubkey,
-    mint: Option<&Pubkey>,
-) -> (Pubkey, u8) {
-    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
-    Pubkey::find_program_address(&[b"roots_ring", mint_key.as_ref()], program_id)
-}
-
-pub(crate) fn derive_nullifier_shard_pda(
-    program_id: &Pubkey,
-    mint: Option<&Pubkey>,
-) -> (Pubkey, u8) {
-    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
-    Pubkey::find_program_address(&[b"nullifier_shard", mint_key.as_ref()], program_id)
-}
-
-pub(crate) fn derive_treasury_pda(
-    program_id: &Pubkey,
-    mint: Option<&Pubkey>,
-) -> (Pubkey, u8) {
-    let mint_key = mint.copied().unwrap_or_else(Pubkey::default);
-    Pubkey::find_program_address(&[b"treasury", mint_key.as_ref()], program_id)
-}
-
 /// Derive the swap state PDA for a given nullifier
 pub(crate) fn derive_swap_state_pda(program_id: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"swap_state", nullifier.as_ref()], program_id)
@@ -602,7 +564,7 @@ pub fn build_release_swap_funds_instruction(
     swap_state_pda: Pubkey,
     relay: Pubkey,
 ) -> Instruction {
-    let mut data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
+    let data = vec![ShieldPoolInstruction::ReleaseSwapFunds as u8];
 
     Instruction {
         program_id,
@@ -936,123 +898,6 @@ pub fn build_withdraw_instruction_legacy(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use solana_sdk::{pubkey::Pubkey, system_program};
-
-    #[test]
-    fn test_withdraw_body_layout() {
-        const PROOF_LEN: usize = 1506;
-        let proof = vec![0xAAu8; PROOF_LEN];
-        let mut public = [0u8; PUBLIC_INPUTS_LEN];
-        // root 0..32, nf 32..64, outputs_hash 64..96, amount 96..104
-        public[0..32].copy_from_slice(&[0x11u8; 32]);
-        public[32..64].copy_from_slice(&[0x22u8; 32]);
-        public[64..96].copy_from_slice(&[0x33u8; 32]);
-        let amt: u64 = 0x0102_0304_0506_0708;
-        public[96..104].copy_from_slice(&amt.to_le_bytes());
-
-        let recip = [0x44u8; RECIPIENT_ADDR_LEN];
-        let out_amt: u64 = 123_456u64;
-        let outputs = vec![Output {
-            address: recip,
-            amount: out_amt,
-        }];
-        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
-        let expected_len = PROOF_LEN
-            + PUBLIC_INPUTS_LEN
-            + DUPLICATE_NULLIFIER_LEN
-            + NUM_OUTPUTS_LEN
-            + RECIPIENT_ADDR_LEN
-            + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(body.len(), expected_len);
-
-        let public_start = PROOF_LEN;
-        let public_end = public_start + PUBLIC_INPUTS_LEN;
-        assert_eq!(&body[..PROOF_LEN], proof.as_slice());
-        assert_eq!(&body[public_start..public_end], &public);
-
-        let dup_start = public_end;
-        let dup_end = dup_start + DUPLICATE_NULLIFIER_LEN;
-        assert_eq!(&body[dup_start..dup_end], &public[32..64]);
-
-        let outputs_idx = dup_end;
-        assert_eq!(body[outputs_idx], 1u8);
-
-        let recip_start = outputs_idx + NUM_OUTPUTS_LEN;
-        let recip_end = recip_start + RECIPIENT_ADDR_LEN;
-        assert_eq!(&body[recip_start..recip_end], &recip);
-
-        let amount_start = recip_end;
-        let amount_end = amount_start + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(&body[amount_start..amount_end], &out_amt.to_le_bytes());
-    }
-
-    #[test]
-    fn test_legacy_builder_derives_pdas_and_accounts_order() {
-        // Program id and PDAs
-        let program_id = Pubkey::new_unique();
-        let mint = Pubkey::default(); // Native SOL for test
-
-        // Minimal fake SP1 proof bundle
-        let bundle = vec![0xABu8; 1506];
-
-        // Public inputs 104 bytes (zeros are acceptable for building)
-        let public_inputs = vec![0u8; 104];
-
-        // Single output as required
-        let recipient_pubkey = Pubkey::new_unique();
-        let outputs = vec![Output {
-            address: recipient_pubkey.to_bytes(),
-            amount: 1_000_000,
-        }];
-
-        let blockhash = solana_sdk::hash::Hash::new_unique();
-        let tx = build_withdraw_instruction_legacy(
-            &program_id,
-            &mint,
-            &bundle,
-            &public_inputs,
-            &outputs,
-            blockhash,
-        )
-        .expect("tx");
-
-        let msg = tx.message();
-        assert!(
-            msg.instructions.len() >= 3,
-            "expect CU, fee, and withdraw ix"
-        );
-        let ci = &msg.instructions[2];
-
-        // Program id check
-        let pid = msg.account_keys[ci.program_id_index as usize];
-        assert_eq!(pid, program_id);
-
-        // Resolve accounts by index and verify order
-        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
-            derive_shield_pool_pdas(&program_id, &mint);
-        let resolve = |ix: u8| msg.account_keys[ix as usize];
-        assert_eq!(resolve(ci.accounts[0]), exp_pool);
-        assert_eq!(resolve(ci.accounts[1]), exp_treasury);
-        assert_eq!(resolve(ci.accounts[2]), exp_roots);
-        assert_eq!(resolve(ci.accounts[3]), exp_nullifier);
-        // recipient (we don't assert exact value here) and system program
-        assert_eq!(resolve(ci.accounts[5]), system_program::id());
-
-        // Data layout check: first byte is discriminant=2, then dynamic body
-        assert_eq!(ci.data[0], 2u8);
-        let expected_body_len = bundle.len()
-            + PUBLIC_INPUTS_LEN
-            + DUPLICATE_NULLIFIER_LEN
-            + NUM_OUTPUTS_LEN
-            + RECIPIENT_ADDR_LEN
-            + RECIPIENT_AMOUNT_LEN;
-        assert_eq!(ci.data.len() - 1, expected_body_len);
-    }
-}
-
 // ============================================================================
 // FUND WSOL ATA INSTRUCTION
 // ============================================================================
@@ -1181,18 +1026,18 @@ fn _build_orca_swap_instruction_old(
 
     // Build accounts (old version without payer - function is deprecated)
     let accounts = vec![
-        AccountMeta::new(swap_state_pda, false),                 // 0. swap_state_pda (writable)
-        AccountMeta::new(wsol_ata, false),                       // 1. swap_wsol_ata (writable)
-        AccountMeta::new(recipient_ata, false),                  // 2. recipient_ata (writable)
-        AccountMeta::new(whirlpool_pda, false),                  // 3. whirlpool (writable)
-        AccountMeta::new(vault_a, false),                        // 4. token_vault_a (writable)
-        AccountMeta::new(vault_b, false),                        // 5. token_vault_b (writable)
-        AccountMeta::new(tick_array_0, false),                   // 6. tick_array_0 (writable)
-        AccountMeta::new(tick_array_1, false),                   // 7. tick_array_1 (writable)
-        AccountMeta::new(tick_array_2, false),                   // 8. tick_array_2 (writable)
-        AccountMeta::new_readonly(oracle, false),                // 9. oracle (readonly)
-        AccountMeta::new_readonly(spl_token::id(), false),       // 10. token_program (readonly)
-        AccountMeta::new_readonly(whirlpool_program, false),     // 11. whirlpool_program (readonly)
+        AccountMeta::new(swap_state_pda, false), // 0. swap_state_pda (writable)
+        AccountMeta::new(wsol_ata, false),       // 1. swap_wsol_ata (writable)
+        AccountMeta::new(recipient_ata, false),  // 2. recipient_ata (writable)
+        AccountMeta::new(whirlpool_pda, false),  // 3. whirlpool (writable)
+        AccountMeta::new(vault_a, false),        // 4. token_vault_a (writable)
+        AccountMeta::new(vault_b, false),        // 5. token_vault_b (writable)
+        AccountMeta::new(tick_array_0, false),   // 6. tick_array_0 (writable)
+        AccountMeta::new(tick_array_1, false),   // 7. tick_array_1 (writable)
+        AccountMeta::new(tick_array_2, false),   // 8. tick_array_2 (writable)
+        AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
+        AccountMeta::new_readonly(spl_token::id(), false), // 10. token_program (readonly)
+        AccountMeta::new_readonly(whirlpool_program, false), // 11. whirlpool_program (readonly)
     ];
 
     Ok(Instruction {
@@ -1285,7 +1130,7 @@ pub fn build_execute_swap_via_orca_instruction(
     tick_array_1: Pubkey,
     tick_array_2: Pubkey,
     oracle: Pubkey,
-    payer: Pubkey,  // Payer account (receives rent from closing SwapState)
+    payer: Pubkey, // Payer account (receives rent from closing SwapState)
 ) -> Result<Instruction, Error> {
     // Derive SwapState PDA
     let (swap_state_pda, _) = derive_swap_state_pda(&program_id, &nullifier);
@@ -1328,7 +1173,7 @@ pub fn build_execute_swap_via_orca_instruction(
         AccountMeta::new_readonly(oracle, false), // 9. oracle (readonly)
         AccountMeta::new_readonly(token_program_id, false), // 10. token_program (readonly)
         AccountMeta::new_readonly(whirlpool_program_id, false), // 11. whirlpool_program (readonly)
-        AccountMeta::new(payer, false),          // 12. payer (writable) - receives rent from closing SwapState
+        AccountMeta::new(payer, false), // 12. payer (writable) - receives rent from closing SwapState
     ];
 
     Ok(Instruction {
@@ -1338,389 +1183,120 @@ pub fn build_execute_swap_via_orca_instruction(
     })
 }
 
-/// Build the withdraw_stake instruction body
-/// Layout: [proof][public:104][nf-dup:32][stake_account:32][batch_hash:32?]
-pub fn build_withdraw_stake_ix_body(
-    proof: &[u8],
-    public_104: &[u8; PUBLIC_INPUTS_LEN],
-    stake_account: &Pubkey,
-    batch_hash: Option<&[u8; POW_BATCH_HASH_LEN]>,
-) -> Result<Vec<u8>, Error> {
-    if proof.is_empty() {
-        return Err(Error::ValidationError("proof must be non-empty".into()));
-    }
-    
-    // Validate proof size (should be 260 bytes for Groth16)
-    if proof.len() != 260 {
-        tracing::warn!(
-            "Proof size is {} bytes, expected 260 bytes (Groth16)",
-            proof.len()
-        );
-    }
+#[cfg(test)]
+mod tests {
+    use solana_sdk::{pubkey::Pubkey, system_program};
 
-    let mut data = Vec::with_capacity(
-        proof.len()
+    use super::*;
+
+    #[test]
+    fn test_withdraw_body_layout() {
+        const PROOF_LEN: usize = 1506;
+        let proof = vec![0xAAu8; PROOF_LEN];
+        let mut public = [0u8; PUBLIC_INPUTS_LEN];
+        // root 0..32, nf 32..64, outputs_hash 64..96, amount 96..104
+        public[0..32].copy_from_slice(&[0x11u8; 32]);
+        public[32..64].copy_from_slice(&[0x22u8; 32]);
+        public[64..96].copy_from_slice(&[0x33u8; 32]);
+        let amt: u64 = 0x0102_0304_0506_0708;
+        public[96..104].copy_from_slice(&amt.to_le_bytes());
+
+        let recip = [0x44u8; RECIPIENT_ADDR_LEN];
+        let out_amt: u64 = 123_456u64;
+        let outputs = vec![Output {
+            address: recip,
+            amount: out_amt,
+        }];
+        let body = build_withdraw_ix_body(proof.as_slice(), &public, &outputs).expect("body");
+        let expected_len = PROOF_LEN
             + PUBLIC_INPUTS_LEN
             + DUPLICATE_NULLIFIER_LEN
-            + 32
-            + if batch_hash.is_some() { POW_BATCH_HASH_LEN } else { 0 },
-    );
-    data.extend_from_slice(proof);
-    data.extend_from_slice(public_104);
-    data.extend_from_slice(&public_104[32..64]); // duplicate nullifier
-    data.extend_from_slice(stake_account.as_ref()); // stake_account (32 bytes)
-    if let Some(batch_hash) = batch_hash {
-        data.extend_from_slice(batch_hash);
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(body.len(), expected_len);
+
+        let public_start = PROOF_LEN;
+        let public_end = public_start + PUBLIC_INPUTS_LEN;
+        assert_eq!(&body[..PROOF_LEN], proof.as_slice());
+        assert_eq!(&body[public_start..public_end], &public);
+
+        let dup_start = public_end;
+        let dup_end = dup_start + DUPLICATE_NULLIFIER_LEN;
+        assert_eq!(&body[dup_start..dup_end], &public[32..64]);
+
+        let outputs_idx = dup_end;
+        assert_eq!(body[outputs_idx], 1u8);
+
+        let recip_start = outputs_idx + NUM_OUTPUTS_LEN;
+        let recip_end = recip_start + RECIPIENT_ADDR_LEN;
+        assert_eq!(&body[recip_start..recip_end], &recip);
+
+        let amount_start = recip_end;
+        let amount_end = amount_start + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(&body[amount_start..amount_end], &out_amt.to_le_bytes());
     }
-    
-    tracing::debug!(
-        "WithdrawStake body: proof_len={}, body_len={}, stake_account={}",
-        proof.len(),
-        data.len(),
-        stake_account
-    );
 
-    Ok(data)
-}
+    #[test]
+    fn test_legacy_builder_derives_pdas_and_accounts_order() {
+        // Program id and PDAs
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::default(); // Native SOL for test
 
-/// Build an Instruction for shield-pool::WithdrawStake (discriminant = 9)
-///
-/// Accounts layout:
-/// 0. pool_pda (writable)
-/// 1. treasury (writable)
-/// 2. roots_ring_pda (readonly)
-/// 3. nullifier_shard_pda (writable)
-/// 4. stake_account (writable)
-/// 5. system_program (readonly)
-/// PoW mode adds: [scramble_program, claim_pda, miner_pda, registry_pda, clock_sysvar, miner_authority, shield_pool_program]
-pub fn build_withdraw_stake_instruction(
-    program_id: Pubkey,
-    body: &[u8],
-    pool_pda: Pubkey,
-    treasury: Pubkey,
-    roots_ring_pda: Pubkey,
-    nullifier_shard_pda: Pubkey,
-    stake_account: Pubkey,
-    scramble_registry_program: Option<Pubkey>,
-    claim_pda: Option<Pubkey>,
-    miner_pda: Option<Pubkey>,
-    registry_pda: Option<Pubkey>,
-    miner_authority: Option<Pubkey>,
-) -> Instruction {
-    use solana_sdk::sysvar;
+        // Minimal fake SP1 proof bundle
+        let bundle = vec![0xABu8; 1506];
 
-    let mut data = Vec::with_capacity(1 + body.len());
-    let discriminant = ShieldPoolInstruction::WithdrawStake as u8;
-    data.push(discriminant);
-    data.extend_from_slice(body);
-    
-    // Debug: log first few bytes
-    if data.len() >= 5 {
-        tracing::debug!(
-            "WithdrawStake instruction: discriminant={}, body_len={}, first_bytes=[{:02x}, {:02x}, {:02x}, {:02x}]",
-            discriminant,
-            body.len(),
-            data[0], data[1], data[2], data[3]
+        // Public inputs 104 bytes (zeros are acceptable for building)
+        let public_inputs = vec![0u8; 104];
+
+        // Single output as required
+        let recipient_pubkey = Pubkey::new_unique();
+        let outputs = vec![Output {
+            address: recipient_pubkey.to_bytes(),
+            amount: 1_000_000,
+        }];
+
+        let blockhash = solana_sdk::hash::Hash::new_unique();
+        let tx = build_withdraw_instruction_legacy(
+            &program_id,
+            &mint,
+            &bundle,
+            &public_inputs,
+            &outputs,
+            blockhash,
+        )
+        .expect("tx");
+
+        let msg = tx.message();
+        assert!(
+            msg.instructions.len() >= 3,
+            "expect CU, fee, and withdraw ix"
         );
+        let ci = &msg.instructions[2];
+
+        // Program id check
+        let pid = msg.account_keys[ci.program_id_index as usize];
+        assert_eq!(pid, program_id);
+
+        // Resolve accounts by index and verify order
+        let (exp_pool, exp_treasury, exp_roots, exp_nullifier) =
+            derive_shield_pool_pdas(&program_id, &mint);
+        let resolve = |ix: u8| msg.account_keys[ix as usize];
+        assert_eq!(resolve(ci.accounts[0]), exp_pool);
+        assert_eq!(resolve(ci.accounts[1]), exp_treasury);
+        assert_eq!(resolve(ci.accounts[2]), exp_roots);
+        assert_eq!(resolve(ci.accounts[3]), exp_nullifier);
+        // recipient (we don't assert exact value here) and system program
+        assert_eq!(resolve(ci.accounts[5]), system_program::id());
+
+        // Data layout check: first byte is discriminant=2, then dynamic body
+        assert_eq!(ci.data[0], 2u8);
+        let expected_body_len = bundle.len()
+            + PUBLIC_INPUTS_LEN
+            + DUPLICATE_NULLIFIER_LEN
+            + NUM_OUTPUTS_LEN
+            + RECIPIENT_ADDR_LEN
+            + RECIPIENT_AMOUNT_LEN;
+        assert_eq!(ci.data.len() - 1, expected_body_len);
     }
-
-    let mut accounts = Vec::with_capacity(13);
-    accounts.push(AccountMeta::new(pool_pda, false)); // pool (writable)
-    accounts.push(AccountMeta::new(treasury, false)); // treasury (writable)
-    accounts.push(AccountMeta::new_readonly(roots_ring_pda, false)); // roots ring (readonly)
-    accounts.push(AccountMeta::new(nullifier_shard_pda, false)); // nullifier shard (writable)
-    accounts.push(AccountMeta::new(stake_account, false)); // stake_account (writable)
-    accounts.push(AccountMeta::new_readonly(system_program::id(), false)); // system_program (readonly)
-
-    // Add PoW accounts if provided
-    if let (Some(scramble_prog), Some(claim), Some(miner), Some(registry), Some(miner_auth)) = (
-        scramble_registry_program,
-        claim_pda,
-        miner_pda,
-        registry_pda,
-        miner_authority,
-    ) {
-        accounts.push(AccountMeta::new_readonly(scramble_prog, false));
-        accounts.push(AccountMeta::new(claim, false));
-        accounts.push(AccountMeta::new(miner, false));
-        accounts.push(AccountMeta::new(registry, false));
-        accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
-        accounts.push(AccountMeta::new(miner_auth, false));
-        accounts.push(AccountMeta::new_readonly(program_id, false)); // shield_pool_program
-    }
-
-    Instruction {
-        program_id,
-        accounts,
-        data,
-    }
-}
-
-/// Build a full Transaction for WithdrawStake (legacy - just transfers lamports)
-/// Note: The stake account should be created and initialized before calling this function.
-/// Build a transaction with WithdrawStake instruction.
-/// 
-/// NOTE: Despite the name "WithdrawStake", this instruction does NOT withdraw stake.
-/// Instead, it withdraws SOL from the shield pool and transfers it to a stake account.
-/// Think of it as "WithdrawToStake" - withdrawing from pool TO a stake account.
-/// 
-/// This function only builds the withdraw_stake instruction that transfers lamports to the stake account.
-pub fn build_withdraw_stake_transaction(
-    proof_bytes: Vec<u8>,
-    public_104: [u8; PUBLIC_INPUTS_LEN],
-    stake_account: Pubkey,
-    program_id: Pubkey,
-    pool_pda: Pubkey,
-    roots_ring_pda: Pubkey,
-    nullifier_shard_pda: Pubkey,
-    treasury: Pubkey,
-    fee_payer: Pubkey,
-    recent_blockhash: Hash,
-    priority_micro_lamports: u64,
-    batch_hash: Option<[u8; POW_BATCH_HASH_LEN]>,
-    scramble_registry_program: Option<Pubkey>,
-    claim_pda: Option<Pubkey>,
-    miner_pda: Option<Pubkey>,
-    registry_pda: Option<Pubkey>,
-    miner_authority: Option<Pubkey>,
-) -> Result<Transaction, Error> {
-    // Build withdraw_stake instruction body
-    let body = build_withdraw_stake_ix_body(
-        proof_bytes.as_slice(),
-        &public_104,
-        &stake_account,
-        batch_hash.as_ref(),
-    )?;
-
-    // Build withdraw_stake instruction
-    let withdraw_stake_ix = build_withdraw_stake_instruction(
-        program_id,
-        &body,
-        pool_pda,
-        treasury,
-        roots_ring_pda,
-        nullifier_shard_pda,
-        stake_account,
-        scramble_registry_program,
-        claim_pda,
-        miner_pda,
-        registry_pda,
-        miner_authority,
-    );
-
-    // Compute budget instructions
-    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(500_000);
-    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
-
-    // Build transaction
-    let mut msg = Message::new(
-        &[cu_ix, pri_ix, withdraw_stake_ix],
-        Some(&fee_payer),
-    );
-    msg.recent_blockhash = recent_blockhash;
-    let tx = Transaction::new_unsigned(msg);
-    Ok(tx)
-}
-
-/// Build a transaction with WithdrawStake + Delegate instructions.
-/// 
-/// NOTE: Despite the name "WithdrawStake", this instruction does NOT withdraw stake.
-/// Instead, it withdraws SOL from the shield pool and transfers it to a stake account.
-/// 
-/// This builds a transaction with:
-/// 1. WithdrawStake - moves SOL from shield pool to stake account (relay signs as fee payer)
-/// 2. StakeProgram::DelegateStake - delegates to the validator (user signs as stake authority)
-///
-/// The stake account must already exist and be initialized (user creates it beforehand).
-/// This transaction can be partially signed by the user (delegate) and completed by the relay (withdraw_stake).
-pub fn build_withdraw_stake_and_delegate_transaction(
-    proof_bytes: Vec<u8>,
-    public_104: [u8; PUBLIC_INPUTS_LEN],
-    stake_account: Pubkey,
-    stake_authority: Pubkey,
-    validator_vote_account: Pubkey,
-    stake_amount_lamports: u64,
-    program_id: Pubkey,
-    pool_pda: Pubkey,
-    roots_ring_pda: Pubkey,
-    nullifier_shard_pda: Pubkey,
-    treasury: Pubkey,
-    fee_payer: Pubkey,
-    recent_blockhash: Hash,
-    priority_micro_lamports: u64,
-    batch_hash: Option<[u8; POW_BATCH_HASH_LEN]>,
-    scramble_registry_program: Option<Pubkey>,
-    claim_pda: Option<Pubkey>,
-    miner_pda: Option<Pubkey>,
-    registry_pda: Option<Pubkey>,
-    miner_authority: Option<Pubkey>,
-) -> Result<Transaction, Error> {
-    use solana_sdk::stake::instruction as stake_instruction;
-
-    // Build withdraw_stake instruction body
-    let body = build_withdraw_stake_ix_body(
-        proof_bytes.as_slice(),
-        &public_104,
-        &stake_account,
-        batch_hash.as_ref(),
-    )?;
-
-    // Build withdraw_stake instruction (this transfers SOL from pool to stake_account)
-    let withdraw_stake_ix = build_withdraw_stake_instruction(
-        program_id,
-        &body,
-        pool_pda,
-        treasury,
-        roots_ring_pda,
-        nullifier_shard_pda,
-        stake_account,
-        scramble_registry_program.clone(),
-        claim_pda,
-        miner_pda,
-        registry_pda,
-        miner_authority,
-    );
-
-    // Delegate stake to validator
-    // NOTE: This instruction requires the stake_authority to sign
-    let delegate_stake_ix = stake_instruction::delegate_stake(
-        &stake_account,
-        &stake_authority,
-        &validator_vote_account,
-    );
-
-    // Compute budget instructions - staking needs more CU
-    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(600_000);
-    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
-
-    // Build transaction with instructions in order:
-    // 1. Compute budget
-    // 2. WithdrawStake (moves SOL from pool to stake account, relay signs as fee payer)
-    // 3. Delegate stake (delegates to validator, user signs as stake authority)
-    let mut msg = Message::new(
-        &[
-            cu_ix,
-            pri_ix,
-            withdraw_stake_ix,
-            delegate_stake_ix,
-        ],
-        Some(&fee_payer),
-    );
-    msg.recent_blockhash = recent_blockhash;
-    let tx = Transaction::new_unsigned(msg);
-    Ok(tx)
-}
-
-// ============================================================================
-// UnstakeToPool Transaction Builder
-// ============================================================================
-
-/// Build the unstake_to_pool instruction body
-/// Format: [proof (260)][public_inputs (104)][stake_account (32)]
-pub fn build_unstake_to_pool_ix_body(
-    proof_bytes: &[u8],
-    public_inputs: &[u8; PUBLIC_INPUTS_LEN],
-    stake_account: &Pubkey,
-) -> Result<Vec<u8>, Error> {
-    // Proof should be 260 bytes for Groth16
-    if proof_bytes.len() != 260 {
-        return Err(Error::ValidationError(format!(
-            "Proof must be 260 bytes, got {}",
-            proof_bytes.len()
-        )));
-    }
-
-    let mut body = Vec::with_capacity(260 + PUBLIC_INPUTS_LEN + 32);
-    body.extend_from_slice(proof_bytes);
-    body.extend_from_slice(public_inputs);
-    body.extend_from_slice(stake_account.as_ref());
-
-    Ok(body)
-}
-
-/// Build an Instruction for shield-pool::UnstakeToPool (discriminant = 10)
-/// 
-/// Accounts layout:
-/// [0] pool - Shield pool PDA (writable)
-/// [1] roots_ring - Roots ring PDA (writable)
-/// [2] stake_account - Stake account (writable)
-/// [3] stake_authority - Stake authority (signer)
-/// [4] clock_sysvar - Clock sysvar
-/// [5] stake_history - Stake history sysvar
-/// [6] stake_program - Stake program
-pub fn build_unstake_to_pool_instruction(
-    program_id: Pubkey,
-    body: &[u8],
-    pool_pda: Pubkey,
-    roots_ring_pda: Pubkey,
-    stake_account: Pubkey,
-    stake_authority: Pubkey,
-) -> Instruction {
-    use solana_sdk::sysvar;
-
-    const STAKE_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("Stake11111111111111111111111111111111111111");
-
-    let mut data = Vec::with_capacity(1 + body.len());
-    data.push(10u8); // UnstakeToPool discriminant
-    data.extend_from_slice(body);
-
-    let accounts = vec![
-        AccountMeta::new(pool_pda, false),              // pool (writable)
-        AccountMeta::new(roots_ring_pda, false),        // roots_ring (writable)
-        AccountMeta::new(stake_account, false),         // stake_account (writable)
-        AccountMeta::new_readonly(stake_authority, true), // stake_authority (signer)
-        AccountMeta::new_readonly(sysvar::clock::id(), false), // clock
-        AccountMeta::new_readonly(sysvar::stake_history::id(), false), // stake_history
-        AccountMeta::new_readonly(STAKE_PROGRAM_ID, false), // stake_program
-    ];
-
-    Instruction {
-        program_id,
-        accounts,
-        data,
-    }
-}
-
-/// Build a full Transaction for UnstakeToPool
-pub fn build_unstake_to_pool_transaction(
-    proof_bytes: Vec<u8>,
-    public_inputs: [u8; PUBLIC_INPUTS_LEN],
-    stake_account: Pubkey,
-    stake_authority: Pubkey,
-    program_id: Pubkey,
-    pool_pda: Pubkey,
-    roots_ring_pda: Pubkey,
-    fee_payer: Pubkey,
-    recent_blockhash: Hash,
-    priority_micro_lamports: u64,
-) -> Result<Transaction, Error> {
-    // Build unstake_to_pool instruction body
-    let body = build_unstake_to_pool_ix_body(
-        proof_bytes.as_slice(),
-        &public_inputs,
-        &stake_account,
-    )?;
-
-    // Build unstake_to_pool instruction
-    let unstake_ix = build_unstake_to_pool_instruction(
-        program_id,
-        &body,
-        pool_pda,
-        roots_ring_pda,
-        stake_account,
-        stake_authority,
-    );
-
-    // Compute budget instructions
-    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(400_000);
-    let pri_ix = ComputeBudgetInstruction::set_compute_unit_price(priority_micro_lamports);
-
-    // Build transaction
-    let mut msg = Message::new(
-        &[cu_ix, pri_ix, unstake_ix],
-        Some(&fee_payer),
-    );
-    msg.recent_blockhash = recent_blockhash;
-    let tx = Transaction::new_unsigned(msg);
-    Ok(tx)
 }

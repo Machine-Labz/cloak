@@ -1,3 +1,5 @@
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError, ProgramResult};
+
 /// ExecuteSwap instruction - Transaction 2 of 2 for swap withdrawals
 ///
 /// This instruction is called AFTER the relay executes the Jupiter swap.
@@ -18,9 +20,7 @@
 /// 2. payer (writable) - Receives rent refund
 /// 3. token_program (readonly) - For token account verification
 use crate::error::ShieldPoolError;
-use crate::state::SwapState;
-use crate::ID;
-use pinocchio::{account_info::AccountInfo, program_error::ProgramError, ProgramResult};
+use crate::{state::SwapState, ID};
 
 const NULLIFIER_LEN: usize = 32;
 

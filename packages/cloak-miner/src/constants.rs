@@ -2,8 +2,9 @@
 //!
 //! Defines program IDs for different Solana networks.
 
-use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
+
+use solana_sdk::pubkey::Pubkey;
 
 /// Network identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

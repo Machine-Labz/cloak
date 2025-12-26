@@ -1,19 +1,21 @@
+use std::str::FromStr;
+
 use axum::{extract::State, response::IntoResponse, Json};
 use base64::Engine;
+use cloak_proof_extract::extract_groth16_260_sp1;
 use serde::{Deserialize, Serialize};
+use solana_sdk::pubkey::Pubkey;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::{
     api::{ApiResponse, WithdrawResponse},
-    db::models::CreateJob,
-    db::repository::JobRepository,
+    db::{models::CreateJob, repository::JobRepository},
     error::Error,
     planner::calculate_fee,
     swap::SwapConfig,
     AppState,
 };
-use cloak_proof_extract::extract_groth16_260_sp1;
 
 #[derive(Debug, Deserialize)]
 pub struct WithdrawRequest {
@@ -49,6 +51,7 @@ pub async fn handle_withdraw(
     State(state): State<AppState>,
     Json(payload): Json<WithdrawRequest>,
 ) -> Result<impl IntoResponse, Error> {
+    // Note: Not logging payload details for security (contains sensitive proof data)
     info!("Received withdraw request");
 
     // Determine decimals based on MINT_ADDRESS environment variable
@@ -73,9 +76,13 @@ pub async fn handle_withdraw(
         );
     }
 
-
     let request_id = Uuid::new_v4();
-    info!("Processing withdraw request with ID: {}", request_id);
+    info!(
+        request_id = %request_id,
+        outputs_count = payload.outputs.len(),
+        // Note: Not logging amounts, addresses, or proof data for security
+        "Processing withdraw request"
+    );
 
     // Decode and validate proof bytes
     let proof_bundle = base64::engine::general_purpose::STANDARD
@@ -114,6 +121,41 @@ pub async fn handle_withdraw(
         .strip_prefix("0x")
         .unwrap_or(&payload.public_inputs.outputs_hash);
 
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
+        return Err(Error::ValidationError(
+            "Nullifier cannot be empty".to_string(),
+        ));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError(
+            "Outputs hash cannot be empty".to_string(),
+        ));
+    }
+
+    // Validate hex string lengths before decoding
+    if root_str.len() != 64 {
+        return Err(Error::ValidationError(format!(
+            "Root must be 64 hex characters, got {}",
+            root_str.len()
+        )));
+    }
+    if nf_str.len() != 64 {
+        return Err(Error::ValidationError(format!(
+            "Nullifier must be 64 hex characters, got {}",
+            nf_str.len()
+        )));
+    }
+    if outputs_hash_str.len() != 64 {
+        return Err(Error::ValidationError(format!(
+            "Outputs hash must be 64 hex characters, got {}",
+            outputs_hash_str.len()
+        )));
+    }
+
     let root_hash = hex::decode(root_str)
         .map_err(|e| Error::ValidationError(format!("Invalid root hex: {}", e)))?;
     let nullifier = hex::decode(nf_str)
@@ -121,7 +163,7 @@ pub async fn handle_withdraw(
     let outputs_hash = hex::decode(outputs_hash_str)
         .map_err(|e| Error::ValidationError(format!("Invalid outputs hash hex: {}", e)))?;
 
-    // Validate lengths
+    // Validate decoded lengths (should always be 32 after validation above, but double-check)
     if root_hash.len() != 32 {
         return Err(Error::ValidationError(format!(
             "Root must be 32 bytes, got {}",
@@ -159,11 +201,10 @@ pub async fn handle_withdraw(
         0
     } else {
         let expected_fee = calculate_fee(payload.public_inputs.amount, decimals);
-        ((expected_fee.saturating_mul(10_000)) + payload.public_inputs.amount - 1)
-            / payload.public_inputs.amount
+        (expected_fee.saturating_mul(10_000)).div_ceil(payload.public_inputs.amount)
     };
 
-    // Create metadata object with outputs and optional swap/stake config
+    // Create metadata object with outputs and optional swap config
     let mut metadata = serde_json::json!({
         "outputs": payload.outputs
     });
@@ -192,7 +233,10 @@ pub async fn handle_withdraw(
     // It will be created by the worker AFTER the transaction succeeds on-chain
     // (see services/relay/src/worker/processor.rs:113-120)
 
-    info!("Withdraw request queued successfully: {}", request_id);
+    info!(
+        request_id = %request_id,
+        "Withdraw request queued successfully"
+    );
 
     // Create successful response
     let response = WithdrawResponse {
@@ -205,36 +249,44 @@ pub async fn handle_withdraw(
 }
 
 fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error> {
-    // For swap mode, outputs can be empty
-    // For regular mode, outputs are required
-    let is_special_mode = request.swap.is_some();
-
-    if !is_special_mode {
-        // Regular mode: validate outputs
-        if request.outputs.is_empty() {
-            return Err(Error::ValidationError("No outputs specified".to_string()));
-        }
-    }
-
-    if request.outputs.len() > 10 {
+    // Validate outputs
+    if request.outputs.is_empty() {
         return Err(Error::ValidationError(
-            "Too many outputs (max 10)".to_string(),
+            "At least one output is required".to_string(),
         ));
     }
 
-    // Validate amounts for non-empty outputs
-    for output in &request.outputs {
+    if request.outputs.len() > 10 {
+        return Err(Error::ValidationError(format!(
+            "Too many outputs: {} (max 10)",
+            request.outputs.len()
+        )));
+    }
+
+    // Validate amounts and recipient addresses
+    for (i, output) in request.outputs.iter().enumerate() {
         if output.amount == 0 {
-            return Err(Error::ValidationError(
-                "Output amount cannot be zero".to_string(),
-            ));
+            return Err(Error::ValidationError(format!(
+                "Output {} amount cannot be zero",
+                i
+            )));
         }
 
-        if output.recipient.len() < 32 {
-            return Err(Error::ValidationError(
-                "Invalid recipient address".to_string(),
-            ));
+        // Validate recipient address using Solana Pubkey validation
+        if output.recipient.is_empty() {
+            return Err(Error::ValidationError(format!(
+                "Output {} recipient address cannot be empty",
+                i
+            )));
         }
+
+        // Use Pubkey::from_str to validate the address format (base58 encoding)
+        Pubkey::from_str(&output.recipient).map_err(|e| {
+            Error::ValidationError(format!(
+                "Output {} invalid Solana address '{}': {}",
+                i, output.recipient, e
+            ))
+        })?;
     }
 
     // Validate public inputs
@@ -244,13 +296,13 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
 
     // Calculate expected fee based on mode:
     // - For swap requests, use variable-only fee (matches SPL swap economics)
-    // - For regular SOL withdrawals, use full fee (fixed + variable)
+    // - For regular SOL withdrawals (no swap), use full fee (fixed + variable)
     //   to stay consistent with the SP1 circuit and validator_agent API.
     let expected_fee = if request.swap.is_some() {
         // Swap mode: same semantics as planner::calculate_fee (variable 0.5%)
         calculate_fee(request.public_inputs.amount, decimals)
     } else {
-        // Regular withdrawals: fixed 0.0025 SOL + variable 0.5%
+        // Non-swap withdrawals: fixed 0.0025 SOL + variable 0.5%
         // This matches zk-guest-sp1/guest/src/encoding.rs::calculate_fee
         // and services/relay/src/api/validator_agent.rs::calculate_fee.
         let fixed_fee: u64 = 2_500_000; // 0.0025 SOL in lamports
@@ -265,10 +317,7 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
 
     // For swap mode, skip conservation check since outputs will be in swapped tokens, not SOL
     // For regular mode, verify outputs + fee = amount
-    if request.swap.is_some() {
-        // Skip conservation check for swap mode
-    } else {
-        // Regular mode: verify outputs + fee = amount
+    if request.swap.is_none() {
         let total_output_amount: u64 = request.outputs.iter().map(|o| o.amount).sum();
         if total_output_amount + expected_fee != request.public_inputs.amount {
             return Err(Error::ValidationError(
@@ -280,8 +329,7 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
     let expected_fee_bps = if request.public_inputs.amount == 0 {
         0
     } else {
-        ((expected_fee.saturating_mul(10_000)) + request.public_inputs.amount - 1)
-            / request.public_inputs.amount
+        (expected_fee.saturating_mul(10_000)).div_ceil(request.public_inputs.amount)
     };
 
     if expected_fee_bps > 10_000 {
@@ -321,22 +369,41 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
         .strip_prefix("0x")
         .unwrap_or(&request.public_inputs.outputs_hash);
 
-    if root_str.len() != 64 {
+    // Validate hex strings are not empty
+    if root_str.is_empty() {
+        return Err(Error::ValidationError("Root cannot be empty".to_string()));
+    }
+    if nf_str.is_empty() {
         return Err(Error::ValidationError(
-            "Root must be 64 hex characters (or 66 with 0x prefix)".to_string(),
+            "Nullifier cannot be empty".to_string(),
         ));
+    }
+    if outputs_hash_str.is_empty() {
+        return Err(Error::ValidationError(
+            "Outputs hash cannot be empty".to_string(),
+        ));
+    }
+
+    // Validate hex string lengths
+    if root_str.len() != 64 {
+        return Err(Error::ValidationError(format!(
+            "Root must be 64 hex characters (or 66 with 0x prefix), got {}",
+            root_str.len()
+        )));
     }
 
     if nf_str.len() != 64 {
-        return Err(Error::ValidationError(
-            "Nullifier must be 64 hex characters (or 66 with 0x prefix)".to_string(),
-        ));
+        return Err(Error::ValidationError(format!(
+            "Nullifier must be 64 hex characters (or 66 with 0x prefix), got {}",
+            nf_str.len()
+        )));
     }
 
     if outputs_hash_str.len() != 64 {
-        return Err(Error::ValidationError(
-            "Outputs hash must be 64 hex characters (or 66 with 0x prefix)".to_string(),
-        ));
+        return Err(Error::ValidationError(format!(
+            "Outputs hash must be 64 hex characters (or 66 with 0x prefix), got {}",
+            outputs_hash_str.len()
+        )));
     }
 
     // Validate hex format
@@ -361,8 +428,8 @@ fn validate_request(request: &WithdrawRequest, decimals: u8) -> Result<(), Error
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_validate_request() {
@@ -379,7 +446,7 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
+            proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
         };
 
@@ -398,7 +465,7 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
+            proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
         };
 
@@ -420,7 +487,7 @@ mod tests {
                 fee_bps: 10001,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
+            proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
         };
 
@@ -442,7 +509,7 @@ mod tests {
                 fee_bps: 300,
                 outputs_hash: "2".repeat(64),
             },
-            proof_bytes: base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]),
+            proof_bytes: base64::encode(vec![0u8; 256]),
             swap: None,
         };
 

@@ -1,10 +1,14 @@
-use crate::error::ScrambleError;
-use crate::state::{Claim, Miner, ScrambleRegistry};
-use pinocchio::account_info::AccountInfo;
-use pinocchio::program_error::ProgramError;
-use pinocchio::sysvars::clock::Clock;
-use pinocchio::sysvars::Sysvar;
-use pinocchio::{msg, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    program_error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    ProgramResult,
+};
+
+use crate::{
+    error::ScrambleError,
+    state::{Claim, Miner, ScrambleRegistry},
+};
 
 #[inline(always)]
 pub fn process_consume_claim_instruction(
@@ -38,7 +42,7 @@ pub fn process_consume_claim_instruction(
 
     // In a CPI, we just verify the pubkey matches the expected program
     // We don't need to check executable() because if it wasn't a valid program, the CPI would fail
-    if shield_pool_program.key().as_ref() != &EXPECTED_SHIELD_POOL {
+    if shield_pool_program.key().as_ref() != EXPECTED_SHIELD_POOL {
         return Err(ProgramError::IncorrectProgramId);
     }
 

@@ -10,26 +10,15 @@
 ///
 /// Data layout: none (reads amount from SwapState)
 use pinocchio::{
-    account_info::AccountInfo,
-    program_error::ProgramError,
-    pubkey::Pubkey,
-    sysvars::Sysvar,
+    account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey, sysvars::Sysvar,
     ProgramResult,
 };
 
-use crate::{
-    error::ShieldPoolError,
-    state::SwapState,
-    ID,
-};
+use crate::{error::ShieldPoolError, state::SwapState, ID};
 
-pub fn process_prepare_swap_sol(
-    _program_id: &Pubkey,
-    accounts: &[AccountInfo],
-) -> ProgramResult {
+pub fn process_prepare_swap_sol(_program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     // Parse accounts (only 2 accounts needed - no CPIs)
-    let [swap_state_info, swap_wsol_ata_info] = accounts
-    else {
+    let [swap_state_info, swap_wsol_ata_info] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
@@ -48,10 +37,8 @@ pub fn process_prepare_swap_sol(
     let nullifier = swap_state.nullifier();
 
     // Derive PDA to verify it matches
-    let (expected_swap_state_pda, _bump) = pinocchio::pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier],
-        &ID,
-    );
+    let (expected_swap_state_pda, _bump) =
+        pinocchio::pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier], &ID);
 
     if swap_state_info.key() != &expected_swap_state_pda {
         return Err(ShieldPoolError::InvalidAccountAddress.into());
@@ -78,9 +65,9 @@ pub fn process_prepare_swap_sol(
 
     unsafe {
         *swap_state_info.borrow_mut_lamports_unchecked() = rent_exempt_minimum;
-        *swap_wsol_ata_info.borrow_mut_lamports_unchecked() = wsol_ata_lamports + amount_to_transfer;
+        *swap_wsol_ata_info.borrow_mut_lamports_unchecked() =
+            wsol_ata_lamports + amount_to_transfer;
     }
 
     Ok(())
 }
-

@@ -1,10 +1,14 @@
-use crate::config::Config;
-use crate::error::{IndexerError, Result};
+use std::path::PathBuf;
+
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 use tokio::fs;
+
+use crate::{
+    config::Config,
+    error::{IndexerError, Result},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WithdrawArtifacts {
@@ -235,7 +239,9 @@ impl ArtifactManager {
         let vk_path = self.get_artifact_path(version, "verification.key");
 
         // Create version directory if it doesn't exist
-        let version_dir = guest_elf_path.parent().unwrap();
+        let version_dir = guest_elf_path.parent().ok_or_else(|| {
+            IndexerError::artifact("Invalid artifact path: no parent directory".to_string())
+        })?;
         fs::create_dir_all(version_dir).await?;
 
         // Create placeholder guest ELF (dummy binary data)

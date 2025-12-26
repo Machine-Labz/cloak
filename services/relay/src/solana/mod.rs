@@ -4,10 +4,9 @@ pub mod submit;
 pub mod swap;
 pub mod transaction_builder;
 
+use std::{str::FromStr, sync::Arc, time::Duration};
+
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose};
-use bincode;
-use hex;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
@@ -16,16 +15,14 @@ use solana_sdk::{
 };
 #[cfg(feature = "jito")]
 use solana_sdk::{message::VersionedMessage, transaction::VersionedTransaction};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-use crate::claim_manager::{compute_batch_hash, ClaimFinder};
-use crate::config::SolanaConfig;
-use crate::db::models::Job;
-use crate::error::Error;
-use serde_json;
+use crate::{
+    claim_manager::{compute_batch_hash, ClaimFinder},
+    config::SolanaConfig,
+    db::models::Job,
+    error::Error,
+};
 
 // Manual implementation of associated token account derivation
 // This avoids dependency conflicts with spl-associated-token-account
@@ -55,9 +52,8 @@ fn parse_keypair_from_env(keypair_str: &str) -> Result<Keypair, Error> {
     let bytes: Vec<u8> = serde_json::from_str(keypair_str).map_err(|e| {
         Error::ValidationError(format!("Failed to parse keypair JSON array: {}", e))
     })?;
-    Ok(Keypair::try_from(bytes.as_slice()).map_err(|e| {
-        Error::ValidationError(format!("Failed to create keypair from bytes: {}", e))
-    })?)
+    Keypair::try_from(bytes.as_slice())
+        .map_err(|e| Error::ValidationError(format!("Failed to create keypair from bytes: {}", e)))
 }
 
 #[async_trait]
@@ -153,7 +149,7 @@ impl SolanaService {
             job.request_id
         );
 
-        // 1. Parse outputs from JSON (required for withdraw and swap)
+        // 1. Parse outputs from JSON
         let outputs_value = if job.outputs_json.is_object() {
             // New format: { "outputs": [...], "swap": {...} }
             job.outputs_json.get("outputs").unwrap_or(&job.outputs_json)
@@ -163,7 +159,7 @@ impl SolanaService {
         };
         let outputs = self.parse_outputs(outputs_value)?;
 
-        // 3. Check if swap is requested
+        // 2. Check if swap is requested
         let swap_config: Option<crate::swap::SwapConfig> =
             if let Some(swap_value) = job.outputs_json.get("swap") {
                 match serde_json::from_value(swap_value.clone()) {
@@ -180,7 +176,7 @@ impl SolanaService {
                 None
             };
 
-        // 4. Build and submit transaction(s)
+        // 3. Build and submit transaction(s)
         if let Some(swap_config) = swap_config {
             // Two-transaction flow: withdraw to relay temp account, then swap to final recipient
             self.submit_withdraw_with_swap(job, &outputs, &swap_config)
@@ -337,7 +333,7 @@ impl SolanaService {
         // 1. If nullifier is already used on-chain → swap fully completed, return success
         // 2. If SwapState PDA exists → TX1 done, proceed to TX2
         // 3. If neither → start from TX1
-        
+
         // First check if nullifier is already used (swap fully completed)
         if self.check_nullifier_exists(&nullifier).await? {
             info!("✅ Nullifier already used on-chain - swap fully completed");
@@ -402,7 +398,7 @@ impl SolanaService {
         // Apply additional slippage tolerance for devnet pools (they have poor liquidity)
         // Use 10% of the expected output as minimum to account for devnet pool imbalances
         let adjusted_min_output = min_output_amount / 10;
-        
+
         info!(
             "🔄 Executing ON-CHAIN CPI swap: {} lamports SOL → minimum {} tokens of {} (adjusted from {} for devnet)",
             public_amount, adjusted_min_output, output_mint, min_output_amount
@@ -421,10 +417,13 @@ impl SolanaService {
         // Get Orca pool information and build ExecuteSwapViaOrca instruction
         let wsol_mint = Pubkey::from_str("So11111111111111111111111111111111111111112")
             .map_err(|e| Error::InternalServerError(format!("Invalid wSOL mint: {}", e)))?;
-        
-        use orca_whirlpools_client::{get_whirlpool_address, get_oracle_address, get_tick_array_address, Whirlpool};
-        use orca_whirlpools_core::get_tick_array_start_tick_index;
+
         use std::str::FromStr;
+
+        use orca_whirlpools_client::{
+            get_oracle_address, get_tick_array_address, get_whirlpool_address, Whirlpool,
+        };
+        use orca_whirlpools_core::get_tick_array_start_tick_index;
 
         // Orca Whirlpool config on devnet
         let whirlpool_config = Pubkey::from_str("FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR")
@@ -445,46 +444,51 @@ impl SolanaService {
         // If wSOL ATA has tokens, wrapping is complete; otherwise we need to prepare
         let wsol_ata_account = self.client.get_account(&swap_wsol_ata).await?;
         let wsol_token_amount = if wsol_ata_account.data.len() >= 72 {
-            u64::from_le_bytes(
-                wsol_ata_account.data[64..72]
-                    .try_into()
-                    .unwrap_or([0u8; 8])
-            )
+            u64::from_le_bytes(wsol_ata_account.data[64..72].try_into().unwrap_or([0u8; 8]))
         } else {
             0
         };
-        
+
         info!("📊 wSOL ATA token balance: {} wSOL", wsol_token_amount);
         let needs_prepare = wsol_token_amount == 0;
-        info!("🔍 needs_prepare = {} (wSOL tokens: {})", needs_prepare, wsol_token_amount);
-        
+        info!(
+            "🔍 needs_prepare = {} (wSOL tokens: {})",
+            needs_prepare, wsol_token_amount
+        );
+
         if needs_prepare {
             // Step 1a: PrepareSwapSol - Transfer SOL from SwapState to wSOL ATA
             info!("Step 1a/3: Transferring SOL from SwapState to wSOL ATA...");
             let prepare_ix = transaction_builder::build_prepare_swap_sol_instruction(
-            self.program_id,
-            nullifier,
+                self.program_id,
+                nullifier,
             )?;
 
             let recent = self.client.get_latest_blockhash().await?;
             let mut prepare_tx = Transaction::new_with_payer(&[prepare_ix], Some(&relay_pubkey));
             prepare_tx.sign(&[relay_keypair], recent);
 
-            self.client.send_and_confirm_transaction(&prepare_tx).await
+            self.client
+                .send_and_confirm_transaction(&prepare_tx)
+                .await
                 .map_err(|e| Error::InternalServerError(format!("PrepareSwapSol failed: {}", e)))?;
             info!("✓ PrepareSwapSol confirmed");
 
             // Step 1b: SyncNative - Wrap SOL → wSOL
             info!("Step 1b/3: Wrapping SOL to wSOL (SyncNative)...");
-            
-            let sync_native_ix = spl_token::instruction::sync_native(&spl_token::id(), &swap_wsol_ata)
-                .map_err(|e| Error::InternalServerError(format!("Failed to create sync_native: {}", e)))?;
+
+            let sync_native_ix =
+                spl_token::instruction::sync_native(&spl_token::id(), &swap_wsol_ata).map_err(
+                    |e| Error::InternalServerError(format!("Failed to create sync_native: {}", e)),
+                )?;
 
             let recent = self.client.get_latest_blockhash().await?;
             let mut sync_tx = Transaction::new_with_payer(&[sync_native_ix], Some(&relay_pubkey));
             sync_tx.sign(&[relay_keypair], recent);
 
-            self.client.send_and_confirm_transaction(&sync_tx).await
+            self.client
+                .send_and_confirm_transaction(&sync_tx)
+                .await
                 .map_err(|e| Error::InternalServerError(format!("SyncNative failed: {}", e)))?;
             info!("✓ SyncNative confirmed");
         } else {
@@ -539,14 +543,16 @@ impl SolanaService {
             let sqrt_price_limit = if a_to_b { 4295048016 } else { u128::MAX };
 
             // Get oracle address
-            let (oracle_address, _) = get_oracle_address(&whirlpool_address)
-                .map_err(|e| Error::InternalServerError(format!("Failed to derive oracle: {:?}", e)))?;
+            let (oracle_address, _) = get_oracle_address(&whirlpool_address).map_err(|e| {
+                Error::InternalServerError(format!("Failed to derive oracle: {:?}", e))
+            })?;
 
             // Get tick arrays
             let tick_current = whirlpool_data.tick_current_index;
             const TICK_ARRAY_SIZE: i32 = 88;
             let tick_array_spacing = TICK_ARRAY_SIZE * (actual_tick_spacing as i32);
-            let start_tick_index_0 = get_tick_array_start_tick_index(tick_current, actual_tick_spacing);
+            let start_tick_index_0 =
+                get_tick_array_start_tick_index(tick_current, actual_tick_spacing);
             let start_tick_index_1 = if a_to_b {
                 start_tick_index_0 - tick_array_spacing
             } else {
@@ -559,26 +565,35 @@ impl SolanaService {
             };
 
             let (tick_array_0, _) = get_tick_array_address(&whirlpool_address, start_tick_index_0)
-                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e)))?;
+                .map_err(|e| {
+                    Error::InternalServerError(format!("Failed to derive tick array 0: {:?}", e))
+                })?;
             let (tick_array_1, _) = get_tick_array_address(&whirlpool_address, start_tick_index_1)
-                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e)))?;
+                .map_err(|e| {
+                    Error::InternalServerError(format!("Failed to derive tick array 1: {:?}", e))
+                })?;
             let (tick_array_2, _) = get_tick_array_address(&whirlpool_address, start_tick_index_2)
-                .map_err(|e| Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e)))?;
+                .map_err(|e| {
+                    Error::InternalServerError(format!("Failed to derive tick array 2: {:?}", e))
+                })?;
 
             // Step 2: Build and submit ExecuteSwapViaOrca instruction
             // This performs the actual Orca swap CPI
             // Note: actual amount is public_amount - fee (0.5%), which is what was transferred to wSOL ATA
             let variable_fee = (public_amount * 5) / 1_000;
             let actual_swap_amount = public_amount - variable_fee;
-            
-            info!("Step 2/3: Executing Orca swap CPI (tick spacing {}, amount: {} wSOL)...", actual_tick_spacing, actual_swap_amount);
+
+            info!(
+                "Step 2/3: Executing Orca swap CPI (tick spacing {}, amount: {} wSOL)...",
+                actual_tick_spacing, actual_swap_amount
+            );
             let swap_ix = transaction_builder::build_execute_swap_via_orca_instruction(
-            self.program_id,
-                    nullifier,
-                    recipient_ata,
-                    actual_swap_amount, // Use actual amount after fee
-                    adjusted_min_output,  // Use adjusted minimum for devnet liquidity
-                    sqrt_price_limit,
+                self.program_id,
+                nullifier,
+                recipient_ata,
+                actual_swap_amount,  // Use actual amount after fee
+                adjusted_min_output, // Use adjusted minimum for devnet liquidity
+                sqrt_price_limit,
                 true, // amount_specified_is_input
                 a_to_b,
                 whirlpool_address,
@@ -588,13 +603,13 @@ impl SolanaService {
                 tick_array_1,
                 tick_array_2,
                 oracle_address,
-                relay_pubkey,  // Payer account (receives rent from closing SwapState)
+                relay_pubkey, // Payer account (receives rent from closing SwapState)
             )?;
 
             let recent = self.client.get_latest_blockhash().await?;
             let mut swap_tx = Transaction::new_with_payer(&[swap_ix], Some(&relay_pubkey));
             swap_tx.sign(&[relay_keypair], recent);
-            
+
             match self.client.send_and_confirm_transaction(&swap_tx).await {
                 Ok(sig) => {
                     info!("✓ ExecuteSwapViaOrca confirmed: {}", sig);
@@ -602,7 +617,10 @@ impl SolanaService {
                     break; // Success, exit loop
                 }
                 Err(e) => {
-                    warn!("  ❌ ExecuteSwapViaOrca failed for tick spacing {}: {}", actual_tick_spacing, e);
+                    warn!(
+                        "  ❌ ExecuteSwapViaOrca failed for tick spacing {}: {}",
+                        actual_tick_spacing, e
+                    );
                     continue; // Try next tick spacing
                 }
             }
@@ -616,22 +634,6 @@ impl SolanaService {
 
         Ok(signature)
     }
-
-    /// Submit a withdraw transaction with staking
-    /// 
-    /// Flow:
-    /// 1. User creates and initializes a stake account via their wallet (frontend)
-    /// 2. User generates ZK proof for withdraw-to-stake
-    /// 3. Relay executes WithdrawStake to move SOL from pool to user's stake account
-    /// 4. User delegates the stake to their chosen validator (frontend)
-    /// 
-    /// This ensures:
-    /// - User controls their stake account (they are stake authority)
-    /// - Funds are privately withdrawn from the pool
-    /// - User can see and manage their stakes normally
-
-    /// Submit an unstake-to-pool transaction
-    /// This moves funds from a deactivated stake account back into the shield pool
 
     /// Build withdraw transaction using the canonical shield-pool layout and PDAs
     /// If PoW is enabled (claim_finder present), will query for wildcard claims
@@ -1145,8 +1147,9 @@ impl Output {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_parse_outputs() {

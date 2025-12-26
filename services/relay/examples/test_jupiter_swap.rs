@@ -5,7 +5,8 @@
 /// 2. Printing the expected output and price impact
 ///
 /// Run with: cargo run --package relay --example test_jupiter_swap
-use relay::swap::{JupiterClient, QuoteRequest};
+use relay::swap::jupiter::JupiterClient;
+use relay::swap::types::QuoteRequest;
 
 const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
 const USDC_MINT: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";

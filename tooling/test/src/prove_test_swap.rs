@@ -1,22 +1,19 @@
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
 use anyhow::Result;
-use hex;
-use rand;
-use reqwest;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
+    program_pack::Pack,
     pubkey::Pubkey,
     signature::Keypair,
     signer::Signer,
     transaction::Transaction,
 };
-use spl_associated_token_account;
-use spl_token;
-use std::str::FromStr;
-use std::time::{Duration, Instant};
 use test_complete_flow_rust::shared::{
     check_cluster_health, ensure_user_funding, get_pda_addresses, load_keypair, print_config,
     MerkleProof, TestConfig, SOL_TO_LAMPORTS,
@@ -401,7 +398,7 @@ async fn main() -> Result<()> {
     // Step 4.5: Get Jupiter quote for SOL → USDC swap
     println!("\n💱 Step 4.5: Getting Jupiter quote for SOL → USDC swap...");
     let slippage_bps: u16 = 100; // 1%
-    // Calculate total fee: fixed + variable (must match circuit calculation)
+                                 // Calculate total fee: fixed + variable (must match circuit calculation)
     let fixed_fee = 2_500_000; // 0.0025 SOL
     let variable_fee = (deposit_amount * 5) / 1_000; // 0.5%
     let total_fee = fixed_fee + variable_fee;
@@ -411,10 +408,7 @@ async fn main() -> Result<()> {
 
     println!("  SOL amount to swap: {} lamports", sol_to_swap);
     println!("  Output mint (swap on devnet): {}", swap_target_mint);
-    println!(
-        "  Output mint (quoter on mainnet): {}",
-        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-    );
+    println!("  Output mint (quoter on mainnet): EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
     println!(
         "  Slippage: {} bps ({}%)",
         slippage_bps,
@@ -523,7 +517,7 @@ async fn main() -> Result<()> {
     let effective_fee_bps = if deposit_amount == 0 {
         0u16
     } else {
-        let bps = ((variable_fee.saturating_mul(10_000)) + deposit_amount - 1) / deposit_amount;
+        let bps = (variable_fee.saturating_mul(10_000)).div_ceil(deposit_amount);
         bps.min(u16::MAX as u64) as u16
     };
 
@@ -556,7 +550,7 @@ async fn main() -> Result<()> {
         swap: Some(SwapConfig {
             output_mint: swap_target_mint.to_string(),
             slippage_bps: 100, // 1% slippage
-            min_output_amount: min_output_amount,
+            min_output_amount,
         }),
         policy: Policy {
             fee_bps: effective_fee_bps,

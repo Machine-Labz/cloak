@@ -1,8 +1,7 @@
 use axum::{extract::State, response::Json};
 use serde::Serialize;
 
-use crate::db::repository::JobRepository;
-use crate::AppState;
+use crate::{db::repository::JobRepository, AppState};
 
 #[derive(Debug, Serialize)]
 pub struct BacklogStatus {

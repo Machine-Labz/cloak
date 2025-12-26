@@ -1,5 +1,6 @@
-use crate::{error::ShieldPoolError, ID};
 use pinocchio::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
+
+use crate::{error::ShieldPoolError, ID};
 
 /// Pool: Stores the token mint for this shield pool
 /// Layout: [mint: 32 bytes]

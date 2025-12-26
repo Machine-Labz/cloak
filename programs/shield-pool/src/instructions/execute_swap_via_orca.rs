@@ -1,3 +1,12 @@
+use pinocchio::{
+    account_info::AccountInfo,
+    cpi::invoke_signed,
+    instruction::{AccountMeta, Instruction, Seed, Signer},
+    program_error::ProgramError,
+    pubkey::Pubkey,
+    ProgramResult,
+};
+
 /// ExecuteSwapViaOrca instruction - Atomic on-chain swap via Orca Whirlpool CPI
 ///
 /// **Prerequisites**: wSOL must already be in swap_wsol_ata (call PrepareSwapSol first).
@@ -23,16 +32,7 @@
 /// Instruction data: [amount: 8][other_amount_threshold: 8][sqrt_price_limit: 16][amount_specified_is_input: 1][a_to_b: 1]
 /// Total: 34 bytes
 use crate::error::ShieldPoolError;
-use crate::state::SwapState;
-use crate::ID;
-use pinocchio::{
-    account_info::AccountInfo,
-    cpi::invoke_signed,
-    instruction::{AccountMeta, Instruction, Seed, Signer},
-    program_error::ProgramError,
-    pubkey::Pubkey,
-    ProgramResult,
-};
+use crate::{state::SwapState, ID};
 
 const SWAP_PARAMS_LEN: usize = 8 + 8 + 16 + 1 + 1; // 34 bytes
 
@@ -72,14 +72,8 @@ pub fn process_execute_swap_via_orca(
             .try_into()
             .unwrap(),
     );
-    let amount_specified_is_input = *data
-        .get(32)
-        .ok_or(ProgramError::InvalidInstructionData)?
-        == 1;
-    let a_to_b = *data
-        .get(33)
-        .ok_or(ProgramError::InvalidInstructionData)?
-        == 1;
+    let amount_specified_is_input = *data.get(32).ok_or(ProgramError::InvalidInstructionData)? == 1;
+    let a_to_b = *data.get(33).ok_or(ProgramError::InvalidInstructionData)? == 1;
 
     // Parse accounts (12 accounts now, removed system_program and payer)
     let [swap_state_info, swap_wsol_ata_info, recipient_ata_info, whirlpool_info, token_vault_a_info, token_vault_b_info, tick_array_0_info, tick_array_1_info, tick_array_2_info, oracle_info, token_program_info, whirlpool_program_info, payer_info] =
@@ -116,10 +110,8 @@ pub fn process_execute_swap_via_orca(
     let nullifier = swap_state.nullifier();
 
     // Derive and verify SwapState PDA
-    let (expected_swap_state_pda, bump) = pinocchio::pubkey::find_program_address(
-        &[SwapState::SEED_PREFIX, &nullifier],
-        &ID,
-    );
+    let (expected_swap_state_pda, bump) =
+        pinocchio::pubkey::find_program_address(&[SwapState::SEED_PREFIX, &nullifier], &ID);
 
     if swap_state_info.key() != &expected_swap_state_pda {
         return Err(ShieldPoolError::InvalidAccountAddress.into());

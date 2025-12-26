@@ -1,10 +1,11 @@
-use super::types::{QuoteRequest, QuoteResponse, SwapRequest, SwapResponse};
-use crate::error::Error;
+use std::{net::SocketAddr, str::FromStr};
+
 use reqwest::Client;
 use solana_sdk::pubkey::Pubkey;
-use std::net::SocketAddr;
-use std::str::FromStr;
 use tracing::{debug, error, info};
+
+use super::types::{QuoteRequest, QuoteResponse, SwapRequest, SwapResponse};
+use crate::error::Error;
 
 const JUPITER_QUOTE_API: &str = "https://quote-api.jup.ag/v6/quote";
 const JUPITER_SWAP_API: &str = "https://quote-api.jup.ag/v6/swap";

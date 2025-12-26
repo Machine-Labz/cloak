@@ -6,6 +6,8 @@
 //! - Submitting mine/reveal transactions
 //! - Expiry monitoring
 
+use std::{collections::HashMap, str::FromStr, time::Duration};
+
 use anyhow::{anyhow, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -14,9 +16,6 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::time::Duration;
 
 use super::{
     engine::MiningEngine,
@@ -150,7 +149,7 @@ impl ClaimManager {
                     attempts: 0,
                     mining_time: std::time::Duration::from_secs(0),
                 };
-                return Ok((state.pda.clone(), dummy_solution));
+                return Ok((state.pda, dummy_solution));
             } else {
                 tracing::info!("Existing claim expired or fully consumed, mining new one");
                 let key_to_remove = key.clone();
