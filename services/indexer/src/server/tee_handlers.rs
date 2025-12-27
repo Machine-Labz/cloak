@@ -211,10 +211,6 @@ pub struct UploadStdinRequest {
     pub outputs: serde_json::Value,
     #[serde(default)]
     pub swap_params: Option<serde_json::Value>,
-    #[serde(default)]
-    pub stake_params: Option<serde_json::Value>,
-    #[serde(default)]
-    pub unstake_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -231,10 +227,6 @@ pub struct RequestProofRequest {
     pub public_inputs: String,  // JSON string
     #[serde(default)]
     pub swap_params: Option<serde_json::Value>,
-    #[serde(default)]
-    pub stake_params: Option<serde_json::Value>,
-    #[serde(default)]
-    pub unstake_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -303,18 +295,9 @@ pub async fn upload_stdin(
     
     // Debug: log what we received
     tracing::info!(
-        has_stake_params = request.stake_params.is_some(),
         has_swap_params = request.swap_params.is_some(),
-        has_unstake_params = request.unstake_params.is_some(),
         "📋 Upload request params"
     );
-    
-    if let Some(ref sp) = request.stake_params {
-        tracing::info!("📋 stake_params received: {}", serde_json::to_string(sp).unwrap_or_default());
-    }
-    if let Some(ref up) = request.unstake_params {
-        tracing::info!("📋 unstake_params received: {}", serde_json::to_string(up).unwrap_or_default());
-    }
     
     // Convert the request to a combined JSON string (format expected by TEE)
     let combined = serde_json::json!({
@@ -322,8 +305,6 @@ pub async fn upload_stdin(
         "public": request.public,
         "outputs": request.outputs,
         "swap_params": request.swap_params,
-        "stake_params": request.stake_params,
-        "unstake_params": request.unstake_params,
     });
     
     let stdin_json = match serde_json::to_string(&combined) {
@@ -340,12 +321,6 @@ pub async fn upload_stdin(
         }
     };
     
-    // Debug: verify stake_params in serialized JSON
-    if stdin_json.contains("stake_params") && !stdin_json.contains("\"stake_params\":null") {
-        tracing::info!("✅ stake_params present in serialized stdin");
-    } else {
-        tracing::warn!("⚠️ stake_params is null or missing in serialized stdin");
-    }
     
     match ARTIFACT_STORE.upload_stdin(&artifact_id, stdin_json).await {
         Ok(_) => {
@@ -516,36 +491,11 @@ pub async fn request_proof(
         .filter(|v| !v.is_null())
         .and_then(|v| serde_json::to_string(v).ok());
     
-    let stake_params = stdin_parsed.get("stake_params")
-        .filter(|v| !v.is_null())
-        .and_then(|v| serde_json::to_string(v).ok());
-    
-    let unstake_params = stdin_parsed.get("unstake_params")
-        .filter(|v| !v.is_null())
-        .and_then(|v| serde_json::to_string(v).ok());
-    
     // Debug: log what we extracted
     tracing::info!(
         has_swap_params = swap_params.is_some(),
-        has_stake_params = stake_params.is_some(),
-        has_unstake_params = unstake_params.is_some(),
         "📋 Extracted params from stdin"
     );
-    
-    if let Some(ref sp) = stake_params {
-        tracing::info!("📋 stake_params extracted: {}", sp);
-    } else {
-        // Log the raw stake_params value from stdin for debugging
-        if let Some(raw_sp) = stdin_parsed.get("stake_params") {
-            tracing::warn!("⚠️ stake_params in stdin is null or invalid: {:?}", raw_sp);
-        } else {
-            tracing::warn!("⚠️ stake_params not found in stdin at all");
-        }
-    }
-    
-    if let Some(ref up) = unstake_params {
-        tracing::info!("📋 unstake_params extracted: {}", up);
-    }
     
     // Spawn background task for proof generation
     let request_id_clone = request_id.clone();
@@ -559,8 +509,6 @@ pub async fn request_proof(
             &public_inputs,
             &outputs,
             swap_params.as_deref(),
-            stake_params.as_deref(),
-            unstake_params.as_deref(),
         ).await {
             Ok(result) => {
                 // Extract canonical proof

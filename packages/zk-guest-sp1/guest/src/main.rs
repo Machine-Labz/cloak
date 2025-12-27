@@ -37,10 +37,6 @@ struct CircuitInputs {
     pub outputs: Vec<Output>,
     /// Optional swap parameters for swap-mode withdrawals
     pub swap_params: Option<SwapParams>,
-    /// Optional stake parameters for stake-mode withdrawals
-    pub stake_params: Option<encoding::StakeParams>,
-    /// Optional unstake parameters for unstake-to-pool
-    pub unstake_params: Option<encoding::UnstakeParams>,
 }
 
 // Custom serde module for hex strings
@@ -102,27 +98,21 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
     // Constraint 2: C = H(amount || r || pk_spend)
     let commitment = compute_commitment(private.amount, &private.r, &pk_spend);
 
-    // For unstake mode, skip Merkle and nullifier verification
-    // Unstake is a DEPOSIT operation, not a WITHDRAW
-    if inputs.unstake_params.is_none() {
-        // Constraint 3: MerkleVerify(C, merkle_path) == root
-        // Only for withdraw operations (not unstake)
-        let merkle_valid = verify_merkle_path(
-            &commitment,
-            &private.merkle_path.path_elements,
-            &private.merkle_path.path_indices,
-            &public.root,
-        );
-        if !merkle_valid {
-            return Err(anyhow!("Merkle path verification failed"));
-        }
+    // Constraint 3: MerkleVerify(C, merkle_path) == root
+    let merkle_valid = verify_merkle_path(
+        &commitment,
+        &private.merkle_path.path_elements,
+        &private.merkle_path.path_indices,
+        &public.root,
+    );
+    if !merkle_valid {
+        return Err(anyhow!("Merkle path verification failed"));
+    }
 
-        // Constraint 4: nf == H(sk_spend || leaf_index)
-        // Only for withdraw operations (not unstake)
-        let computed_nullifier = compute_nullifier(&private.sk_spend, private.leaf_index);
-        if computed_nullifier != public.nf {
-            return Err(anyhow!("Nullifier mismatch"));
-        }
+    // Constraint 4: nf == H(sk_spend || leaf_index)
+    let computed_nullifier = compute_nullifier(&private.sk_spend, private.leaf_index);
+    if computed_nullifier != public.nf {
+        return Err(anyhow!("Nullifier mismatch"));
     }
 
     // Constraint 5: sum(outputs) + fee(amount) == amount
@@ -166,57 +156,6 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
                 private.amount
             ));
         }
-    } else if inputs.stake_params.is_some() {
-        // Stake mode: verify stake constraints
-        if outputs_sum != 0 {
-            return Err(anyhow!(
-                "Stake mode requires zero outputs, got outputs_sum = {}",
-                outputs_sum
-            ));
-        }
-
-        // Compute remaining amount after fee (stake amount)
-        let stake_amount = private.amount.checked_sub(fee)
-            .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
-
-        // Verify amount conservation: stake_amount + fee = amount
-        if stake_amount + fee != private.amount {
-            return Err(anyhow!(
-                "Stake mode amount conservation failed: stake_amount ({}) + fee ({}) != deposit ({})",
-                stake_amount,
-                fee,
-                private.amount
-            ));
-        }
-    } else if inputs.unstake_params.is_some() {
-        // Unstake mode: verify unstake constraints
-        // This is a DEPOSIT operation (funds going INTO the pool)
-        // The commitment is generated from the unstake params
-        if outputs_sum != 0 {
-            return Err(anyhow!(
-                "Unstake mode requires zero outputs, got outputs_sum = {}",
-                outputs_sum
-            ));
-        }
-
-        // For unstake, we use a smaller fee (just protocol fee, no fixed component)
-        let unstake_fee = (private.amount * 5) / 1_000; // 0.5% variable only
-        let deposit_amount = private.amount.checked_sub(unstake_fee)
-            .ok_or_else(|| anyhow!("Fee exceeds total amount"))?;
-
-        // Verify the unstake params generate a valid commitment
-        let unstake_params = inputs.unstake_params.as_ref().unwrap();
-        let computed_pk_spend = compute_pk_spend(&unstake_params.sk_spend);
-        let computed_commitment = compute_commitment(deposit_amount, &unstake_params.r, &computed_pk_spend);
-        
-        // The public "root" field holds the commitment in unstake mode
-        if computed_commitment != public.root {
-            return Err(anyhow!(
-                "Unstake commitment mismatch: computed {} != public {}",
-                hex::encode(computed_commitment),
-                hex::encode(public.root)
-            ));
-        }
     } else {
         // Regular mode: verify conservation law
         let total_spent = outputs_sum + fee;
@@ -232,19 +171,10 @@ fn verify_circuit_constraints(inputs: &CircuitInputs) -> Result<()> {
 
     // Constraint 6: H(serialize(outputs)) == outputs_hash
     // For swap mode: outputs_hash = H(output_mint || recipient_ata || min_output_amount || public_amount)
-    // For stake mode: outputs_hash = H(stake_account || public_amount)
-    // For unstake mode: outputs_hash = H(commitment || stake_account_hash)
     // For regular mode: outputs_hash = H(output[0] || output[1] || ... || output[n-1])
     let computed_outputs_hash = if let Some(ref swap_params) = inputs.swap_params {
         // Swap mode: compute outputs_hash from swap parameters
         compute_swap_outputs_hash(swap_params, public.amount)
-    } else if let Some(ref stake_params) = inputs.stake_params {
-        // Stake mode: compute outputs_hash from stake parameters
-        compute_stake_outputs_hash(stake_params, public.amount)
-    } else if let Some(ref unstake_params) = inputs.unstake_params {
-        // Unstake mode: compute outputs_hash from unstake parameters
-        // This binds the commitment to the stake account
-        compute_unstake_outputs_hash(&public.root, &unstake_params.stake_account)
     } else {
         // Regular mode: compute outputs_hash from outputs array
         compute_outputs_hash(outputs)
@@ -312,8 +242,6 @@ mod tests {
             },
             outputs,
             swap_params: None, // Regular mode (not swap)
-            stake_params: None, // Regular mode (not stake)
-            unstake_params: None, // Regular mode (not unstake)
         }
     }
 

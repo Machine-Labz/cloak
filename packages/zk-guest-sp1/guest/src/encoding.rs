@@ -106,39 +106,6 @@ pub struct SwapParams {
     pub min_output_amount: u64,
 }
 
-/// Staking-specific parameters for computing outputs_hash in stake mode
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StakeParams {
-    /// Stake account address (where SOL will be staked)
-    #[serde(with = "address_serde")]
-    pub stake_account: [u8; 32],
-}
-
-/// Unstaking parameters for private unstake-to-pool
-/// Used when moving funds from a stake account back to the shield pool
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnstakeParams {
-    /// Stake account address (where SOL is being unstaked from)
-    #[serde(with = "address_serde")]
-    pub stake_account: [u8; 32],
-    /// New randomness for the commitment
-    #[serde(with = "hex_serde")]
-    pub r: [u8; 32],
-    /// Secret key for spending (generates pk_spend)
-    #[serde(with = "hex_serde")]
-    pub sk_spend: [u8; 32],
-}
-
-/// Compute unstake outputs hash: H(commitment || stake_account_hash)
-/// This is used to bind the commitment to the stake account
-pub fn compute_unstake_outputs_hash(commitment: &[u8; 32], stake_account: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Hasher::new();
-    hasher.update(commitment);
-    // stake_account_hash
-    let stake_hash = hash_blake3(stake_account);
-    hasher.update(&stake_hash);
-    *hasher.finalize().as_bytes()
-}
 
 /// Compute swap-mode outputs hash: H(output_mint || recipient_ata || min_output_amount || public_amount)
 /// This is used for swap withdrawals where we withdraw SOL and swap it for another token
@@ -151,14 +118,6 @@ pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -
     *hasher.finalize().as_bytes()
 }
 
-/// Compute stake-mode outputs hash: H(stake_account || public_amount)
-/// This is used for staking withdrawals where we withdraw SOL to a stake account
-pub fn compute_stake_outputs_hash(stake_params: &StakeParams, public_amount: u64) -> [u8; 32] {
-    let mut hasher = Hasher::new();
-    hasher.update(&stake_params.stake_account);
-    hasher.update(&serialize_u64_le(public_amount));
-    *hasher.finalize().as_bytes()
-}
 
 pub fn calculate_fee(amount: u64) -> u64 {
     // Fee structure:

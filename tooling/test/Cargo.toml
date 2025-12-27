@@ -15,10 +15,6 @@ path = "src/prove_test_multiple_outputs.rs"
 name = "prove-test-swap"
 path = "src/prove_test_swap.rs"
 
-[[bin]]
-name = "prove-test-stake"
-path = "src/prove_test_stake.rs"
-
 [dependencies]
 blake3 = "1.5"
 hex = "0.4"
@@ -41,7 +37,6 @@ cloak-proof-extract = { path = "../../packages/cloak-proof-extract", features = 
 bincode = "1"
 zk-guest-sp1-host = { path = "../../packages/zk-guest-sp1/host", features = ["build-guest"] }
 solana-system-interface = "2.0.0"
-solana-stake-program = "2.0"
 spl-token = "4.0"
 spl-associated-token-account = "4.0"
 num_cpus = "1.0"

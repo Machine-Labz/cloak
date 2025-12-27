@@ -75,7 +75,6 @@ solana-client = "=2.3.1"
 spl-token = { version = "4.0", default-features = false, features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "4.0", default-features = false, features = ["no-entrypoint"] }
 spl-memo = { version = "4.0", default-features = false, features = ["no-entrypoint"] }
-solana-stake-program = "2.0"
 shield-pool = { path = "../../programs/shield-pool" }
 
 # Orca Whirlpools
