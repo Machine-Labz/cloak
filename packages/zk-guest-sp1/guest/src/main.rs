@@ -36,7 +36,6 @@ struct CircuitInputs {
     pub public: PublicInputs,
     pub outputs: Vec<Output>,
     /// Optional swap parameters for swap-mode withdrawals
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_params: Option<SwapParams>,
 }
 

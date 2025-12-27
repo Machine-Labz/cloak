@@ -41,6 +41,7 @@ pub struct MerkleTree {
     height: usize,
     zero_values: Vec<String>,
     next_index: u64,
+    current_root: Option<String>, // Cached root to avoid reading from storage every time
 }
 
 impl MerkleTree {
@@ -71,6 +72,7 @@ impl MerkleTree {
             height,
             zero_values,
             next_index: 0,
+            current_root: None, // Will be set on first insert or loaded from storage
         })
     }
 
@@ -224,6 +226,9 @@ impl MerkleTree {
         self.next_index = self.next_index.max(leaf_index + 1);
         let root_value = current_value;
 
+        // Cache the root for fast retrieval
+        self.current_root = Some(root_value.clone());
+
         tracing::info!(
             leaf_index = leaf_index,
             root_value = %root_value,
@@ -346,8 +351,13 @@ impl MerkleTree {
         let root = if self.next_index == 0 {
             // Empty tree - root is zero value at max level
             self.zero_values[self.height - 1].clone()
+        } else if let Some(ref cached_root) = self.current_root {
+            // Use cached root (faster and always up-to-date with in-memory state)
+            tracing::debug!("Using cached root from memory");
+            cached_root.clone()
         } else {
-            // Get current root from storage
+            // Fallback: get current root from storage (e.g., after restart)
+            tracing::debug!("Loading root from storage (not cached yet)");
             storage
                 .get_node((self.height - 1) as u32, 0)
                 .await?
@@ -364,6 +374,27 @@ impl MerkleTree {
     pub fn set_next_index(&mut self, index: u64) {
         self.next_index = index;
         tracing::info!(next_index = self.next_index, "Set next index");
+    }
+
+    /// Initialize root cache from storage (used during initialization)
+    pub async fn init_root_cache(&mut self, storage: &dyn TreeStorage) -> Result<()> {
+        if self.next_index == 0 {
+            // Empty tree - cache zero value
+            self.current_root = Some(self.zero_values[self.height - 1].clone());
+            tracing::info!("Initialized root cache with zero value (empty tree)");
+        } else {
+            // Load root from storage
+            match storage.get_node((self.height - 1) as u32, 0).await? {
+                Some(root) => {
+                    self.current_root = Some(root.clone());
+                    tracing::info!(root = %root, "Initialized root cache from storage");
+                }
+                None => {
+                    tracing::warn!("Root not found in storage during initialization");
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Reset the tree state (useful after database reset)

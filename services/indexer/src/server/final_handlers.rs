@@ -753,52 +753,50 @@ pub async fn get_merkle_proof(
 
     // Generate the merkle proof using the actual merkle tree
     tracing::info!("🌳 Generating proof from Merkle tree");
-    let mut tree = state.merkle_tree.lock().await;
-
-    // Sync in-memory next_index with storage to avoid stale state across requests/processes
-    match state.storage.get_max_leaf_index().await {
-        Ok(latest_next_index) => {
-            tree.set_next_index(latest_next_index);
-        }
-        Err(e) => {
-            tracing::warn!("⚠️ Failed to refresh next_index from storage: {}", e);
-        }
-    }
-    match tree.generate_proof(index, &state.storage).await {
-        Ok(proof) => {
-            tracing::info!("✅ Merkle proof generated successfully");
-
-            // Get the current root to return with the proof
-            match tree.get_tree_state(&state.storage).await {
-                Ok(tree_state) => {
-                    tracing::info!(
-                        index = index,
-                        root = tree_state.root,
-                        path_elements_count = proof.path_elements.len(),
-                        "✅ Merkle proof request completed"
-                    );
-                    (
-                        StatusCode::OK,
-                        Json(serde_json::json!({
-                            "pathElements": proof.path_elements,
-                            "pathIndices": proof.path_indices,
-                            "root": tree_state.root
-                        })),
-                    )
-                }
-                Err(e) => {
-                    tracing::error!("❌ Failed to get merkle tree state: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({
-                            "error": "Failed to get merkle tree state",
-                            "details": e.to_string()
-                        })),
-                    )
-                }
+    
+    // Sync next_index first (quick operation)
+    {
+        let mut tree = state.merkle_tree.lock().await;
+        match state.storage.get_max_leaf_index().await {
+            Ok(latest_next_index) => {
+                tree.set_next_index(latest_next_index);
+            }
+            Err(e) => {
+                tracing::warn!("⚠️ Failed to refresh next_index from storage: {}", e);
             }
         }
-        Err(e) => {
+    } // Lock released here
+    
+    // Generate proof (read-only, but needs tree reference)
+    // Note: We need to hold the lock during proof generation because it accesses tree state
+    // However, proof generation should be fast (just reading from storage)
+    let (proof, tree_state) = {
+        let tree = state.merkle_tree.lock().await;
+        let proof_result = tree.generate_proof(index, &state.storage).await;
+        let tree_state_result = tree.get_tree_state(&state.storage).await;
+        (proof_result, tree_state_result)
+    };
+    
+    match (proof, tree_state) {
+        (Ok(proof), Ok(tree_state)) => {
+            tracing::info!("✅ Merkle proof generated successfully");
+
+            tracing::info!(
+                index = index,
+                root = tree_state.root,
+                path_elements_count = proof.path_elements.len(),
+                "✅ Merkle proof request completed"
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "pathElements": proof.path_elements,
+                    "pathIndices": proof.path_indices,
+                    "root": tree_state.root
+                })),
+            )
+        }
+        (Err(e), _) => {
             tracing::error!(
                 "❌ Failed to generate merkle proof for index {}: {}",
                 index,
@@ -808,6 +806,16 @@ pub async fn get_merkle_proof(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "error": "Failed to generate merkle proof",
+                    "details": e.to_string()
+                })),
+            )
+        }
+        (_, Err(e)) => {
+            tracing::error!("❌ Failed to get merkle tree state: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to get merkle tree state",
                     "details": e.to_string()
                 })),
             )

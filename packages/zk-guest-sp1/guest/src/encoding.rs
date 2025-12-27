@@ -106,6 +106,7 @@ pub struct SwapParams {
     pub min_output_amount: u64,
 }
 
+
 /// Compute swap-mode outputs hash: H(output_mint || recipient_ata || min_output_amount || public_amount)
 /// This is used for swap withdrawals where we withdraw SOL and swap it for another token
 pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -> [u8; 32] {
@@ -116,6 +117,7 @@ pub fn compute_swap_outputs_hash(swap_params: &SwapParams, public_amount: u64) -
     hasher.update(&serialize_u64_le(public_amount));
     *hasher.finalize().as_bytes()
 }
+
 
 pub fn calculate_fee(amount: u64) -> u64 {
     // Fee structure:
@@ -165,6 +167,28 @@ pub struct Output {
     #[serde(with = "address_serde")]
     pub address: [u8; 32],
     pub amount: u64,
+}
+
+// Custom serde for hex strings (32 bytes)
+mod hex_serde {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_str = hex::encode(bytes);
+        serializer.serialize_str(&hex_str)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        parse_hex32(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 // Custom serde for address field to handle both base58 and hex

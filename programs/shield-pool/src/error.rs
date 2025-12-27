@@ -69,6 +69,7 @@ pub enum ShieldPoolError {
     PreparingInputsG1MulFailed = 0x1074,
     PreparingInputsG1AdditionFailed = 0x1075,
     ProofVerificationFailed = 0x1076,
+
 }
 
 impl From<ShieldPoolError> for ProgramError {
